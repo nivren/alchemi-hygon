@@ -15,13 +15,29 @@
 
 __version__ = "0.4.1"
 
-import warp as wp
+from typing import Any
 
-wp.config.quiet = True
-try:
-    wp.init()
-except RuntimeError as e:
-    raise RuntimeError(
-        "Failed to initialize warp, likely due to missing drivers and/or devices."
-        " Make sure you have the correct CUDA version, and that GPUs are available."
-    ) from e
+
+def initialize_warp() -> Any:
+    """Load and initialize Warp for an explicitly selected Warp backend.
+
+    Importing :mod:`nvalchemiops` itself is backend-neutral.  NVIDIA-facing
+    subpackages call this function at their boundary, while Torch reference
+    code can be imported without installing or initializing Warp.
+    """
+    import warp as wp
+
+    if not getattr(wp, "_nvalchemiops_initialized", False):
+        wp.config.quiet = True
+        try:
+            wp.init()
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Failed to initialize warp, likely due to missing drivers and/or devices."
+                " Make sure you have the correct CUDA version, and that GPUs are available."
+            ) from exc
+        wp._nvalchemiops_initialized = True
+    return wp
+
+
+__all__ = ["__version__", "initialize_warp"]

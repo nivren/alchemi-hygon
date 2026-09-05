@@ -53,6 +53,10 @@ Example
 ... )
 """
 
+from nvalchemiops import initialize_warp
+
+initialize_warp()
+
 from nvalchemiops.dynamics import integrators, optimizers, utils
 
 __all__ = [

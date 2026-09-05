@@ -37,6 +37,10 @@ spline
     Warp kernels and launcher functions.
 """
 
+from nvalchemiops import initialize_warp
+
+initialize_warp()
+
 from nvalchemiops.math.math import (
     wp_erfc,
     wp_exp_kernel,

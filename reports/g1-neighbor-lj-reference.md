@@ -2,7 +2,7 @@
 
 日期：2026-09-05
 
-本探针不导入 `nvalchemiops`，因为锁定上游的邻居和 LJ 模块仍会在导入链中初始化 Warp。它定义一个小型 Torch reference oracle，固定第一条纵向链的语义：两个 batch system、无 PBC、dense neighbor matrix、full/half 拓扑、LJ 能量和位置负梯度力。
+本探针导入 `nvalchemiops.torch_reference`，而不导入仍依赖 Warp 的上游邻居和 LJ 公共模块。它固定第一条纵向链的语义：两个 batch system、无 PBC、dense neighbor matrix、full/half 拓扑、LJ 能量和位置负梯度力。
 
 ## 契约覆盖
 
@@ -18,14 +18,15 @@
 CPU：
 
 ```bash
-OMP_NUM_THREADS=1 .venv/bin/python probes/neighbor_lj_reference.py --device cpu
+PYTHONPATH=packages/ops OMP_NUM_THREADS=1 \
+  .venv/bin/python probes/neighbor_lj_reference.py --device cpu
 ```
 
 单卡 HCU（先确认共享资源和设备节点）：
 
 ```bash
 source /opt/dtk-26.04/env.sh
-HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 60 \
+PYTHONPATH=packages/ops HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 60 \
   .venv/bin/python probes/neighbor_lj_reference.py --device cuda
 ```
 

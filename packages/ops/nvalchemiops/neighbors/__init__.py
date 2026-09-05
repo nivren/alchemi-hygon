@@ -24,6 +24,10 @@ from __future__ import annotations
 import importlib
 import warnings
 
+from nvalchemiops import initialize_warp
+
+initialize_warp()
+
 from nvalchemiops.neighbors.base_dispatch import (
     estimate_neighbor_list_costs,
     suggest_neighbor_list_method,

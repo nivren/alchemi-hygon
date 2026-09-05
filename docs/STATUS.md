@@ -106,3 +106,11 @@
 - 新增 `probes/neighbor_lj_reference.py`，不导入 Warp，固定两个体系、无 PBC、dense neighbor matrix 的 full/half 语义，并用 Torch autograd 定义 LJ 力参考。
 - CPU 和 `source /opt/dtk-26.04/env.sh` 后的 `HIP_VISIBLE_DEVICES=0` 单卡 HCU 均通过：能量 `-0.6236757013081533`，full/half 一致；batch 边界、pair 集合、每体系零总力均通过。
 - 这是 reference oracle，不等同于 `nvalchemiops` 生产 API 已移植；PBC、cell-list、容量扩容、switching、virial、NVE 和双卡 ownership 仍未覆盖。证据：`reports/g1-neighbor-lj-reference.md`。
+
+### 2026-09-05：Torch-first 后端策略与 ops reference slice
+
+- 按 ADR 0003，当前阶段不实现 Triton/HIP kernel；先以海光 PyTorch 作为设备内 Torch reference 和正确性基线，后续只在真实 gfx936 基准显示瓶颈且能力/梯度满足时逐算子增加 Triton 或 HIP。选择不能由 `cuda` 字符串或语言偏好决定，必须记录实际后端和原因。
+- 新增 `packages/ops/nvalchemiops/torch_reference.py` 及 `packages/ops/test/torch/test_torch_reference_backend.py`。该模块不导入 Warp，覆盖 no-PBC neighbors → LJ energy/force 的 full/half、异构 batch、COO、容量溢出和二阶梯度检查；已有 Warp-facing 子包改为在包边界显式调用 `initialize_warp()`，保留原 Warp 路径。
+- `packages/ops` 基础依赖不再强制安装 Warp，Warp 放入显式 `warp`/Warp adapter extras，并增加 `torch-reference` extra；framework 的 uv dependency metadata 已同步。使用 PyPI 构建 wheel 成功，基础元数据只要求 NumPy。
+- CPU reference 测试 `5 passed`、退出码 0；加载 `/opt/dtk-26.04/env.sh` 后，`HIP_VISIBLE_DEVICES=0` 的 BW200 HCU reference 检查退出码 0，能量 `-0.9833724493736826`、力范数 `2.245906038631372`。详细命令和限制见 `reports/g1-torch-reference-backend.md`。
+- 当前仍未接入稳定的公共 neighbors/LJ dispatcher，未实现 PBC、cell-list、NVE、Triton/HIP 或自动选择；下一小步是设计不改变上游调用约定的 reference dispatcher，并为实际后端报告保留显式接口。

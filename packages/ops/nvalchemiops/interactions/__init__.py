@@ -26,6 +26,10 @@ Available Potentials:
 - Dispersion: Long-range dispersion corrections
 """
 
+from nvalchemiops import initialize_warp
+
+initialize_warp()
+
 from nvalchemiops.interactions.lj import (
     lj_energy,
     lj_energy_forces,

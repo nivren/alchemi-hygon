@@ -12,7 +12,6 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = "Apache-2.0"
 dependencies = [
-    "warp-lang >= 1.13.0",
     "numpy",
 ]
 keywords = [
@@ -38,28 +37,45 @@ classifiers = [
 dynamic = ["version"]
 [project.optional-dependencies]
 
+# Warp is retained for the NVIDIA reference backend but is not a base
+# dependency: Torch reference users on HCU must be able to install this
+# package without a CUDA-only runtime.
+warp = [
+    "warp-lang >= 1.13.0",
+]
+
+torch-reference = [
+    "torch>=2.8.0",
+]
+
 torch = [
     "torch>=2.8.0",
+    "warp-lang >= 1.13.0",
 ]
 
 torch-cu12 = [
     "torch>=2.8.0",
+    "warp-lang >= 1.13.0",
 ]
 
 torch-cu13 = [
     "torch>=2.8.0",
+    "warp-lang >= 1.13.0",
 ]
 
 jax = [
     "jax[cuda13]",
+    "warp-lang >= 1.13.0",
 ]
 
 jax-cu12 = [
     "jax[cuda12]",
+    "warp-lang >= 1.13.0",
 ]
 
 jax-cu13 = [
     "jax[cuda13]",
+    "warp-lang >= 1.13.0",
 ]
 
 [tool.hatch.build.targets.wheel]

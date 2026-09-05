@@ -18,13 +18,17 @@ This module provides JAX-compatible wrappers for GPU-accelerated atomistic
 simulation primitives implemented in NVIDIA Warp.
 """
 
-import importlib
+import importlib.util
 
 if importlib.util.find_spec("jax") is None:
     raise ImportError(
         "JAX is required for `nvalchemiops.jax` namespace."
         " Please install via `pip install 'nvalchemiops[jax]'`."
     )
+
+from nvalchemiops import initialize_warp
+
+initialize_warp()
 
 from nvalchemiops.jax.types import (
     get_warp_device,

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Torch reference probe for the first neighbor-list → LJ vertical slice.
 
-This probe deliberately does not import ``nvalchemiops``.  The locked upstream
-neighbor and LJ paths initialize Warp at import time, while this reference
-defines the semantic oracle that a later Triton/HIP backend must match.
+This probe imports the Warp-independent ``nvalchemiops.torch_reference``
+implementation.  The locked upstream neighbor and LJ paths remain Warp
+backed, while this reference defines the semantic oracle that a later
+Triton/HIP backend must match.
 The initial slice is batched, non-periodic, dense neighbor-matrix output with
 full and half lists.  Topology is discrete; distances, energy, and forces use
 the differentiable Torch path.
@@ -15,79 +16,7 @@ import argparse
 import json
 
 import torch
-
-
-def build_reference_neighbor_matrix(
-    positions: torch.Tensor,
-    batch_ptr: torch.Tensor,
-    cutoff: float,
-    *,
-    max_neighbors: int,
-    half_fill: bool,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Build a deterministic dense neighbor matrix without differentiating topology."""
-    if positions.ndim != 2 or positions.shape[1] != 3:
-        raise ValueError("positions must have shape (N, 3)")
-    if cutoff <= 0:
-        raise ValueError("cutoff must be positive")
-    if max_neighbors <= 0:
-        raise ValueError("max_neighbors must be positive")
-
-    n_atoms = positions.shape[0]
-    fill_value = n_atoms
-    matrix = torch.full(
-        (n_atoms, max_neighbors),
-        fill_value,
-        dtype=torch.int32,
-        device=positions.device,
-    )
-    counts = torch.zeros(n_atoms, dtype=torch.int32, device=positions.device)
-
-    # The reference intentionally synchronizes small integer metadata.  The
-    # production backend will replace this with a device-side implementation.
-    ptr = batch_ptr.detach().to(device="cpu", dtype=torch.int64).tolist()
-    detached = positions.detach()
-    cutoff_sq = cutoff * cutoff
-    for start, end in zip(ptr[:-1], ptr[1:], strict=True):
-        for i in range(start, end):
-            for j in range(start, end):
-                if i == j or (half_fill and i > j):
-                    continue
-                distance_sq = float((detached[i] - detached[j]).square().sum())
-                if distance_sq >= cutoff_sq or distance_sq < 1e-10:
-                    continue
-                slot = int(counts[i].item())
-                if slot >= max_neighbors:
-                    raise ValueError("neighbor capacity overflow in reference probe")
-                matrix[i, slot] = j
-                counts[i] += 1
-    return matrix, counts
-
-
-def lj_energy_from_neighbor_matrix(
-    positions: torch.Tensor,
-    neighbor_matrix: torch.Tensor,
-    num_neighbors: torch.Tensor,
-    *,
-    epsilon: float,
-    sigma: float,
-    cutoff: float,
-    half_list: bool,
-) -> torch.Tensor:
-    """Evaluate LJ energy from a dense matrix using upstream counting rules."""
-    weight = 1.0 if half_list else 0.5
-    energy = positions.new_zeros(())
-    for i in range(positions.shape[0]):
-        count = int(num_neighbors[i].item())
-        if count == 0:
-            continue
-        neighbors = neighbor_matrix[i, :count].to(torch.long)
-        rij = positions[i].unsqueeze(0) - positions.index_select(0, neighbors)
-        distance = torch.linalg.vector_norm(rij, dim=1)
-        sigma_over_r = sigma / distance
-        pair_energy = 4.0 * epsilon * (sigma_over_r.pow(12) - sigma_over_r.pow(6))
-        energy = energy + weight * pair_energy.sum()
-    return energy
+from nvalchemiops.torch_reference import lj_energy_forces, neighbor_list
 
 
 def _run(device: torch.device) -> dict[str, object]:
@@ -114,14 +43,14 @@ def _run(device: torch.device) -> dict[str, object]:
     force_norms: dict[str, float] = {}
     pair_sets: dict[str, list[list[int]]] = {}
     for half_list in (False, True):
-        matrix, counts = build_reference_neighbor_matrix(
+        matrix, counts = neighbor_list(
             positions,
-            batch_ptr,
             cutoff,
+            batch_ptr=batch_ptr,
             max_neighbors=4,
             half_fill=half_list,
         )
-        energy = lj_energy_from_neighbor_matrix(
+        atomic_energies, forces = lj_energy_forces(
             positions,
             matrix,
             counts,
@@ -130,13 +59,7 @@ def _run(device: torch.device) -> dict[str, object]:
             cutoff=cutoff,
             half_list=half_list,
         )
-        (gradient,) = torch.autograd.grad(
-            energy,
-            positions,
-            create_graph=True,
-            retain_graph=True,
-        )
-        forces = -gradient
+        energy = atomic_energies.sum()
         key = "half" if half_list else "full"
         active_pairs = []
         for i in range(positions.shape[0]):

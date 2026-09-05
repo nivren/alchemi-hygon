@@ -11,7 +11,7 @@
 | P02 编译 | `hipcc --offload-arch=gfx936 probes/hip_probe.cpp -o artifacts/g0/hip_probe` | 编译退出 0；gfx936 为用户明确指定适配目标 |
 | P02 运行 | `HIP_VISIBLE_DEVICES=<id> timeout 60 artifacts/g0/hip_probe` | 资源阻塞；仅 32 元素，不覆盖 gather/scatter/atomic |
 | P03 | `HIP_VISIBLE_DEVICES=<id> TRITON_CACHE_DIR=$PWD/artifacts/triton-cache timeout 60 .venv/bin/python probes/triton_probe.py` | 资源阻塞；1025 FP32 元素、tail mask、5 次预热/20 次调用，冷启动与 host-loop 稳态分开 |
-| P05-ref | `OMP_NUM_THREADS=1 .venv/bin/python probes/neighbor_lj_reference.py --device cpu`；HCU 版先 `source /opt/dtk-26.04/env.sh` 并设置 `HIP_VISIBLE_DEVICES=<id>` | Torch reference：两体系、无 PBC、full/half neighbor matrix、LJ 能量/负梯度力；CPU 与单卡 HCU 已通过，不代表生产 nvalchemiops API 已移植 |
+| P05-ref | `PYTHONPATH=packages/ops OMP_NUM_THREADS=1 .venv/bin/python probes/neighbor_lj_reference.py --device cpu`；HCU 版先 `source /opt/dtk-26.04/env.sh` 并设置 `PYTHONPATH=packages/ops HIP_VISIBLE_DEVICES=<id>` | Torch reference：两体系、无 PBC、full/half neighbor matrix、LJ 能量/负梯度力；CPU 与单卡 HCU 已通过，不代表生产 nvalchemiops API 已移植 |
 | P06 | `HIP_VISIBLE_DEVICES=<id> OMP_NUM_THREADS=1 timeout 60 .venv/bin/python probes/mace_probe.py --device cuda --checkpoint /path/to/trusted.model` | 缺指定可信 checkpoint/MACE 依赖及空闲卡；真实 MACE 直接模型，非 mock；不证明 toolkit wrapper 可用 |
 | P07 | `HIP_VISIBLE_DEVICES=<id0>,<id1> OMP_NUM_THREADS=1 timeout 90 .venv/bin/torchrun --standalone --nproc-per-node=2 probes/distributed_probe.py` | 资源阻塞；all-reduce 与双向 P2P，非域分解/LJ 验收 |
 

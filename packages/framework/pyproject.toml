@@ -133,12 +133,16 @@ override-dependencies = [
 ]
 dependency-metadata = [
   { name = "nvalchemi-toolkit-ops", version = "0.4.1", requires-dist = [
-    "warp-lang >= 1.13.0",
     "numpy",
+    "warp-lang >= 1.13.0 ; extra == 'warp'",
+    "torch>=2.8.0 ; extra == 'torch-reference'",
     "torch>=2.8.0 ; extra == 'torch'",
+    "warp-lang >= 1.13.0 ; extra == 'torch'",
     "torch>=2.8.0 ; extra == 'torch-cu12'",
+    "warp-lang >= 1.13.0 ; extra == 'torch-cu12'",
     "torch>=2.8.0 ; extra == 'torch-cu13'",
-  ], provides-extras = ["torch", "torch-cu12", "torch-cu13"] },
+    "warp-lang >= 1.13.0 ; extra == 'torch-cu13'",
+  ], provides-extras = ["warp", "torch-reference", "torch", "torch-cu12", "torch-cu13"] },
 ]
 
 [tool.uv.sources]

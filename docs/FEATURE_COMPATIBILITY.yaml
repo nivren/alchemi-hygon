@@ -1178,12 +1178,17 @@
           "test/neighbors/test_rebuild_detection_kernels.py",
           "test/neighbors/test_utils.py"
         ],
-        "dcu_tests": [],
+        "dcu_tests": [
+          "packages/ops/test/torch/test_torch_reference_backend.py",
+          "probes/neighbor_lj_reference.py"
+        ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-lj-reference.md"
         ],
-        "environments": []
+        "environments": [
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
@@ -1248,12 +1253,17 @@
         "upstream_tests": [
           "test/interactions/test_lj.py"
         ],
-        "dcu_tests": [],
+        "dcu_tests": [
+          "packages/ops/test/torch/test_torch_reference_backend.py",
+          "probes/neighbor_lj_reference.py"
+        ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-lj-reference.md"
         ],
-        "environments": []
+        "environments": [
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",

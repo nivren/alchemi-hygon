@@ -31,13 +31,17 @@ segment_ops
     with explicit first- and second-order backward support.
 """
 
-import importlib
+import importlib.util
 
 if importlib.util.find_spec("torch") is None:
     raise ImportError(
         "PyTorch is required for `nvalchemiops.torch` namespace."
         " Please install via `pip install 'nvalchemiops[torch]'`."
     )
+
+from nvalchemiops import initialize_warp
+
+initialize_warp()
 
 from nvalchemiops.torch._warp_op_helpers import torch_custom_op
 from nvalchemiops.torch.fire2 import (
