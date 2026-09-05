@@ -75,6 +75,13 @@
 - 回归：`packages/framework/test/data/test_batch.py` 为 90 passed、4 skipped、1 failed。唯一失败是 `test_pin_memory` 在无 HIP GPU 进程中报 `No HIP GPUs are available`；Batch 构造、异构索引、put/defrag 相关用例通过。
 - 本步未实现 Triton/HIP、未运行 GPU；下一小步为补充正式的无 Warp import smoke 和后端契约测试，然后再清理遗留 Warp helper。
 
+### 2026-09-05：Warp backend 隔离
+
+- 旧 `level_storage.py` Warp helper 已移入 `packages/framework/nvalchemi/data/warp_storage_backend.py`，由 `WarpStorageBackend` 包装现有 `buffer_kernels`，并保留 segment expansion 的 Warp kernel。基础 `level_storage.py` 不再包含 Warp import、初始化或临时 stub。
+- 无 Warp 环境下基础导入仍通过：`from nvalchemi.data import AtomicData, Batch`，且 `warp` 不出现在 `sys.modules`；显式导入 `WarpStorageBackend` 按预期 fail-fast。
+- Batch 回归仍为 90 passed、4 skipped、1 failed（`pin_memory`：当前无 HIP GPU）；清理 Warp helper 未引入新的失败。完整输出：`artifacts/g0/test_batch_after_warp_split.txt`。
+- 本步未实现 Triton/HIP 或自动 backend resolver。下一小步：补正式 import smoke/StorageBackend contract tests，并检查多属性 put 的共同复制掩码语义。
+
 ### 2026-09-05：探针环境 NumPy 修复
 
 - 从 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 复用 NumPy 1.26.4，项目 `.venv` 当前实际版本为 1.26.4；没有重新安装或替换海光 Torch/Triton。

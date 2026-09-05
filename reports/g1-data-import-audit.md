@@ -53,7 +53,7 @@ nvalchemi.data.__init__
 - 包含零长度 segment 的 defrag、pointer 尾部填充和 element index expansion；
 - 全部计算仍在 Torch 当前 device 上，模块加载未导入 Warp。
 
-该实现目前尚未接入 `LevelStorage`；`from nvalchemi.data import AtomicData, Batch` 仍会触发原有 Warp import-time 链。下一步只处理后端注入和延迟导入，不同时实现 Triton/HIP。
+该实现最初尚未接入 `LevelStorage`；后续已完成注入，详见下文。Triton/HIP 仍不在本步范围内。
 
 ## 第二阶段实现结果
 
@@ -69,4 +69,4 @@ PYTHONPATH=packages/framework:packages/ops \
 
 退出码为 0。`PYTHONPATH=packages/framework:packages/ops /home/wangleping/codes/nvalchemi-toolkit/.venv/bin/python -m pytest -q packages/framework/test/data/test_batch.py` 得到 90 passed、4 skipped（无 CUDA 设备）、1 failed；唯一失败为 `test_pin_memory`，错误是当前进程没有 HIP GPU（`RuntimeError: No HIP GPUs are available`），不涉及 storage backend。`probes/storage_backend_probe.py` 仍退出 0。
 
-当前仍保留 `level_storage.py` 中的 Warp helper 声明作为 NVIDIA 参考，但它不在导入阶段初始化；后续应把该遗留声明移入专用 Warp backend，避免假对象兼容层长期存在。
+旧 Warp helper 已移入 `packages/framework/nvalchemi/data/warp_storage_backend.py`。该模块显式导入时才加载 Warp 和 `buffer_kernels`；基础数据导入不再包含假对象兼容层。当前无 Warp 环境下显式导入该模块会得到 `ModuleNotFoundError: No module named 'warp'`，这是预期的 fail-fast 行为。
