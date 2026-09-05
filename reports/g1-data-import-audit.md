@@ -43,3 +43,14 @@ nvalchemi.data.__init__
 ## 下一小步
 
 先为数据 API 设计最小导入边界：让仅使用 `AtomicData` 的代码不触发 Warp 存储初始化，同时保留 `Batch` 的显式后端错误信息。实现前补充独立 import smoke 测试和依赖矩阵，再决定是延迟导入还是拆分 Warp-backed storage 模块。
+
+## 第一阶段实现结果
+
+`packages/framework/nvalchemi/data/storage_backend.py` 现已加入无 Warp 的 `TorchStorageBackend`，覆盖协议中的 uniform/segmented fit mask、masked put、defrag 和 segment expansion。`probes/storage_backend_probe.py` 在项目 `.venv` 中退出 0，验证了：
+
+- uniform 行按源顺序写入首个空槽，复制掩码和目标掩码原位更新，defrag 保留顺序并清零尾部；
+- segmented 长度 `[2, 3, 1]` 的选择、目标 batch pointer 追加和容量边界；
+- 包含零长度 segment 的 defrag、pointer 尾部填充和 element index expansion；
+- 全部计算仍在 Torch 当前 device 上，模块加载未导入 Warp。
+
+该实现目前尚未接入 `LevelStorage`；`from nvalchemi.data import AtomicData, Batch` 仍会触发原有 Warp import-time 链。下一步只处理后端注入和延迟导入，不同时实现 Triton/HIP。
