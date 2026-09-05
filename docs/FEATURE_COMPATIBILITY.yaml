@@ -74,13 +74,15 @@
         ],
         "dcu_tests": [],
         "evidence": [
-          "reports/upstream_inventory.json"
+          "reports/upstream_inventory.json",
+          "reports/g1-neighbor-hook-lj-audit.md"
         ],
         "environments": []
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线运行",
+        "NeighborListHook 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖动态 skin、rebuild_flags、PBC 或预分配 scratch"
       ],
       "release_gate": "G1"
     },
@@ -1261,7 +1263,8 @@
         ],
         "evidence": [
           "reports/upstream_inventory.json",
-          "reports/g1-neighbor-lj-reference.md"
+          "reports/g1-neighbor-lj-reference.md",
+          "reports/g1-neighbor-hook-lj-audit.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
@@ -1270,7 +1273,8 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产 LJ API 仍依赖 Warp"
+        "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产 LJ API 仍依赖 Warp",
+        "LennardJonesModelWrapper 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖 switching、virial/stress 或解析力接口"
       ],
       "release_gate": "G1"
     },

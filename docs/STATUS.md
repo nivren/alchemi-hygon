@@ -121,3 +121,10 @@
 - Torch reference 结果现在可以写回 framework 的 MATRIX 或 COO 邻居存储；Warp 默认路径仍调用上游矩阵到 COO 转换，Torch 路径使用等价的无 Warp 转换并对邻居容量做显式检查。PBC、cell-list、skin、动态重建和邻居 hook 尚未接入该 dispatcher。
 - `packages/framework/test/models/test_neighbors_torch_reference.py` 在探索环境通过 `2 passed`；加载 `/opt/dtk-26.04/env.sh`、使用 `HIP_VISIBLE_DEVICES=0` 的 BW200 HCU 运行 MATRIX 路径通过，结果为邻居矩阵 `[[1], [0], [3], [2]]`、计数 `[1, 1, 1, 1]`。项目 `.venv` 运行 framework 测试仍被缺少 `plum` 阻断，未安装额外依赖。
 - 证据已补入 `reports/g1-torch-reference-backend.md`，兼容清单的 `neighbors.topology` 已登记 framework 测试和该报告。下一小步：审计 `NeighborListHook` 与 LJ wrapper 的调用契约，确定 reference 入口的最小纵向接入范围。
+
+### 2026-09-05：NeighborListHook 与 LJ wrapper 调用契约审计
+
+- `NeighborListHook` 当前在模块导入时直接依赖 Warp-facing neighbors/rebuild 模块，并在 `_rebuild()` 中使用原地输出矩阵、`rebuild_flags`、`method`、cell-list/cluster-tile scratch 和 Verlet skin。当前 Torch reference dispatcher 返回新张量，且不支持这些参数、PBC 或动态重建，因此不能直接替换该热路径。
+- `LennardJonesModelWrapper` 当前固定消费 MATRIX 邻居，顶层导入 `nvalchemi.models._ops.lj`；该 custom op 直接依赖 Warp，提供 analytic force、switching 和可选 virial/stress。Torch reference LJ 要求 `positions.requires_grad`，目前只覆盖 no-PBC、`switch_width=0`，没有 virial 输出。
+- 探索环境的无 Warp 导入检查：`nvalchemi.hooks.neighbor_list` 和 `nvalchemi.models.lj` 均以 `ModuleNotFoundError: No module named 'warp'` 失败。这是尚未隔离的依赖边界，不是 HCU 设备运行结论。详细审计见 `reports/g1-neighbor-hook-lj-audit.md`。
+- 下一小步：为 Hook 增加显式 `backend="torch_reference"` 的受限分支（先无 PBC、`skin=0`），再为 LJ wrapper 增加同样显式的 reference 分支和 energy/force contract tests；默认 Warp 参数和路径保持不变。
