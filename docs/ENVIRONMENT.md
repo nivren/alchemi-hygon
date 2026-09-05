@@ -15,4 +15,4 @@
 
 用户随后明确 BW200/BW1000 适配目标为 gfx936；所有目标 HIP 编译使用 gfx936。此前 gfx928 编译仅为过程试探，不作为目标能力证据。
 
-本轮按用户额度提醒收口：NumPy 1.26.4 下载被主动中止（退出 130），当前实际安装为 2.3.5。constraints 中 1.26.4 为待落实要求，不是安装成功记录。Torch 的 NumPy ABI 问题尚未修复；新增互操作探针未复跑。
+本轮已从 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 复用已验证的 NumPy 1.26.4，安装到项目 `.venv`；未重新下载 Torch/Triton。当前 Torch 的 NumPy 互操作已通过，详见 G0 验证摘要。

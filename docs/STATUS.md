@@ -45,6 +45,12 @@
 ### 本轮停止点（用户要求分步推进）
 
 - G0 源码审计和完整历史导入完成；不展开 G1。
-- NumPy 1.26.4 下载主动中止，退出 130；当前 .venv 实际 NumPy 2.3.5。constraints=1.26.4 表示目标约束，尚未落实。初版 CPU 张量探针通过，但 NumPy ABI 修复及新增互操作检查未完成。
-- 下轮只做一个小任务：按 constraints 安装 NumPy 1.26.4，复跑 CPU/NumPy 互操作探针并更新证据；完成后再选一条 G1 链路。GPU 探针继续等待空闲卡分配。
+- 本轮小任务已完成：从探索项目环境复用 NumPy 1.26.4 到项目 `.venv`，未替换 Torch/Triton；CPU/NumPy 互操作及原有梯度、segment、FFT 检查通过。
+- 下一步仍不展开 G1；先等待用户安排，再单独规划 Batch/AtomicData 的 import-time 依赖审计。GPU 探针继续等待空闲卡分配。
 - gfx936 HIP 最终编译退出 0，无编译警告；无设备执行证据。
+
+### 2026-09-05：探针环境 NumPy 修复
+
+- 从 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 复用 NumPy 1.26.4，项目 `.venv` 当前实际版本为 1.26.4；没有重新安装或替换海光 Torch/Triton。
+- `.venv/bin/python probes/torch_probe.py --device cpu` 退出 0；新增 NumPy↔Torch 转换检查通过，FP64 一阶/二阶梯度、segment、FFT 仍通过。证据：`artifacts/g0/torch_cpu_numpy1264.json`、`artifacts/g0/torch_cpu_numpy1264.stderr`。
+- stderr 只有环境日志 `Could not open /var/log/hylog/.`，不再有 NumPy ABI 警告。环境冻结已更新为 NumPy 1.26.4。
