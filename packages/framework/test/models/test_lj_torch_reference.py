@@ -23,6 +23,7 @@ import pytest
 import torch
 
 from nvalchemi.data import AtomicData, Batch
+from nvalchemi.hooks._context import HookContext
 from nvalchemi.models.base import NeighborListFormat
 from nvalchemi.models.lj import LennardJonesModelWrapper
 from nvalchemi.neighbors import compute_neighbors
@@ -159,3 +160,32 @@ def test_lj_reference_rejects_periodic_batch():
     model = LennardJonesModelWrapper(1.0, 1.0, 2.0, backend="torch_reference")
     with pytest.raises(NotImplementedError, match="does not support PBC"):
         model(batch)
+
+
+def test_reference_model_builds_neighbor_hook_without_eager_dynamics_import():
+    model = LennardJonesModelWrapper(1.0, 1.0, 2.0, backend="torch_reference")
+
+    hooks = model.make_neighbor_hooks()
+
+    assert len(hooks) == 1
+    assert hooks[0].backend == "torch_reference"
+    assert hooks[0].stage.name == "BEFORE_COMPUTE"
+    assert "nvalchemi.dynamics" not in sys.modules
+    assert "warp" not in sys.modules
+
+
+def test_reference_neighbor_hook_and_lj_wrapper_form_one_chain():
+    batch = _batch()
+    model = LennardJonesModelWrapper(1.0, 1.0, 2.0, backend="torch_reference")
+    (hook,) = model.make_neighbor_hooks()
+
+    hook(HookContext(batch=batch), hook.stage)
+    output = model(batch)
+
+    expected = torch.tensor(
+        [[_lj_pair_energy(1.1)], [_lj_pair_energy(1.2)]], dtype=torch.float64
+    )
+    assert torch.allclose(output["energy"], expected, rtol=1e-12, atol=1e-12)
+    assert torch.allclose(
+        output["forces"].sum(dim=0), torch.zeros(3, dtype=torch.float64), atol=1e-12
+    )

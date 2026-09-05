@@ -67,17 +67,23 @@ PYTHONPATH=packages/framework:packages/ops \
   packages/framework/test/models/test_lj_torch_reference.py
 ```
 
-结果：`4 passed`，退出码 `0`。测试使用独立 FP64 LJ 公式检查距离 `1.1`/`1.2` 的能量和力，比较 full/half 邻居约定，并验证 energy gradient 与返回 force 的符号关系。单卡 HCU wrapper 运行尚未在本轮新增；此前 ops dispatcher 和 framework `compute_neighbors` 已有 HCU 证据。
+结果：`4 passed`，退出码 `0`。测试使用独立 FP64 LJ 公式检查距离 `1.1`/`1.2` 的能量和力，比较 full/half 邻居约定，并验证 energy gradient 与返回 force 的符号关系。
 
 这也固定了本阶段的验证顺序：优先复用上游 framework/ops 测试作为回归基线，仅为 DCU 后端边界和上游未覆盖的约束补充测试；数值方面先以独立 FP64 解析式和 Torch CPU reference 建立基线，再用 HCU 复核，ASE 保留为可选的独立交叉检查工具。组件当前显式接受的 backend 字符串是阶段性能力边界，后续将统一到中央 registry。
 
-当前 reference wrapper 的前向测试使用预先写入的 neighbor matrix；`BaseModelMixin.make_neighbor_hooks()` 现在会传播模型的 backend，但该方法仍属于 dynamics/Warp 导入边界，自动构造 reference Hook 的完整无 Warp 动态路径留待下一步单独处理。
+## Dynamics stage 隔离与最小纵向链
+
+`DynamicsStage` 已移到不导入 dynamics 包的轻量模块 `nvalchemi._dynamics_stage`，`nvalchemi.dynamics.base` 仍重新导出同一枚举。`BaseModelMixin.make_neighbor_hooks()` 因此能在无 Warp 环境创建 reference Hook，并继续把模型 backend 传给 Hook。
+
+新增的纵向测试先用 CPU reference 运行 `model.make_neighbor_hooks()`，调用 Hook 写入邻居矩阵，再调用 `LennardJonesModelWrapper(backend="torch_reference")`。与独立 FP64 LJ 解析结果比较能量，并检查总力守恒；邻居 Hook 与 LJ 测试合计 `13 passed`，另覆盖共享 `DynamicsStage` 的 stage timing 域识别。同一探针在 source DTK 26.04 的 BW200/gfx936 上使用探索环境运行成功，设备识别为 `BW200, UBB BW1000`，两体系能量为 `[-0.9833724493736826, -0.8909652875830761]`，总力为零，退出码 `0`；摘要见 `artifacts/g1/framework_neighbor_lj_reference_hcu0.json`。项目 `.venv` 首次因缺少 `plum` 阻断，补齐后继续暴露缺少 `jaxtyping`。该链仍不覆盖 PBC、skin/rebuild、switching、virial/stress、NVE 或分布式路径。
+
+上游 `test/hooks/test_stage_timing_hook.py` 在当前探索环境无法收集，因为它直接导入 `nvalchemi.dynamics.base`，而 dynamics 包初始化仍要求 Warp；因此没有把该上游测试记为通过。新增的无 Warp stage-domain 测试只保护本次轻量枚举隔离和域识别边界。
 
 ## 后续最小纵向实现
 
 后续实现应保持默认参数和 Warp 路径不变，并增加显式 backend 入口：
 
-1. 隔离 `make_neighbor_hooks()` 所需的 dynamics stage 导入，使 reference 模型可以在无 Warp 环境构造 Hook。
-2. 在 HCU 上运行同一条邻居→LJ wrapper 链；确认数值后再考虑把 skin/rebuild、PBC、switching 和 virial 拆成独立特性。
+1. 以解析/FP64 对照为基线，接入 G1 的 PBC 邻居集合和短 NVE 闭环。
+2. 把 skin/rebuild、switching 和 virial 拆成独立特性，分别建立契约和证据。
 
 本步没有修改 Hook 或 LJ 生产代码，也没有宣称动态 MD、NVE、PBC 或 stress 已支持。

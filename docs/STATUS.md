@@ -144,3 +144,11 @@
 - `BaseModelMixin.make_neighbor_hooks()` 现在会把模型 backend 传给 Hook；默认模型仍使用 Warp。后端字符串集合目前是组件级显式能力边界，用来拒绝未知请求和避免静默回退；后续应收敛到中央 backend registry，避免各组件重复维护选择规则。由于该方法仍导入 Warp-backed dynamics stage，reference 模型的完整无 Warp 动态构造尚未完成。
 - 验证策略已明确记录：上游 framework/ops 测试作为主回归来源，新增测试只补 DCU backend 选择、无 Warp 导入边界和上游未覆盖的适配约束；数值校验先用独立 FP64 解析结果与 Torch CPU reference，再在 HCU 上复核，ASE 只作为可选的独立交叉检查。当前 LJ 测试已覆盖独立公式、full/half、一阶梯度和总力守恒。
 - 下一小步：隔离 `make_neighbor_hooks()` 所需的 dynamics stage 导入，再跑完整单卡邻居→LJ wrapper 链。
+
+### 2026-09-05：reference 模型动态 Hook 接线与 CPU 纵向链
+
+- 新增无 Warp 的轻量 `nvalchemi._dynamics_stage.DynamicsStage`；`nvalchemi.dynamics.base` 继续重新导出同一枚举，保留上游公共导入身份。`BaseModelMixin.make_neighbor_hooks()` 不再为了取得 stage 而触发 eager dynamics/Warp 包初始化。
+- `LennardJonesModelWrapper(backend="torch_reference").make_neighbor_hooks()` 现在可以在无 Warp 环境构造 reference Hook，并由 Hook 写入邻居表后直接调用 LJ wrapper，形成 `model → hook → neighbor matrix → energy/forces` 的 CPU reference 链。
+- framework 邻居 Hook 与 LJ reference 测试合计 `13 passed`，退出码 `0`；新增测试覆盖无 eager dynamics 导入、共享 `DynamicsStage` 域识别和完整 Hook→LJ 链。ruff、compileall、diff 检查通过。项目 `.venv` 的 HCU 命令首次因缺少 `plum` 阻断，补齐 `plum-dispatch` 后继续暴露尚未安装的 `jaxtyping`；改用已有探索环境后，在 source DTK 26.04、BW200/gfx936、`HIP_VISIBLE_DEVICES=0` 上同一条链退出码 `0`，能量 `[-0.9833724493736826, -0.8909652875830761]`，总力 `[0, 0, 0]`，设备为 `BW200, UBB BW1000`。原始摘要见 `artifacts/g1/framework_neighbor_lj_reference_hcu0.json`。
+- 上游 `test/hooks/test_stage_timing_hook.py` 在当前探索环境收集阶段仍因 `nvalchemi.dynamics` eager 导入 Warp 而阻断；这不是本次 stage-domain 修复的断言失败，reference-specific stage-domain 回归已包含在上述 `13 passed` 中。
+- 下一小步：把 G1 的 PBC 邻居集合和短 NVE/轨迹输出拆成独立小步；本轮仍未宣称 PBC、NVE 或生产 Warp API 已支持。

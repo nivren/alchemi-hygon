@@ -40,18 +40,17 @@ __all__ = ["StageTimingHook"]
 
 def _get_dynamics_stage_type() -> type[Enum]:
     """Import and return the dynamics stage enum on demand."""
-    from nvalchemi.dynamics.base import DynamicsStage
+    from nvalchemi._dynamics_stage import DynamicsStage
 
     return DynamicsStage
 
 
 def _stage_domain(stage: Enum) -> str:
     """Return a stable domain label for a stage enum."""
+    from nvalchemi._dynamics_stage import DynamicsStage
+
     stage_type = type(stage)
-    if (
-        stage_type.__name__ == "DynamicsStage"
-        and stage_type.__module__ == "nvalchemi.dynamics.base"
-    ):
+    if stage_type is DynamicsStage:
         return "dynamics"
     return "custom"
 

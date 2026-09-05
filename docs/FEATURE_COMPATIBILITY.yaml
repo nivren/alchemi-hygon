@@ -76,7 +76,9 @@
         "evidence": [
           "reports/upstream_inventory.json"
         ],
-        "environments": []
+        "environments": [
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
@@ -361,18 +363,20 @@
           "test/hooks/test_stage_timing_hook.py"
         ],
         "dcu_tests": [
-          "packages/framework/test/hooks/test_neighbor_list_torch_reference.py"
+          "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
+          "probes/framework_neighbor_lj_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
-          "reports/g1-neighbor-hook-lj-audit.md"
+          "reports/g1-neighbor-hook-lj-audit.md",
+          "artifacts/g1/framework_neighbor_lj_reference_hcu0.json"
         ],
         "environments": []
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "NeighborListHook 的 Torch reference 仅覆盖无 PBC、skin=0 且不使用 method/scratch；默认生产路径仍依赖 Warp"
+        "NeighborListHook 的 Torch reference 仅覆盖无 PBC、skin=0 且不使用 method/scratch；默认生产路径仍依赖 Warp，HCU 证据仅覆盖本阶段的两体系 Hook→LJ reference 探针"
       ],
       "release_gate": "G2"
     },
@@ -1193,7 +1197,8 @@
           "reports/g1-torch-reference-backend.md"
         ],
         "environments": [
-          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors; framework wrapper probe blocked by missing plum",
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for framework Hook→LJ probe"
         ]
       },
       "limitations": [
@@ -1262,12 +1267,14 @@
         "dcu_tests": [
           "packages/ops/test/torch/test_torch_reference_backend.py",
           "probes/neighbor_lj_reference.py",
-          "packages/framework/test/models/test_lj_torch_reference.py"
+          "packages/framework/test/models/test_lj_torch_reference.py",
+          "probes/framework_neighbor_lj_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-lj-reference.md",
-          "reports/g1-neighbor-hook-lj-audit.md"
+          "reports/g1-neighbor-hook-lj-audit.md",
+          "artifacts/g1/framework_neighbor_lj_reference_hcu0.json"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
@@ -1278,7 +1285,7 @@
         "原测试未在本基线运行",
         "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产 LJ API 仍依赖 Warp",
         "LennardJonesModelWrapper 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖 switching、virial/stress 或解析力接口",
-        "framework wrapper reference 当前仅覆盖预先准备的 no-PBC MATRIX 邻居；动态 Hook 接线、PBC、switching、virial/stress 和 HCU wrapper 运行仍未验证"
+        "framework wrapper reference 已覆盖 CPU 与 HCU 上由动态 Hook 写入的 no-PBC MATRIX 邻居；PBC、switching、virial/stress 和生产 Warp API 仍未验证"
       ],
       "release_gate": "G1"
     },

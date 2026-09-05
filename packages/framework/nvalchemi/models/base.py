@@ -817,7 +817,9 @@ class BaseModelMixin(abc.ABC):
             ``backend`` attribute is propagated when present; otherwise the
             hook keeps its default Warp backend.
         """
-        from nvalchemi.dynamics.base import DynamicsStage  # noqa: PLC0415
+        # Import the enum from the lightweight module so reference models do
+        # not execute the eager, Warp-backed dynamics package initializer.
+        from nvalchemi._dynamics_stage import DynamicsStage  # noqa: PLC0415
         from nvalchemi.hooks import NeighborListHook  # noqa: PLC0415
 
         nc = self.model_config.neighbor_config

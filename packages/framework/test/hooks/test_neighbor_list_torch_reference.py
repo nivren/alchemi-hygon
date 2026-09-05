@@ -85,6 +85,14 @@ def test_reference_hook_supports_coo_and_auto():
     assert batch.neighbor_list.tolist() == [[0, 1], [1, 0], [2, 3], [3, 2]]
 
 
+def test_shared_dynamics_stage_keeps_stage_timing_domain_without_warp():
+    from nvalchemi._dynamics_stage import DynamicsStage
+    from nvalchemi.hooks.stage_timing import _stage_domain
+
+    assert _stage_domain(DynamicsStage.BEFORE_COMPUTE) == "dynamics"
+    assert "nvalchemi.dynamics" not in sys.modules
+
+
 def test_reference_hook_rejects_method_selection():
     hook = NeighborListHook(
         NeighborConfig(cutoff=2.0),

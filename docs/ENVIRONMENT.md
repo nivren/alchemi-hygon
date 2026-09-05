@@ -10,6 +10,7 @@
 - Torch/Triton 使用用户提供的 cp312 海光 wheel，版本锁见 configs/probe-constraints.txt；导入和 CPU 结果见 reports/g0-validation.md。不安装产品两包、不启用 CUDA extras。
 - 默认 uv cache 指向只读 /data/envs/uv-cache，探针显式使用 /tmp/alchemi-uv-cache；未修改用户全局配置。
 - 默认清华 PyPI 镜像普通依赖下载返回 HTTP 403，安装改用 https://pypi.org/simple；本地 Torch/Triton 来源不变。
+- 为解除 framework 导入的首个缺口，项目 `.venv` 已用 `/data/envs/uv-cache` 和 HUST 镜像补齐 `plum-dispatch==2.7.1`、`beartype`、`rich`；Torch/Triton 未被替换。该环境随后仍缺 `jaxtyping`，因此尚未视为完整 framework 环境。完整 Hook→LJ HCU 探针使用已有 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 探索环境通过。
 
 原始探针输出放 artifacts/g0，摘要放 reports。未知：可分配空闲卡、实际 Torch/HIP/Triton/RCCL 设备能力、MLIP checkpoint、NVIDIA 基线。设备型号、安装版本和编译成功不等于算子或产品支持。
 
