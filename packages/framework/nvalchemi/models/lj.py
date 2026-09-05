@@ -61,14 +61,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from nvalchemiops.torch_backend import dispatch_lj_energy_forces
 from torch import nn
 
 from nvalchemi._typing import ModelOutputs
 from nvalchemi.data import AtomicData, Batch
-from nvalchemi.models._ops.lj import (
-    lj_energy_forces_batch,
-    lj_energy_forces_virial_batch,
-)
 from nvalchemi.models.base import (
     BaseModelMixin,
     ModelConfig,
@@ -77,6 +74,30 @@ from nvalchemi.models.base import (
 )
 
 __all__ = ["LennardJonesModelWrapper"]
+
+
+_WARP_LJ_OPS_READY = False
+lj_energy_forces_batch = None
+lj_energy_forces_virial_batch = None
+
+
+def _initialize_warp_lj_ops() -> None:
+    """Load the legacy Warp LJ custom ops only for the Warp backend."""
+    global _WARP_LJ_OPS_READY
+    global lj_energy_forces_batch, lj_energy_forces_virial_batch
+    if _WARP_LJ_OPS_READY:
+        return
+
+    from nvalchemi.models._ops.lj import (
+        lj_energy_forces_batch as _lj_energy_forces_batch,
+    )
+    from nvalchemi.models._ops.lj import (
+        lj_energy_forces_virial_batch as _lj_energy_forces_virial_batch,
+    )
+
+    lj_energy_forces_batch = _lj_energy_forces_batch
+    lj_energy_forces_virial_batch = _lj_energy_forces_virial_batch
+    _WARP_LJ_OPS_READY = True
 
 
 class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
@@ -97,6 +118,10 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         Pass ``True`` (default) if the neighbor matrix contains each pair
         once (half list).  Must match the ``half_fill`` argument given to
         :class:`~nvalchemi.hooks.NeighborListHook`.
+    backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
+        Execution backend. ``None`` preserves the Warp custom-op path. The
+        explicit Torch reference path currently supports no-PBC, no-switching
+        energy/force evaluation without virial/stress.
 
     Attributes
     ----------
@@ -113,13 +138,24 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         cutoff: float,
         switch_width: float = 0.0,
         half_list: bool = False,
+        backend: str | None = None,
     ) -> None:
         super().__init__()
+        selected_backend = "warp" if backend is None else backend
+        if selected_backend not in {"warp", "auto", "torch_reference"}:
+            raise ValueError(
+                f"unknown LennardJonesModelWrapper backend {selected_backend!r}; "
+                "choices are 'warp', 'auto', and 'torch_reference'"
+            )
+        if selected_backend == "warp":
+            _initialize_warp_lj_ops()
+
         self.epsilon = epsilon
         self.sigma = sigma
         self.cutoff = cutoff
         self.switch_width = switch_width
         self.half_list = half_list
+        self.backend = selected_backend
         # Instance-level model_config so callers can mutate it.
         # active_outputs defaults to energy + forces; stress is opt-in
         # via model.set_config("active_outputs", {"energy", "forces", "stress"})
@@ -168,6 +204,12 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         MLIPSpec
             The halo spec plus one :class:`OpAdapter` per LJ kernel.
         """
+        if self.backend != "warp":
+            raise NotImplementedError(
+                "Torch reference LennardJonesModelWrapper does not support "
+                "distributed domain decomposition yet"
+            )
+
         import dataclasses
 
         from nvalchemi.distributed.spec import SPEC_LJ_HALO, OpAdapter
@@ -350,6 +392,63 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
     # Forward pass
     # ------------------------------------------------------------------
 
+    @torch.compiler.disable
+    def _forward_reference(
+        self,
+        data: AtomicData | Batch,
+        inp: dict[str, Any],
+    ) -> ModelOutputs:
+        """Evaluate the restricted Warp-independent LJ reference path."""
+        if self.switch_width != 0.0:
+            raise NotImplementedError(
+                "Torch reference Lennard-Jones does not support switching"
+            )
+        if "stress" in self.model_config.active_outputs:
+            raise NotImplementedError(
+                "Torch reference Lennard-Jones does not provide virial/stress"
+            )
+
+        pbc = getattr(data, "pbc", None)
+        if pbc is not None and bool(pbc.any()):
+            raise NotImplementedError(
+                "Torch reference Lennard-Jones currently does not support PBC"
+            )
+
+        neighbor_matrix_shifts = inp.get("neighbor_matrix_shifts")
+        if neighbor_matrix_shifts is not None and bool(
+            torch.any(neighbor_matrix_shifts != 0)
+        ):
+            raise NotImplementedError(
+                "Torch reference Lennard-Jones does not support neighbor shifts"
+            )
+
+        positions = inp["positions"]
+        if not positions.requires_grad:
+            # The Warp wrapper produces analytic forces without changing the
+            # input gradient state. Keep that default behavior while giving
+            # the reference implementation an explicit autograd leaf.
+            positions = positions.detach().requires_grad_(True)
+
+        atomic_energies, forces = dispatch_lj_energy_forces(
+            positions=positions,
+            neighbor_matrix=inp["neighbor_matrix"],
+            num_neighbors=inp["num_neighbors"].contiguous(),
+            epsilon=self.epsilon,
+            sigma=self.sigma,
+            cutoff=self.cutoff,
+            half_list=self.half_list,
+            switch_width=self.switch_width,
+            backend=self.backend,
+        )
+        batch_idx = inp["batch_idx"].to(torch.long)
+        energies = torch.zeros(
+            inp["num_graphs"], dtype=atomic_energies.dtype, device=positions.device
+        )
+        energies.index_add_(0, batch_idx, atomic_energies)
+        return self.adapt_output(
+            {"energy": energies.unsqueeze(-1), "forces": forces}, data
+        )
+
     def forward(self, data: AtomicData | Batch, **kwargs: Any) -> ModelOutputs:
         """Run the LJ kernel and return a :class:`ModelOutputs` dict.
 
@@ -371,6 +470,9 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
             ``-W/V`` in energy units.
         """
         inp = self.adapt_input(data, **kwargs)
+
+        if self.backend in ("auto", "torch_reference"):
+            return self._forward_reference(data, inp)
 
         positions = inp["positions"]  # (N, 3)
         neighbor_matrix = inp["neighbor_matrix"]  # (N, K) int32

@@ -135,3 +135,11 @@
 - reference 分支明确拒绝 `skin != 0`、PBC 和 `method` 选择；这些能力尚未移植，未做静默忽略或 CPU 回退。新增 `packages/framework/test/hooks/test_neighbor_list_torch_reference.py`。
 - 探索环境测试 `6 passed`，覆盖真实 `@torch.compile` 入口、无 Warp 导入、异构 batch、MATRIX/COO 和受限条件失败。静态编译与 diff 检查通过；本轮未新增 HCU Hook 运行证据。
 - 下一小步：给 `LennardJonesModelWrapper` 增加同样显式的 Torch reference 分支，先覆盖无 PBC、无 switching、无 stress 的 energy/force contract。
+
+### 2026-09-05：LennardJonesModelWrapper Torch reference 受限入口
+
+- `LennardJonesModelWrapper` 新增 `backend` 参数。默认 `None` 仍延迟加载 Warp custom op；显式 `"torch_reference"`/`"auto"` 使用 Torch dispatcher，并保持全局邻居索引、full/half 归约、per-system energy scatter 和返回 force 的符号约定。
+- reference wrapper 明确拒绝 PBC、非零 `switch_width`、virial/stress 和 domain decomposition；LJ 模块导入本身不再强制 Warp。当前前向路径要求 Batch 已有 MATRIX 邻居数据，自动动态 Hook 接线尚未完成。
+- 新增 `packages/framework/test/models/test_lj_torch_reference.py`：探索环境 `4 passed`。验证独立 FP64 LJ 公式、full/half 数值一致、总力守恒、energy gradient 与 force 关系，以及 unsupported 条件显式失败。本轮未新增 HCU wrapper 运行证据。
+- `BaseModelMixin.make_neighbor_hooks()` 现在会把模型 backend 传给 Hook；默认模型仍使用 Warp。后端字符串集合目前是组件级显式能力边界，用来拒绝未知请求和避免静默回退；后续应收敛到中央 backend registry，避免各组件重复维护选择规则。由于该方法仍导入 Warp-backed dynamics stage，reference 模型的完整无 Warp 动态构造尚未完成。
+- 下一小步：隔离 `make_neighbor_hooks()` 所需的 dynamics stage 导入，再跑完整单卡邻居→LJ wrapper 链。

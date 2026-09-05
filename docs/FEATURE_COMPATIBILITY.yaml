@@ -1261,7 +1261,8 @@
         ],
         "dcu_tests": [
           "packages/ops/test/torch/test_torch_reference_backend.py",
-          "probes/neighbor_lj_reference.py"
+          "probes/neighbor_lj_reference.py",
+          "packages/framework/test/models/test_lj_torch_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
@@ -1276,7 +1277,8 @@
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产 LJ API 仍依赖 Warp",
-        "LennardJonesModelWrapper 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖 switching、virial/stress 或解析力接口"
+        "LennardJonesModelWrapper 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖 switching、virial/stress 或解析力接口",
+        "framework wrapper reference 当前仅覆盖预先准备的 no-PBC MATRIX 邻居；动态 Hook 接线、PBC、switching、virial/stress 和 HCU wrapper 运行仍未验证"
       ],
       "release_gate": "G1"
     },

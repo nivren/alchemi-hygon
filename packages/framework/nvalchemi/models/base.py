@@ -796,6 +796,7 @@ class BaseModelMixin(abc.ABC):
         self,
         max_neighbors: int | None = None,
         neighbor_list_method: str | None = None,
+        neighbor_backend: str | None = None,
     ) -> list:
         """Return a list of :class:`~nvalchemi.hooks.NeighborListHook` instances
         for this model's neighbor configuration.
@@ -811,6 +812,10 @@ class BaseModelMixin(abc.ABC):
         neighbor_list_method : str | None, optional
             Explicit ``nvalchemiops`` neighbor-list method to use.  When
             ``None`` (default), the hook selects an appropriate method.
+        neighbor_backend : str | None, optional
+            Explicit neighbor-list backend. When omitted, a model-level
+            ``backend`` attribute is propagated when present; otherwise the
+            hook keeps its default Warp backend.
         """
         from nvalchemi.dynamics.base import DynamicsStage  # noqa: PLC0415
         from nvalchemi.hooks import NeighborListHook  # noqa: PLC0415
@@ -818,6 +823,8 @@ class BaseModelMixin(abc.ABC):
         nc = self.model_config.neighbor_config
         if nc is None:
             return []
+        if neighbor_backend is None:
+            neighbor_backend = getattr(self, "backend", None)
         return [
             NeighborListHook(
                 nc,
@@ -825,5 +832,6 @@ class BaseModelMixin(abc.ABC):
                 max_neighbors=max_neighbors,
                 method=neighbor_list_method,
                 stage=DynamicsStage.BEFORE_COMPUTE,
+                backend=neighbor_backend,
             )
         ]

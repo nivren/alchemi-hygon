@@ -55,11 +55,27 @@ PYTHONPATH=packages/framework:packages/ops \
 
 结果：`6 passed`，退出码 `0`。覆盖无 Warp 导入、真实 `@torch.compile` 入口、MATRIX/COO、`auto`、method/skin/PBC 的显式失败。该测试在探索环境 CPU 上运行；本轮没有重复受限沙箱 GPU 探针，也没有新增 HCU Hook 运行证据。
 
+## LJ wrapper reference slice 实现结果
+
+`LennardJonesModelWrapper` 现在接受显式 `backend` 参数。默认 `None` 仍延迟加载并使用 Warp custom op；`"torch_reference"`/`"auto"` 使用 ops dispatcher，按 framework 的 per-atom energy 归约到 per-system energy，并返回 Torch autograd force。为避免伪装支持，该分支明确拒绝 PBC、非零 `switch_width`、virial/stress 和分布式 domain decomposition。LJ 模块导入本身不再要求 Warp。
+
+验证命令：
+
+```bash
+PYTHONPATH=packages/framework:packages/ops \
+  /home/wangleping/codes/nvalchemi-toolkit/.venv/bin/python -m pytest -q \
+  packages/framework/test/models/test_lj_torch_reference.py
+```
+
+结果：`4 passed`，退出码 `0`。测试使用独立 FP64 LJ 公式检查距离 `1.1`/`1.2` 的能量和力，比较 full/half 邻居约定，并验证 energy gradient 与返回 force 的符号关系。单卡 HCU wrapper 运行尚未在本轮新增；此前 ops dispatcher 和 framework `compute_neighbors` 已有 HCU 证据。
+
+当前 reference wrapper 的前向测试使用预先写入的 neighbor matrix；`BaseModelMixin.make_neighbor_hooks()` 现在会传播模型的 backend，但该方法仍属于 dynamics/Warp 导入边界，自动构造 reference Hook 的完整无 Warp 动态路径留待下一步单独处理。
+
 ## 后续最小纵向实现
 
 后续实现应保持默认参数和 Warp 路径不变，并增加显式 backend 入口：
 
-1. `LennardJonesModelWrapper(..., backend="torch_reference")` 走 Warp-independent LJ dispatcher；第一版只接受无 PBC、`switch_width=0`、不请求 stress，明确处理 `positions` 的 autograd 需求，并保持 energy/force 的 full/half 归约和 per-system scatter 语义。
-2. 先补 CPU contract tests，再在 HCU 上运行同一条邻居→LJ 链；确认数值后再考虑把 skin/rebuild、PBC、switching 和 virial 拆成独立特性。
+1. 隔离 `make_neighbor_hooks()` 所需的 dynamics stage 导入，使 reference 模型可以在无 Warp 环境构造 Hook。
+2. 在 HCU 上运行同一条邻居→LJ wrapper 链；确认数值后再考虑把 skin/rebuild、PBC、switching 和 virial 拆成独立特性。
 
 本步没有修改 Hook 或 LJ 生产代码，也没有宣称动态 MD、NVE、PBC 或 stress 已支持。
