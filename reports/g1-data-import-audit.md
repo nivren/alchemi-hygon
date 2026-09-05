@@ -54,3 +54,19 @@ nvalchemi.data.__init__
 - 全部计算仍在 Torch 当前 device 上，模块加载未导入 Warp。
 
 该实现目前尚未接入 `LevelStorage`；`from nvalchemi.data import AtomicData, Batch` 仍会触发原有 Warp import-time 链。下一步只处理后端注入和延迟导入，不同时实现 Triton/HIP。
+
+## 第二阶段实现结果
+
+`LevelStorage` 已通过 `StorageBackend` 组合调用 Torch reference；uniform/segmented 的 fit mask、put、defrag 和 segment expansion 不再从 `level_storage.py` 顶层导入 `buffer_kernels`。无 Warp 环境中，`from nvalchemi.data import AtomicData, Batch` 已可成功导入，且构造的 storage 默认报告 `backend.name == "torch"`。
+
+验证命令：
+
+```sh
+PYTHONPATH=packages/framework:packages/ops \
+  /home/wangleping/codes/nvalchemi-toolkit/.venv/bin/python -c \
+  'from nvalchemi.data import AtomicData, Batch; print(AtomicData.__name__, Batch.__name__)'
+```
+
+退出码为 0。`PYTHONPATH=packages/framework:packages/ops /home/wangleping/codes/nvalchemi-toolkit/.venv/bin/python -m pytest -q packages/framework/test/data/test_batch.py` 得到 90 passed、4 skipped（无 CUDA 设备）、1 failed；唯一失败为 `test_pin_memory`，错误是当前进程没有 HIP GPU（`RuntimeError: No HIP GPUs are available`），不涉及 storage backend。`probes/storage_backend_probe.py` 仍退出 0。
+
+当前仍保留 `level_storage.py` 中的 Warp helper 声明作为 NVIDIA 参考，但它不在导入阶段初始化；后续应把该遗留声明移入专用 Warp backend，避免假对象兼容层长期存在。

@@ -90,34 +90,36 @@ from typing import Any
 
 import numpy as np
 import torch
-import warp as wp
 from tensordict import TensorDict
 from torch import Tensor
 
-from nvalchemi.data.buffer_kernels import (
-    TORCH_TO_WP,
-    compute_put_fit_mask_per_system,
-    compute_put_fit_mask_segmented,
-    defrag_per_system,
-    defrag_segmented,
-    put_masked_per_system,
-    put_masked_segmented,
-)
-
-wp.config.quiet = True
 try:
-    wp.init()
-except RuntimeError as e:
-    raise RuntimeError(
-        "Failed to initialize warp, likely due to missing drivers and/or devices."
-        " Make sure you have the correct CUDA version, and that GPUs are available."
-    ) from e
+    import warp as wp
+except ModuleNotFoundError:
+    # The legacy Warp helper declarations below are retained for the NVIDIA
+    # reference path, but must not make the Torch data model un-importable.
+    class _WarpImportStub:
+        int32 = object()
+        int64 = object()
+
+        def kernel(self, *args: Any, **kwargs: Any):
+            return lambda fn: fn
+
+        def array(self, *args: Any, **kwargs: Any):
+            return object()
+
+        def overload(self, fn: Any, signature: Any) -> Any:
+            return fn
+
+    wp = _WarpImportStub()
 
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
 IndexType = int | slice | Tensor | list
 DeviceType = torch.device | str
+
+from nvalchemi.data.storage_backend import StorageBackend, TorchStorageBackend
 # Segment/graph index dtype for SegmentedLevelStorage (matches segment_lengths).
 INDEX_DTYPE = torch.int32
 
@@ -630,10 +632,12 @@ class BaseLevelStorage(ABC):
         device: DeviceType | None = None,
         attr_map: LevelSchema | None = None,
         validate: bool = True,
+        backend: StorageBackend | None = None,
     ) -> None:
         self._attr_map = attr_map if attr_map else LevelSchema()
         self.device = torch.device(device) if device else torch.device("cpu")
         self.validate = validate
+        self._backend: StorageBackend = backend or TorchStorageBackend()
 
         if data is None:
             self._data = TensorDict({}, batch_size=torch.Size([0]), device=self.device)
@@ -675,6 +679,11 @@ class BaseLevelStorage(ABC):
     def attr_map(self) -> LevelSchema:
         """The :class:`LevelSchema` associated with this container."""
         return self._attr_map
+
+    @property
+    def backend(self) -> StorageBackend:
+        """Execution backend for storage mutations and segmented indexing."""
+        return self._backend
 
     @attr_map.setter
     def attr_map(self, attr_map: LevelSchema) -> None:
@@ -810,11 +819,11 @@ class BaseLevelStorage(ABC):
     def deepcopy(self) -> BaseLevelStorage:
         """Return a new container with cloned tensors (attr_map is shared)."""
         cloned = {k: _clone_tensor(v) for k, v in self._data.items()}
-        return self.__class__(cloned, device=self.device, validate=False)
+        return self.__class__(cloned, device=self.device, validate=False, backend=self._backend)
 
     def copy(self) -> BaseLevelStorage:
         """Return a shallow copy (tensors are **not** cloned)."""
-        return self.__class__(self._data, device=self.device, validate=False)
+        return self.__class__(self._data, device=self.device, validate=False, backend=self._backend)
 
     def clone(self) -> BaseLevelStorage:
         """Return a deep copy including an independent attr_map clone."""
@@ -824,6 +833,7 @@ class BaseLevelStorage(ABC):
             device=self.device,
             attr_map=self._attr_map.clone(),
             validate=False,
+            backend=self._backend,
         )
 
     def to_device(
@@ -878,6 +888,7 @@ class UniformLevelStorage(BaseLevelStorage):
         device: DeviceType | None = None,
         attr_map: LevelSchema | None = None,
         validate: bool = True,
+        backend: StorageBackend | None = None,
     ) -> None:
         # Validate first dims before building TensorDict (TensorDict requires consistent batch)
         if data is not None and isinstance(data, dict) and validate and len(data) > 1:
@@ -888,7 +899,7 @@ class UniformLevelStorage(BaseLevelStorage):
                         f"Inconsistent first dimension: expected {first_dim}, "
                         f"got {value.shape[0]} for '{key}'"
                     )
-        super().__init__(data, device, attr_map, validate)
+        super().__init__(data, device, attr_map, validate, backend)
 
         if data is not None and validate and not self._data.is_empty():
             first_key = next(iter(self._data.keys()))
@@ -937,7 +948,9 @@ class UniformLevelStorage(BaseLevelStorage):
             idx = self._prepare_index(idx)
 
         selected_td = self._data[idx]
-        return self.__class__(selected_td, device=self.device, validate=False)
+        return self.__class__(
+            selected_td, device=self.device, validate=False, backend=self._backend
+        )
 
     def _prepare_index(self, idx: Any) -> Tensor:
         """Coerce *idx* to a tensor on ``self.device``, preserving integer dtype."""
@@ -1107,7 +1120,7 @@ class UniformLevelStorage(BaseLevelStorage):
                 raise ValueError(
                     f"dest_mask shape {dest_mask.shape[0]} != dest capacity {dest_capacity}"
                 )
-        compute_put_fit_mask_per_system(source_mask, dest_mask, fit_mask)
+        self._backend.compute_put_fit_mask_per_system(source_mask, dest_mask, fit_mask)
 
     def put(
         self,
@@ -1171,7 +1184,7 @@ class UniformLevelStorage(BaseLevelStorage):
                 raise ValueError(
                     f"dest attribute '{key}' first dim {dest_t.shape[0]} < {dest_capacity}"
                 )
-            put_masked_per_system(
+            self._backend.put_masked_per_system(
                 src_t,
                 mask,
                 dest_t,
@@ -1218,10 +1231,8 @@ class UniformLevelStorage(BaseLevelStorage):
             raise ValueError(f"copied_mask shape {copied_mask.shape[0]} != {n_src}")
         for key in list(self._data.keys()):
             t = self._data[key]
-            if t.dtype not in TORCH_TO_WP:
-                continue
             # Pass a clone so the kernel's in-place mask update doesn't affect other keys
-            defrag_per_system(t, copied_mask.clone())
+            self._backend.defrag_per_system(t, copied_mask.clone())
         object.__setattr__(self, "_num_kept", int((~copied_mask).sum().item()))
         if hasattr(self, "_copied_mask"):
             object.__delattr__(self, "_copied_mask")
@@ -1296,8 +1307,9 @@ class SegmentedLevelStorage(BaseLevelStorage):
         batch_ptr: Tensor | None = None,
         batch_ptr_capacity: int | None = None,
         validate: bool = True,
+        backend: StorageBackend | None = None,
     ) -> None:
-        super().__init__(data, device, attr_map, validate)
+        super().__init__(data, device, attr_map, validate, backend)
 
         if data is not None and validate and not self._data.is_empty():
             sizes = {self._data[k].shape[0] for k in self._data.keys()}
@@ -1543,31 +1555,10 @@ class SegmentedLevelStorage(BaseLevelStorage):
                         )
 
         seg_idx = self._normalize_segment_index(idx)
-        if self.device.type == "cuda":
-            self._lazy_init_batch_ptr()
-            return _expand_segments_warp(
-                seg_idx, self._batch_ptr, self.device, torch.int64
-            )
-
-        else:
-            starts = self.batch_ptr[seg_idx]
-            ends = self.batch_ptr[seg_idx + 1]
-            lengths = ends - starts
-            total = int(lengths.sum().item())
-            if total == 0:
-                return torch.empty(0, device=self.device, dtype=torch.int64)
-
-            repeated_starts = torch.repeat_interleave(
-                starts, lengths, output_size=total
-            )
-            cum_lengths = torch.cumsum(lengths, 0, dtype=lengths.dtype)
-            prefix = torch.repeat_interleave(
-                cum_lengths - lengths,
-                lengths,
-                output_size=total,
-            )
-            local = torch.arange(total, device=self.device, dtype=torch.int64) - prefix
-            return repeated_starts + local
+        self._lazy_init_batch_ptr()
+        return self._backend.expand_segments(
+            seg_idx, self._batch_ptr, index_dtype=torch.int64
+        )
 
     def _select_segment_lengths(self, idx: IndexType) -> Tensor:
         """Return segment_lengths for the selected segments."""
@@ -1597,6 +1588,7 @@ class SegmentedLevelStorage(BaseLevelStorage):
             device=self.device,
             segment_lengths=segment_lengths,
             validate=False,
+            backend=self._backend,
         )
 
     def update_at(self, key: str, value: Any, idx: IndexType) -> None:
@@ -1668,6 +1660,7 @@ class SegmentedLevelStorage(BaseLevelStorage):
             batch_idx=cloned_bidx,
             batch_ptr=cloned_bptr,
             validate=False,
+            backend=self._backend,
         )
         if getattr(self, "_num_segments", None) is not None:
             object.__setattr__(out, "_num_segments", self._num_segments)
@@ -1818,7 +1811,7 @@ class SegmentedLevelStorage(BaseLevelStorage):
             fit_mask.zero_()
             return
         dest_capacity = self._data.shape[0]
-        compute_put_fit_mask_segmented(
+        self._backend.compute_put_fit_mask_segmented(
             source._batch_ptr,
             source_mask,
             self._batch_ptr,
@@ -1884,7 +1877,7 @@ class SegmentedLevelStorage(BaseLevelStorage):
             dest_t = self._data[key]
             if dest_t.dtype != torch.float32:
                 continue
-            new_num_dest = put_masked_segmented(
+            new_num_dest = self._backend.put_masked_segmented(
                 src_t,
                 src._batch_ptr,
                 mask,
@@ -1938,9 +1931,13 @@ class SegmentedLevelStorage(BaseLevelStorage):
         self._lazy_init_batch_ptr()
         keys = list(self._data.keys())
         original_bp = self._batch_ptr.clone()
-        num_kept_t = defrag_segmented(self._data[keys[0]], self._batch_ptr, copied_mask)
+        num_kept_t = self._backend.defrag_segmented(
+            self._data[keys[0]], self._batch_ptr, copied_mask
+        )
         for key in keys[1:]:
-            defrag_segmented(self._data[key], original_bp.clone(), copied_mask)
+            self._backend.defrag_segmented(
+                self._data[key], original_bp.clone(), copied_mask
+            )
 
         self.segment_lengths = self._batch_ptr[1:] - self._batch_ptr[:-1]
         n_kept = int(num_kept_t.item())
