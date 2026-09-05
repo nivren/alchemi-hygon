@@ -87,3 +87,16 @@
 - 从 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 复用 NumPy 1.26.4，项目 `.venv` 当前实际版本为 1.26.4；没有重新安装或替换海光 Torch/Triton。
 - `.venv/bin/python probes/torch_probe.py --device cpu` 退出 0；新增 NumPy↔Torch 转换检查通过，FP64 一阶/二阶梯度、segment、FFT 仍通过。证据：`artifacts/g0/torch_cpu_numpy1264.json`、`artifacts/g0/torch_cpu_numpy1264.stderr`。
 - stderr 只有环境日志 `Could not open /var/log/hylog/.`，不再有 NumPy ABI 警告。环境冻结已更新为 NumPy 1.26.4。
+
+### 2026-09-05：pin_memory 失败原因复核
+
+- 之前的 Batch 回归在受限探针沙箱中运行；该进程看不到 `/dev/kfd` 和 `/dev/dri`，因此海光 Torch 报告 `torch.cuda.is_available()=False`、`device_count=0`，上游 `test_pin_memory` 随之失败为 `No HIP GPUs are available`。
+- 在主机设备可见的 shell 中显式执行 `source /opt/dtk-26.04/env.sh`，项目 `.venv` 识别 8 张 `BW200, UBB BW1000`（HIP 6.3.26093），一个元素的 `pin_memory()` 成功。该失败是探针执行环境阻断，不是 HCU 不能共享，也不是存储后端改动造成。
+- 证据与可重跑命令见 `reports/g1-pin-memory-environment.md`；在相同主机环境中重跑 `test_pin_memory` 得到 1 passed。项目 `.venv` 尚未安装 pytest，单测暂用已有探索环境执行。后续 GPU 测试必须在可见 `/dev/kfd`/`/dev/dri` 且已加载 DTK 的作业环境中运行，并记录实际设备占用。
+
+### 2026-09-05：存储后端契约与多属性复制
+
+- `UniformLevelStorage.put` 与 `SegmentedLevelStorage.put` 现在只在第一个共同属性上决定复制集合；其余属性复用相同的目标槽位/segment offset 和复制掩码，避免多属性数据错位或掩码被清零。
+- 新增 `packages/framework/test/data/test_storage_backend.py`：无 Warp 公共导入 smoke、uniform 双属性复制、segmented 双属性复制共 3 项全部通过。
+- `test_level_storage.py` 96 passed；`test_batch.py` 在受限沙箱中仍为 90 passed、4 skipped、1 failed（pin_memory 环境阻断，已在上一条记录并在主机 DTK 环境单测通过）。证据：`reports/g1-storage-contract.md`。
+- 本步仍是 Torch reference/CPU 验证，未宣称 gfx936 算子已验证；下一小步继续补充后端契约边界，再选择邻居→LJ 的最小纵向链。

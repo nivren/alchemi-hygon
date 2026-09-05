@@ -913,8 +913,8 @@ class Batch(DataMixin):
 
         Computes per-level fit masks (system/atoms/edges), takes their logical_and
         as the copy mask, then puts with that mask so all levels only copy systems
-        that fit in every level. Uses Warp buffer kernels; only float32 attributes
-        copied. If copied_mask is provided, it is updated with the copy mask for
+        that fit in every level. Uses the configured storage backend; only float32
+        attributes are copied. If copied_mask is provided, it is updated with the copy mask for
         :meth:`defrag`.
 
         Parameters
@@ -982,7 +982,7 @@ class Batch(DataMixin):
         """Defrag this batch in-place by removing graphs that were put.
 
         Drops graphs where copied_mask[i] is True (e.g. from a prior
-        :meth:`put`). Uses Warp buffer kernels; one host sync per group to
+        :meth:`put`). Uses the configured storage backend; one host sync per group to
         trim. Only float32 attributes are compacted.
 
         Parameters

@@ -980,8 +980,8 @@ class UniformLevelStorage(BaseLevelStorage):
         """Put rows where mask[i] is True from src into this storage (buffer).
 
         Copies only float32 attributes; only as many rows as fit in this
-        storage's empty slots (dest_mask[i] False = empty). Uses Warp buffer
-        kernels (no host sync). If copied_mask is provided, it is updated in
+        storage's empty slots (dest_mask[i] False = empty). Uses the configured
+        storage backend (no host sync requirement). If copied_mask is provided, it is updated in
         place with True for each row that was copied.
 
         Parameters
@@ -1024,6 +1024,13 @@ class UniformLevelStorage(BaseLevelStorage):
                 raise ValueError(
                     f"dest_mask shape {dest_mask.shape[0]} != dest capacity {dest_capacity}"
                 )
+        # Select destination slots once, then reuse the same mapping for every
+        # common attribute.  Each backend call mutates its destination mask;
+        # passing that mutated mask to the next attribute would otherwise place
+        # attributes in different rows (and can overwrite ``out_mask``).
+        initial_dest_mask = dest_mask.clone()
+        copy_mask = mask
+        first_attribute = True
         for key in common:
             src_t = src._data[key]
             dest_t = self._data[key]
@@ -1031,13 +1038,22 @@ class UniformLevelStorage(BaseLevelStorage):
                 raise ValueError(
                     f"dest attribute '{key}' first dim {dest_t.shape[0]} < {dest_capacity}"
                 )
+            attribute_dest_mask = (
+                dest_mask if first_attribute else initial_dest_mask.clone()
+            )
             self._backend.put_masked_per_system(
                 src_t,
-                mask,
+                copy_mask,
                 dest_t,
-                dest_mask,
+                attribute_dest_mask,
                 out_mask,
             )
+            if first_attribute:
+                # Preserve the caller-visible occupancy update from the first
+                # attribute.  Later attributes use a private mask snapshot.
+                dest_mask.copy_(attribute_dest_mask)
+                copy_mask = out_mask.clone()
+                first_attribute = False
         num_copied = out_mask.sum().item()
         if num_copied > 0 and getattr(self, "_num_kept", None) is not None:
             object.__setattr__(self, "_num_kept", self._num_kept + num_copied)
@@ -1677,7 +1693,7 @@ class SegmentedLevelStorage(BaseLevelStorage):
         """Put segments where mask[i] is True from src into this storage (buffer).
 
         New segment boundaries are appended to this storage's batch_ptr. Only
-        float32 attributes are copied. Uses Warp buffer kernels; one host sync
+        float32 attributes are copied. Uses the configured storage backend; one host sync
         after all attributes to update this storage's segment count. If
         copied_mask is provided, it is updated in place with True for each
         segment that was copied.
@@ -1717,6 +1733,9 @@ class SegmentedLevelStorage(BaseLevelStorage):
         if dest_batch_ptr.shape[0] < min_batch_ptr_size:
             return
         new_num_dest = None
+        initial_dest_batch_ptr = dest_batch_ptr.clone()
+        copy_mask = mask
+        first_attribute = True
         for key in common:
             src_t = src._data[key]
             if src_t.dtype != torch.float32:
@@ -1724,15 +1743,26 @@ class SegmentedLevelStorage(BaseLevelStorage):
             dest_t = self._data[key]
             if dest_t.dtype != torch.float32:
                 continue
+            attribute_batch_ptr = (
+                dest_batch_ptr
+                if first_attribute
+                else initial_dest_batch_ptr.clone()
+            )
             new_num_dest = self._backend.put_masked_segmented(
                 src_t,
                 src._batch_ptr,
-                mask,
+                copy_mask,
                 dest_t,
-                dest_batch_ptr,
+                attribute_batch_ptr,
                 num_dest_segments,
                 out_mask,
             )
+            if first_attribute:
+                # The first attribute commits segment boundaries.  Subsequent
+                # attributes replay the same selected segments against the
+                # original pointer snapshot, so all attributes share offsets.
+                copy_mask = out_mask.clone()
+                first_attribute = False
         if new_num_dest is not None:
             new_n = int(new_num_dest.item())
             self.segment_lengths = (
@@ -1751,7 +1781,7 @@ class SegmentedLevelStorage(BaseLevelStorage):
 
         Kept segments move to the front; batch_ptr is updated in place (tail
         filled so batch_ptr[-1] == total_kept_elems); segment_lengths derived
-        from it; no trim. All attributes must be float32 (uses Warp kernels).
+        from it; no trim. All attributes must be float32 for the selected backend.
 
         Parameters
         ----------
