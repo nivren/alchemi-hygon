@@ -100,3 +100,9 @@
 - 新增 `packages/framework/test/data/test_storage_backend.py`：无 Warp 公共导入 smoke、uniform 双属性复制、segmented 双属性复制共 3 项全部通过。
 - `test_level_storage.py` 96 passed；`test_batch.py` 在受限沙箱中仍为 90 passed、4 skipped、1 failed（pin_memory 环境阻断，已在上一条记录并在主机 DTK 环境单测通过）。证据：`reports/g1-storage-contract.md`。
 - 本步仍是 Torch reference/CPU 验证，未宣称 gfx936 算子已验证；下一小步继续补充后端契约边界，再选择邻居→LJ 的最小纵向链。
+
+### 2026-09-05：邻居→LJ Torch reference 纵向切片
+
+- 新增 `probes/neighbor_lj_reference.py`，不导入 Warp，固定两个体系、无 PBC、dense neighbor matrix 的 full/half 语义，并用 Torch autograd 定义 LJ 力参考。
+- CPU 和 `source /opt/dtk-26.04/env.sh` 后的 `HIP_VISIBLE_DEVICES=0` 单卡 HCU 均通过：能量 `-0.6236757013081533`，full/half 一致；batch 边界、pair 集合、每体系零总力均通过。
+- 这是 reference oracle，不等同于 `nvalchemiops` 生产 API 已移植；PBC、cell-list、容量扩容、switching、virial、NVE 和双卡 ownership 仍未覆盖。证据：`reports/g1-neighbor-lj-reference.md`。

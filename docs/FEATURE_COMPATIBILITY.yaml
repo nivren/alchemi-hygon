@@ -1180,13 +1180,15 @@
         ],
         "dcu_tests": [],
         "evidence": [
-          "reports/upstream_inventory.json"
+          "reports/upstream_inventory.json",
+          "reports/g1-neighbor-lj-reference.md"
         ],
         "environments": []
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线运行",
+        "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产邻居 API 仍依赖 Warp"
       ],
       "release_gate": "G1"
     },
@@ -1248,13 +1250,15 @@
         ],
         "dcu_tests": [],
         "evidence": [
-          "reports/upstream_inventory.json"
+          "reports/upstream_inventory.json",
+          "reports/g1-neighbor-lj-reference.md"
         ],
         "environments": []
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线运行",
+        "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产 LJ API 仍依赖 Warp"
       ],
       "release_gate": "G1"
     },
