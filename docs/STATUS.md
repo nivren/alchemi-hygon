@@ -159,3 +159,10 @@
 - PBC `half_fill=True`、周期 pair geometry、skin/rebuild、method/scratch 仍显式失败；因此尚未改变 LJ wrapper 的 PBC 拒绝契约，也没有伪装支持周期力或 NVE。
 - ops PBC 测试 `8 passed`；framework `compute_neighbors`/Hook PBC 测试通过；CPU 三斜胞契约和 source DTK 26.04 后 BW200/gfx936 HCU 探针均通过。HCU 结果为邻居矩阵 `[[1], [0]]`、shift `[[[-1, 0, 0]], [[1, 0, 0]]]`、计数 `[1, 1]`，设备 `BW200, UBB BW1000`。证据：[reports/g1-pbc-neighbor-reference.md](../reports/g1-pbc-neighbor-reference.md)。
 - 下一小步：为 LJ reference 接入 PBC shift 后的 energy/force 公式和 FP64 解析对照；通过后再做短 NVE/轨迹。
+
+### 2026-09-05：暂停交接点
+
+- 当前暂停基线为 commit `4a7d0df`（`feat: add periodic torch reference neighbors`）；暂停前工作树干净。相关前置提交包括 `68433be`（隔离 `DynamicsStage`）和 `f5a4621`（记录数值验证策略）。
+- 已有真实证据：Torch reference 的 no-PBC 邻居→LJ 链在 CPU 与 BW200/gfx936 HCU 上通过；PBC full-list 邻居集合、MATRIX/COO 写回和 signed image shifts 在 CPU、framework 测试及 HCU 探针上通过。当前回归结果为 ops PBC `8 passed`，framework 邻居/Hook/LJ 组合 `16 passed`。证据见 [PBC 报告](../reports/g1-pbc-neighbor-reference.md) 和 `artifacts/g1/pbc_neighbor_reference_hcu0.json`。
+- 当前边界保持明确：PBC half-list、带 image shift 的 LJ energy/force、switching、virial/stress、skin/rebuild、NVE/轨迹、Triton/HIP kernel 和 Warp 生产默认路径仍未移植或验证；不得将邻居 PBC 通过写成完整周期物理链。项目 `.venv` 已记录 HUST PyPI 镜像和缓存位置，但仍缺少完整 framework 依赖（当前 HCU framework 探针复用 `/home/wangleping/codes/nvalchemi-toolkit/.venv`）。
+- 下次第一条开发任务：实现并测试 `lj_energy_forces` 消费 `neighbor_matrix_shifts` 的 full-list 周期参考公式（先固定无 switching、无 stress、无 half-list），用独立 FP64 解析结果比较 energy/force；通过后再单独增加短 NVE/轨迹探针。开始前先重跑 `probes/pbc_neighbor_reference.py`，确认 DTK 26.04、gfx936 设备和当前环境仍可见。
