@@ -1,0 +1,19 @@
+{
+    "copyright_file": "header.txt",
+    "dir": "../../",
+    "exclude-dir": [
+        "../../build/",
+        "../../docs/",
+        "../../.venv/",
+        "../../.git/",
+        "../../.github/",
+        "../../.vscode/",
+        "../../.tmp/",
+        "../../benchmarks/results/",
+        "../../.pytest_cache/",
+        "../../.mypy_cache/"
+      ],
+    "include-ext": [
+        ".py"
+    ]
+  }

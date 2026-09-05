@@ -1,0 +1,855 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""PyTorch bindings for unbatched naive dual cutoff neighbor list construction."""
+
+from __future__ import annotations
+
+import torch
+import warp as wp
+
+from nvalchemiops.neighbors.naive import (
+    naive_neighbor_matrix_dual_cutoff,
+    naive_neighbor_matrix_pbc_dual_cutoff,
+)
+from nvalchemiops.neighbors.neighbor_utils import (
+    estimate_max_neighbors,
+    selective_zero_num_neighbors_single,
+)
+from nvalchemiops.torch._warp_op_helpers import register_noop_fake
+from nvalchemiops.torch.neighbors.neighbor_utils import (
+    compute_naive_num_shifts,
+    get_neighbor_list_from_neighbor_matrix,
+)
+from nvalchemiops.torch.types import get_wp_dtype, get_wp_mat_dtype, get_wp_vec_dtype
+
+__all__ = ["naive_neighbor_list_dual_cutoff"]
+
+
+@torch.library.custom_op(
+    "nvalchemiops::_naive_neighbor_matrix_no_pbc_dual_cutoff",
+    mutates_args=(
+        "neighbor_matrix1",
+        "num_neighbors1",
+        "neighbor_matrix2",
+        "num_neighbors2",
+    ),
+)
+def _naive_neighbor_matrix_no_pbc_dual_cutoff(
+    positions: torch.Tensor,
+    cutoff1: float,
+    cutoff2: float,
+    neighbor_matrix1: torch.Tensor,
+    num_neighbors1: torch.Tensor,
+    neighbor_matrix2: torch.Tensor,
+    num_neighbors2: torch.Tensor,
+    half_fill: bool = False,
+) -> None:
+    """Fill two neighbor matrices for atoms using dual cutoffs with naive O(N^2) algorithm.
+
+    This function is torch compilable.
+
+    See Also
+    --------
+    nvalchemiops.neighbors.naive_dual_cutoff.naive_neighbor_matrix_dual_cutoff : Core warp launcher
+    naive_neighbor_list_dual_cutoff : High-level wrapper function
+    """
+    device = positions.device
+    wp_vec_dtype = get_wp_vec_dtype(positions.dtype)
+    wp_dtype = get_wp_dtype(positions.dtype)
+
+    wp_positions = wp.from_torch(
+        positions, dtype=wp_vec_dtype, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix1 = wp.from_torch(
+        neighbor_matrix1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors1 = wp.from_torch(
+        num_neighbors1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix2 = wp.from_torch(
+        neighbor_matrix2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors2 = wp.from_torch(
+        num_neighbors2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+
+    naive_neighbor_matrix_dual_cutoff(
+        positions=wp_positions,
+        cutoff1=cutoff1,
+        cutoff2=cutoff2,
+        neighbor_matrix1=wp_neighbor_matrix1,
+        num_neighbors1=wp_num_neighbors1,
+        neighbor_matrix2=wp_neighbor_matrix2,
+        num_neighbors2=wp_num_neighbors2,
+        wp_dtype=wp_dtype,
+        device=str(device),
+        half_fill=half_fill,
+    )
+
+
+@torch.library.custom_op(
+    "nvalchemiops::_naive_neighbor_matrix_pbc_dual_cutoff",
+    mutates_args=(
+        "neighbor_matrix1",
+        "neighbor_matrix2",
+        "neighbor_matrix_shifts1",
+        "neighbor_matrix_shifts2",
+        "num_neighbors1",
+        "num_neighbors2",
+    ),
+)
+def _naive_neighbor_matrix_pbc_dual_cutoff(
+    positions: torch.Tensor,
+    cutoff1: float,
+    cutoff2: float,
+    cell: torch.Tensor,
+    pbc: torch.Tensor,
+    neighbor_matrix1: torch.Tensor,
+    neighbor_matrix2: torch.Tensor,
+    neighbor_matrix_shifts1: torch.Tensor,
+    neighbor_matrix_shifts2: torch.Tensor,
+    num_neighbors1: torch.Tensor,
+    num_neighbors2: torch.Tensor,
+    shift_range_per_dimension: torch.Tensor,
+    num_shifts_per_system: torch.Tensor,
+    max_shifts_per_system: int,
+    half_fill: bool = False,
+    wrap_positions: bool = True,
+    positions_wrapped_buffer: torch.Tensor | None = None,
+    per_atom_cell_offsets_buffer: torch.Tensor | None = None,
+    inv_cell_buffer: torch.Tensor | None = None,
+) -> None:
+    """Compute two neighbor matrices with periodic boundary conditions using dual cutoffs.
+
+    This function is torch compilable.
+
+    See Also
+    --------
+    nvalchemiops.neighbors.naive_dual_cutoff.naive_neighbor_matrix_pbc_dual_cutoff : Core warp launcher
+    naive_neighbor_list_dual_cutoff : High-level wrapper function
+    """
+    device = positions.device
+    wp_vec_dtype = get_wp_vec_dtype(positions.dtype)
+    wp_mat_dtype = get_wp_mat_dtype(positions.dtype)
+    wp_dtype = get_wp_dtype(positions.dtype)
+
+    wp_positions = wp.from_torch(
+        positions, dtype=wp_vec_dtype, requires_grad=False, return_ctype=True
+    )
+    wp_cell = wp.from_torch(
+        cell, dtype=wp_mat_dtype, requires_grad=False, return_ctype=True
+    )
+    wp_pbc = wp.from_torch(pbc, dtype=wp.bool, requires_grad=False, return_ctype=True)
+    wp_shift_range = wp.from_torch(
+        shift_range_per_dimension,
+        dtype=wp.vec3i,
+        requires_grad=False,
+        return_ctype=True,
+    )
+    wp_neighbor_matrix1 = wp.from_torch(
+        neighbor_matrix1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix2 = wp.from_torch(
+        neighbor_matrix2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix_shifts1 = wp.from_torch(
+        neighbor_matrix_shifts1, dtype=wp.vec3i, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix_shifts2 = wp.from_torch(
+        neighbor_matrix_shifts2, dtype=wp.vec3i, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors1 = wp.from_torch(
+        num_neighbors1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors2 = wp.from_torch(
+        num_neighbors2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_positions_wrapped = (
+        wp.from_torch(
+            positions_wrapped_buffer,
+            dtype=wp_vec_dtype,
+            requires_grad=False,
+            return_ctype=True,
+        )
+        if positions_wrapped_buffer is not None
+        else None
+    )
+    wp_per_atom_cell_offsets = (
+        wp.from_torch(
+            per_atom_cell_offsets_buffer,
+            dtype=wp.vec3i,
+            requires_grad=False,
+            return_ctype=True,
+        )
+        if per_atom_cell_offsets_buffer is not None
+        else None
+    )
+    wp_inv_cell = (
+        wp.from_torch(
+            inv_cell_buffer, dtype=wp_mat_dtype, requires_grad=False, return_ctype=True
+        )
+        if inv_cell_buffer is not None
+        else None
+    )
+
+    naive_neighbor_matrix_pbc_dual_cutoff(
+        positions=wp_positions,
+        cutoff1=cutoff1,
+        cutoff2=cutoff2,
+        cell=wp_cell,
+        pbc=wp_pbc,
+        shift_range=wp_shift_range,
+        num_shifts=max_shifts_per_system,
+        neighbor_matrix1=wp_neighbor_matrix1,
+        neighbor_matrix2=wp_neighbor_matrix2,
+        neighbor_matrix_shifts1=wp_neighbor_matrix_shifts1,
+        neighbor_matrix_shifts2=wp_neighbor_matrix_shifts2,
+        num_neighbors1=wp_num_neighbors1,
+        num_neighbors2=wp_num_neighbors2,
+        wp_dtype=wp_dtype,
+        device=str(device),
+        half_fill=half_fill,
+        wrap_positions=wrap_positions,
+        positions_wrapped_buffer=wp_positions_wrapped,
+        per_atom_cell_offsets_buffer=wp_per_atom_cell_offsets,
+        inv_cell_buffer=wp_inv_cell,
+    )
+
+
+@torch.library.custom_op(
+    "nvalchemiops::_naive_neighbor_matrix_no_pbc_dual_cutoff_selective",
+    mutates_args=(
+        "neighbor_matrix1",
+        "num_neighbors1",
+        "neighbor_matrix2",
+        "num_neighbors2",
+    ),
+)
+def _naive_neighbor_matrix_no_pbc_dual_cutoff_selective(
+    positions: torch.Tensor,
+    cutoff1: float,
+    cutoff2: float,
+    neighbor_matrix1: torch.Tensor,
+    num_neighbors1: torch.Tensor,
+    neighbor_matrix2: torch.Tensor,
+    num_neighbors2: torch.Tensor,
+    rebuild_flags: torch.Tensor,
+    half_fill: bool = False,
+) -> None:
+    """Selective naive dual cutoff neighbor matrix custom op (no PBC).
+
+    Wraps the GPU-side selective kernel: ``rebuild_flags[0]`` is checked on the
+    device — no CPU-GPU synchronisation occurs.
+
+    See Also
+    --------
+    nvalchemiops.neighbors.naive_dual_cutoff.naive_neighbor_matrix_dual_cutoff : Core warp launcher
+    naive_neighbor_list_dual_cutoff : High-level wrapper that dispatches here when rebuild_flags is set
+    """
+    device = positions.device
+    wp_device = wp.device_from_torch(device)
+    wp_dtype = get_wp_dtype(positions.dtype)
+    wp_vec_dtype = get_wp_vec_dtype(positions.dtype)
+
+    wp_positions = wp.from_torch(
+        positions, dtype=wp_vec_dtype, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix1 = wp.from_torch(
+        neighbor_matrix1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors1 = wp.from_torch(
+        num_neighbors1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix2 = wp.from_torch(
+        neighbor_matrix2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors2 = wp.from_torch(
+        num_neighbors2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_rebuild_flags = wp.from_torch(
+        rebuild_flags.view(-1)[:1].contiguous(),
+        dtype=wp.bool,
+        requires_grad=False,
+        return_ctype=True,
+    )
+
+    selective_zero_num_neighbors_single(
+        wp_num_neighbors1, wp_rebuild_flags, str(wp_device)
+    )
+    selective_zero_num_neighbors_single(
+        wp_num_neighbors2, wp_rebuild_flags, str(wp_device)
+    )
+    naive_neighbor_matrix_dual_cutoff(
+        positions=wp_positions,
+        cutoff1=cutoff1,
+        cutoff2=cutoff2,
+        neighbor_matrix1=wp_neighbor_matrix1,
+        num_neighbors1=wp_num_neighbors1,
+        neighbor_matrix2=wp_neighbor_matrix2,
+        num_neighbors2=wp_num_neighbors2,
+        wp_dtype=wp_dtype,
+        device=str(wp_device),
+        half_fill=half_fill,
+        rebuild_flags=wp_rebuild_flags,
+    )
+
+
+@torch.library.custom_op(
+    "nvalchemiops::_naive_neighbor_matrix_pbc_dual_cutoff_selective",
+    mutates_args=(
+        "neighbor_matrix1",
+        "neighbor_matrix2",
+        "neighbor_matrix_shifts1",
+        "neighbor_matrix_shifts2",
+        "num_neighbors1",
+        "num_neighbors2",
+    ),
+)
+def _naive_neighbor_matrix_pbc_dual_cutoff_selective(
+    positions: torch.Tensor,
+    cutoff1: float,
+    cutoff2: float,
+    cell: torch.Tensor,
+    pbc: torch.Tensor,
+    neighbor_matrix1: torch.Tensor,
+    neighbor_matrix2: torch.Tensor,
+    neighbor_matrix_shifts1: torch.Tensor,
+    neighbor_matrix_shifts2: torch.Tensor,
+    num_neighbors1: torch.Tensor,
+    num_neighbors2: torch.Tensor,
+    shift_range_per_dimension: torch.Tensor,
+    num_shifts_per_system: torch.Tensor,
+    max_shifts_per_system: int,
+    rebuild_flags: torch.Tensor,
+    half_fill: bool = False,
+    wrap_positions: bool = True,
+    positions_wrapped_buffer: torch.Tensor | None = None,
+    per_atom_cell_offsets_buffer: torch.Tensor | None = None,
+    inv_cell_buffer: torch.Tensor | None = None,
+) -> None:
+    """Selective naive dual cutoff PBC neighbor matrix custom op.
+
+    ``rebuild_flags[0]`` is checked on the device — no CPU-GPU synchronisation occurs.
+
+    See Also
+    --------
+    nvalchemiops.neighbors.naive_dual_cutoff.naive_neighbor_matrix_pbc_dual_cutoff : Core warp launcher
+    naive_neighbor_list_dual_cutoff : High-level wrapper that dispatches here when rebuild_flags is set
+    """
+    device = positions.device
+    wp_device = wp.device_from_torch(device)
+    wp_vec_dtype = get_wp_vec_dtype(positions.dtype)
+    wp_mat_dtype = get_wp_mat_dtype(positions.dtype)
+    wp_dtype = get_wp_dtype(positions.dtype)
+
+    wp_positions = wp.from_torch(
+        positions, dtype=wp_vec_dtype, requires_grad=False, return_ctype=True
+    )
+    wp_cell = wp.from_torch(
+        cell, dtype=wp_mat_dtype, requires_grad=False, return_ctype=True
+    )
+    wp_pbc = wp.from_torch(pbc, dtype=wp.bool, requires_grad=False, return_ctype=True)
+    wp_shift_range = wp.from_torch(
+        shift_range_per_dimension,
+        dtype=wp.vec3i,
+        requires_grad=False,
+        return_ctype=True,
+    )
+    wp_neighbor_matrix1 = wp.from_torch(
+        neighbor_matrix1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix2 = wp.from_torch(
+        neighbor_matrix2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix_shifts1 = wp.from_torch(
+        neighbor_matrix_shifts1, dtype=wp.vec3i, requires_grad=False, return_ctype=True
+    )
+    wp_neighbor_matrix_shifts2 = wp.from_torch(
+        neighbor_matrix_shifts2, dtype=wp.vec3i, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors1 = wp.from_torch(
+        num_neighbors1, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_num_neighbors2 = wp.from_torch(
+        num_neighbors2, dtype=wp.int32, requires_grad=False, return_ctype=True
+    )
+    wp_rebuild_flags = wp.from_torch(
+        rebuild_flags.view(-1)[:1].contiguous(),
+        dtype=wp.bool,
+        requires_grad=False,
+        return_ctype=True,
+    )
+    wp_positions_wrapped = (
+        wp.from_torch(
+            positions_wrapped_buffer,
+            dtype=wp_vec_dtype,
+            requires_grad=False,
+            return_ctype=True,
+        )
+        if positions_wrapped_buffer is not None
+        else None
+    )
+    wp_per_atom_cell_offsets = (
+        wp.from_torch(
+            per_atom_cell_offsets_buffer,
+            dtype=wp.vec3i,
+            requires_grad=False,
+            return_ctype=True,
+        )
+        if per_atom_cell_offsets_buffer is not None
+        else None
+    )
+    wp_inv_cell = (
+        wp.from_torch(
+            inv_cell_buffer, dtype=wp_mat_dtype, requires_grad=False, return_ctype=True
+        )
+        if inv_cell_buffer is not None
+        else None
+    )
+
+    selective_zero_num_neighbors_single(
+        wp_num_neighbors1, wp_rebuild_flags, str(wp_device)
+    )
+    selective_zero_num_neighbors_single(
+        wp_num_neighbors2, wp_rebuild_flags, str(wp_device)
+    )
+    naive_neighbor_matrix_pbc_dual_cutoff(
+        positions=wp_positions,
+        cutoff1=cutoff1,
+        cutoff2=cutoff2,
+        cell=wp_cell,
+        pbc=wp_pbc,
+        shift_range=wp_shift_range,
+        num_shifts=max_shifts_per_system,
+        neighbor_matrix1=wp_neighbor_matrix1,
+        neighbor_matrix2=wp_neighbor_matrix2,
+        neighbor_matrix_shifts1=wp_neighbor_matrix_shifts1,
+        neighbor_matrix_shifts2=wp_neighbor_matrix_shifts2,
+        num_neighbors1=wp_num_neighbors1,
+        num_neighbors2=wp_num_neighbors2,
+        wp_dtype=wp_dtype,
+        device=str(wp_device),
+        half_fill=half_fill,
+        rebuild_flags=wp_rebuild_flags,
+        wrap_positions=wrap_positions,
+        positions_wrapped_buffer=wp_positions_wrapped,
+        per_atom_cell_offsets_buffer=wp_per_atom_cell_offsets,
+        inv_cell_buffer=wp_inv_cell,
+    )
+
+
+register_noop_fake(_naive_neighbor_matrix_no_pbc_dual_cutoff)
+register_noop_fake(_naive_neighbor_matrix_pbc_dual_cutoff)
+register_noop_fake(_naive_neighbor_matrix_no_pbc_dual_cutoff_selective)
+register_noop_fake(_naive_neighbor_matrix_pbc_dual_cutoff_selective)
+
+
+def naive_neighbor_list_dual_cutoff(
+    positions: torch.Tensor,
+    cutoff1: float,
+    cutoff2: float,
+    pbc: torch.Tensor | None = None,
+    cell: torch.Tensor | None = None,
+    max_neighbors1: int | None = None,
+    max_neighbors2: int | None = None,
+    half_fill: bool = False,
+    fill_value: int | None = None,
+    return_neighbor_list: bool = False,
+    neighbor_matrix1: torch.Tensor | None = None,
+    neighbor_matrix2: torch.Tensor | None = None,
+    neighbor_matrix_shifts1: torch.Tensor | None = None,
+    neighbor_matrix_shifts2: torch.Tensor | None = None,
+    num_neighbors1: torch.Tensor | None = None,
+    num_neighbors2: torch.Tensor | None = None,
+    shift_range_per_dimension: torch.Tensor | None = None,
+    num_shifts_per_system: torch.Tensor | None = None,
+    max_shifts_per_system: int | None = None,
+    rebuild_flags: torch.Tensor | None = None,
+    wrap_positions: bool = True,
+    positions_wrapped_buffer: torch.Tensor | None = None,
+    per_atom_cell_offsets_buffer: torch.Tensor | None = None,
+    inv_cell_buffer: torch.Tensor | None = None,
+) -> (
+    tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]
+    | tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]
+    | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+):
+    """Compute neighbor list using naive O(N^2) algorithm with dual cutoffs.
+
+    Identifies all atom pairs within two different cutoff distances using a
+    single brute-force pairwise distance calculation. This is more efficient
+    than running two separate neighbor calculations when both neighbor lists are needed.
+
+    Parameters
+    ----------
+    positions : torch.Tensor, shape (N, 3)
+        Atomic positions in Cartesian space, where N is the number of atoms.
+    cutoff1 : float
+        Inner cutoff radius; pairs within this distance populate the first neighbor list.
+    cutoff2 : float
+        Outer cutoff radius; pairs within this distance populate the second neighbor list.
+        Must satisfy ``cutoff2 >= cutoff1``.
+    pbc : torch.Tensor, shape (1, 3) or (3,), dtype=bool, optional
+        Periodic boundary condition flags along x, y, z. Pass ``None`` for free-space.
+    cell : torch.Tensor, shape (1, 3, 3), optional
+        Unit-cell matrix whose rows are lattice vectors in Cartesian coordinates.
+        Required when ``pbc`` is not ``None``.
+    max_neighbors1 : int, optional
+        Maximum number of neighbors per atom for the inner cutoff list. Estimated
+        automatically when ``None`` and pre-allocated buffers are not supplied.
+    max_neighbors2 : int, optional
+        Maximum number of neighbors per atom for the outer cutoff list. Defaults to
+        ``max_neighbors1`` when ``None``.
+    half_fill : bool, optional
+        If ``True``, only the lower-triangular half of each neighbor matrix is filled.
+        Default is ``False``.
+    fill_value : int, optional
+        Padding value written into unused neighbor slots. Defaults to ``N``
+        (i.e., one past the last valid atom index).
+    return_neighbor_list : bool, optional
+        If ``True``, convert each neighbor matrix to a COO-style neighbor list
+        ``(neighbor_indices, neighbor_ptr)``. Incurs a masking step; prefer the
+        matrix format when possible. Default is ``False``.
+    neighbor_matrix1 : torch.Tensor, shape (N, max_neighbors1), dtype=int32, optional
+        Pre-allocated buffer for inner-cutoff neighbor indices. Modified in-place.
+        Allocated internally when ``None``.
+    neighbor_matrix2 : torch.Tensor, shape (N, max_neighbors2), dtype=int32, optional
+        Pre-allocated buffer for outer-cutoff neighbor indices. Modified in-place.
+        Allocated internally when ``None``.
+    neighbor_matrix_shifts1 : torch.Tensor, shape (N, max_neighbors1, 3), dtype=int32, optional
+        Pre-allocated buffer for PBC image shift vectors of the inner list. Modified
+        in-place. Only used when ``pbc`` is not ``None``.
+    neighbor_matrix_shifts2 : torch.Tensor, shape (N, max_neighbors2, 3), dtype=int32, optional
+        Pre-allocated buffer for PBC image shift vectors of the outer list. Modified
+        in-place. Only used when ``pbc`` is not ``None``.
+    num_neighbors1 : torch.Tensor, shape (N,), dtype=int32, optional
+        Pre-allocated buffer for per-atom inner-cutoff neighbor counts. Modified in-place.
+    num_neighbors2 : torch.Tensor, shape (N,), dtype=int32, optional
+        Pre-allocated buffer for per-atom outer-cutoff neighbor counts. Modified in-place.
+    shift_range_per_dimension : torch.Tensor, shape (3,), dtype=int32, optional
+        Number of periodic image layers to search along each lattice direction.
+        Computed automatically when ``None``.
+    num_shifts_per_system : torch.Tensor, optional
+        Total number of image shift vectors for each system. Computed automatically
+        when ``None``.
+    max_shifts_per_system : int, optional
+        Maximum value in ``num_shifts_per_system``. Computed automatically when ``None``.
+    rebuild_flags : torch.Tensor, shape (1,), dtype=bool, optional
+        Device-side flag. When provided, the neighbor lists are only recomputed for
+        the system if ``rebuild_flags[0]`` is ``True``; no CPU-GPU synchronisation
+        occurs. Pass ``None`` to always rebuild.
+    wrap_positions : bool, optional
+        If ``True``, atomic positions are wrapped into the primary unit cell before
+        the neighbor search. Default is ``True``.
+    positions_wrapped_buffer : torch.Tensor, shape (N, 3), optional
+        Pre-allocated buffer for wrapped positions. Allocated internally when ``None``.
+    per_atom_cell_offsets_buffer : torch.Tensor, shape (N, 3), dtype=int32, optional
+        Pre-allocated buffer for per-atom cell-image offsets. Allocated internally
+        when ``None``.
+    inv_cell_buffer : torch.Tensor, shape (1, 3, 3), optional
+        Pre-allocated buffer for the inverse cell matrix. Allocated internally
+        when ``None``.
+
+    Returns
+    -------
+    tuple
+        The return type depends on ``pbc`` and ``return_neighbor_list``:
+
+        **No PBC, return_neighbor_list=False** — 4-tuple:
+
+        neighbor_matrix1 : torch.Tensor, shape (N, max_neighbors1), dtype=int32
+            Inner-cutoff neighbor indices; unused slots are filled with ``fill_value``.
+        num_neighbors1 : torch.Tensor, shape (N,), dtype=int32
+            Number of inner-cutoff neighbors per atom.
+        neighbor_matrix2 : torch.Tensor, shape (N, max_neighbors2), dtype=int32
+            Outer-cutoff neighbor indices; unused slots are filled with ``fill_value``.
+        num_neighbors2 : torch.Tensor, shape (N,), dtype=int32
+            Number of outer-cutoff neighbors per atom.
+
+        **No PBC, return_neighbor_list=True** — 4-tuple:
+
+        neighbor_list1 : torch.Tensor, shape (E1,), dtype=int32
+            Flat array of inner-cutoff neighbor atom indices.
+        neighbor_ptr1 : torch.Tensor, shape (N+1,), dtype=int32
+            CSR row pointers for ``neighbor_list1``.
+        neighbor_list2 : torch.Tensor, shape (E2,), dtype=int32
+            Flat array of outer-cutoff neighbor atom indices.
+        neighbor_ptr2 : torch.Tensor, shape (N+1,), dtype=int32
+            CSR row pointers for ``neighbor_list2``.
+
+        **With PBC, return_neighbor_list=False** — 6-tuple:
+
+        neighbor_matrix1 : torch.Tensor, shape (N, max_neighbors1), dtype=int32
+            Inner-cutoff neighbor indices.
+        num_neighbors1 : torch.Tensor, shape (N,), dtype=int32
+            Inner-cutoff neighbor counts.
+        neighbor_matrix_shifts1 : torch.Tensor, shape (N, max_neighbors1, 3), dtype=int32
+            PBC image shift vectors for the inner list.
+        neighbor_matrix2 : torch.Tensor, shape (N, max_neighbors2), dtype=int32
+            Outer-cutoff neighbor indices.
+        num_neighbors2 : torch.Tensor, shape (N,), dtype=int32
+            Outer-cutoff neighbor counts.
+        neighbor_matrix_shifts2 : torch.Tensor, shape (N, max_neighbors2, 3), dtype=int32
+            PBC image shift vectors for the outer list.
+
+        **With PBC, return_neighbor_list=True** — 6-tuple:
+
+        neighbor_list1 : torch.Tensor, shape (E1,), dtype=int32
+            Flat inner-cutoff neighbor indices.
+        neighbor_ptr1 : torch.Tensor, shape (N+1,), dtype=int32
+            CSR row pointers for ``neighbor_list1``.
+        unit_shifts1 : torch.Tensor, shape (E1, 3), dtype=int32
+            PBC image shift vectors corresponding to ``neighbor_list1``.
+        neighbor_list2 : torch.Tensor, shape (E2,), dtype=int32
+            Flat outer-cutoff neighbor indices.
+        neighbor_ptr2 : torch.Tensor, shape (N+1,), dtype=int32
+            CSR row pointers for ``neighbor_list2``.
+        unit_shifts2 : torch.Tensor, shape (E2, 3), dtype=int32
+            PBC image shift vectors corresponding to ``neighbor_list2``.
+
+    See Also
+    --------
+    :func:`nvalchemiops.neighbors.naive_dual_cutoff.naive_neighbor_matrix_dual_cutoff` : Core warp launcher (no PBC).
+    :func:`nvalchemiops.neighbors.naive_dual_cutoff.naive_neighbor_matrix_pbc_dual_cutoff` : Core warp launcher (with PBC).
+    :func:`nvalchemiops.torch.neighbors.naive.naive_neighbor_list` : Single cutoff version.
+    """
+    if pbc is None and cell is not None:
+        raise ValueError("If cell is provided, pbc must also be provided")
+    if pbc is not None and cell is None:
+        raise ValueError("If pbc is provided, cell must also be provided")
+
+    if cell is not None:
+        cell = cell if cell.ndim == 3 else cell.unsqueeze(0)
+    if pbc is not None:
+        pbc = pbc if pbc.ndim == 2 else pbc.unsqueeze(0)
+
+    if fill_value is None:
+        fill_value = positions.shape[0]
+
+    if max_neighbors1 is None and (
+        neighbor_matrix1 is None
+        or neighbor_matrix2 is None
+        or (neighbor_matrix_shifts1 is None and pbc is not None)
+        or (neighbor_matrix_shifts2 is None and pbc is not None)
+        or num_neighbors1 is None
+        or num_neighbors2 is None
+    ):
+        max_neighbors2 = estimate_max_neighbors(cutoff2)
+        max_neighbors1 = max_neighbors2
+
+    if max_neighbors2 is None:
+        max_neighbors2 = max_neighbors1
+
+    if neighbor_matrix1 is None:
+        neighbor_matrix1 = torch.full(
+            (positions.shape[0], max_neighbors1),
+            fill_value,
+            dtype=torch.int32,
+            device=positions.device,
+        )
+    elif rebuild_flags is None:
+        neighbor_matrix1.fill_(fill_value)
+
+    if num_neighbors1 is None:
+        num_neighbors1 = torch.zeros(
+            positions.shape[0], dtype=torch.int32, device=positions.device
+        )
+    elif rebuild_flags is None:
+        num_neighbors1.zero_()
+
+    if neighbor_matrix2 is None:
+        neighbor_matrix2 = torch.full(
+            (positions.shape[0], max_neighbors2),
+            fill_value,
+            dtype=torch.int32,
+            device=positions.device,
+        )
+    elif rebuild_flags is None:
+        neighbor_matrix2.fill_(fill_value)
+
+    if num_neighbors2 is None:
+        num_neighbors2 = torch.zeros(
+            positions.shape[0], dtype=torch.int32, device=positions.device
+        )
+    elif rebuild_flags is None:
+        num_neighbors2.zero_()
+
+    if pbc is not None:
+        if neighbor_matrix_shifts1 is None:
+            neighbor_matrix_shifts1 = torch.zeros(
+                (positions.shape[0], max_neighbors1, 3),
+                dtype=torch.int32,
+                device=positions.device,
+            )
+        elif rebuild_flags is None:
+            neighbor_matrix_shifts1.zero_()
+        if neighbor_matrix_shifts2 is None:
+            neighbor_matrix_shifts2 = torch.zeros(
+                (positions.shape[0], max_neighbors2, 3),
+                dtype=torch.int32,
+                device=positions.device,
+            )
+        elif rebuild_flags is None:
+            neighbor_matrix_shifts2.zero_()
+        if (
+            max_shifts_per_system is None
+            or num_shifts_per_system is None
+            or shift_range_per_dimension is None
+        ):
+            shift_range_per_dimension, num_shifts_per_system, max_shifts_per_system = (
+                compute_naive_num_shifts(cell, cutoff2, pbc)
+            )
+
+    if pbc is None:
+        if rebuild_flags is not None:
+            _naive_neighbor_matrix_no_pbc_dual_cutoff_selective(
+                positions=positions,
+                cutoff1=cutoff1,
+                cutoff2=cutoff2,
+                neighbor_matrix1=neighbor_matrix1,
+                num_neighbors1=num_neighbors1,
+                neighbor_matrix2=neighbor_matrix2,
+                num_neighbors2=num_neighbors2,
+                rebuild_flags=rebuild_flags,
+                half_fill=half_fill,
+            )
+        else:
+            _naive_neighbor_matrix_no_pbc_dual_cutoff(
+                positions=positions,
+                cutoff1=cutoff1,
+                cutoff2=cutoff2,
+                neighbor_matrix1=neighbor_matrix1,
+                num_neighbors1=num_neighbors1,
+                neighbor_matrix2=neighbor_matrix2,
+                num_neighbors2=num_neighbors2,
+                half_fill=half_fill,
+            )
+        if return_neighbor_list:
+            neighbor_list1, neighbor_ptr1 = get_neighbor_list_from_neighbor_matrix(
+                neighbor_matrix1, num_neighbors=num_neighbors1, fill_value=fill_value
+            )
+            neighbor_list2, neighbor_ptr2 = get_neighbor_list_from_neighbor_matrix(
+                neighbor_matrix2, num_neighbors=num_neighbors2, fill_value=fill_value
+            )
+            return (
+                neighbor_list1,
+                neighbor_ptr1,
+                neighbor_list2,
+                neighbor_ptr2,
+            )
+        else:
+            return (
+                neighbor_matrix1,
+                num_neighbors1,
+                neighbor_matrix2,
+                num_neighbors2,
+            )
+    else:
+        if rebuild_flags is not None:
+            _naive_neighbor_matrix_pbc_dual_cutoff_selective(
+                positions=positions,
+                cutoff1=cutoff1,
+                cutoff2=cutoff2,
+                cell=cell,
+                pbc=pbc,
+                neighbor_matrix1=neighbor_matrix1,
+                neighbor_matrix2=neighbor_matrix2,
+                neighbor_matrix_shifts1=neighbor_matrix_shifts1,
+                neighbor_matrix_shifts2=neighbor_matrix_shifts2,
+                num_neighbors1=num_neighbors1,
+                num_neighbors2=num_neighbors2,
+                shift_range_per_dimension=shift_range_per_dimension,
+                num_shifts_per_system=num_shifts_per_system,
+                max_shifts_per_system=max_shifts_per_system,
+                rebuild_flags=rebuild_flags,
+                half_fill=half_fill,
+                wrap_positions=wrap_positions,
+                positions_wrapped_buffer=positions_wrapped_buffer,
+                per_atom_cell_offsets_buffer=per_atom_cell_offsets_buffer,
+                inv_cell_buffer=inv_cell_buffer,
+            )
+        else:
+            _naive_neighbor_matrix_pbc_dual_cutoff(
+                positions=positions,
+                cutoff1=cutoff1,
+                cutoff2=cutoff2,
+                cell=cell,
+                pbc=pbc,
+                neighbor_matrix1=neighbor_matrix1,
+                neighbor_matrix2=neighbor_matrix2,
+                neighbor_matrix_shifts1=neighbor_matrix_shifts1,
+                neighbor_matrix_shifts2=neighbor_matrix_shifts2,
+                num_neighbors1=num_neighbors1,
+                num_neighbors2=num_neighbors2,
+                shift_range_per_dimension=shift_range_per_dimension,
+                num_shifts_per_system=num_shifts_per_system,
+                max_shifts_per_system=max_shifts_per_system,
+                half_fill=half_fill,
+                wrap_positions=wrap_positions,
+                positions_wrapped_buffer=positions_wrapped_buffer,
+                per_atom_cell_offsets_buffer=per_atom_cell_offsets_buffer,
+                inv_cell_buffer=inv_cell_buffer,
+            )
+        if return_neighbor_list:
+            neighbor_list1, neighbor_ptr1, unit_shifts1 = (
+                get_neighbor_list_from_neighbor_matrix(
+                    neighbor_matrix1,
+                    num_neighbors=num_neighbors1,
+                    neighbor_shift_matrix=neighbor_matrix_shifts1,
+                    fill_value=fill_value,
+                )
+            )
+            neighbor_list2, neighbor_ptr2, unit_shifts2 = (
+                get_neighbor_list_from_neighbor_matrix(
+                    neighbor_matrix2,
+                    num_neighbors=num_neighbors2,
+                    neighbor_shift_matrix=neighbor_matrix_shifts2,
+                    fill_value=fill_value,
+                )
+            )
+            return (
+                neighbor_list1,
+                neighbor_ptr1,
+                unit_shifts1,
+                neighbor_list2,
+                neighbor_ptr2,
+                unit_shifts2,
+            )
+        else:
+            return (
+                neighbor_matrix1,
+                num_neighbors1,
+                neighbor_matrix_shifts1,
+                neighbor_matrix2,
+                num_neighbors2,
+                neighbor_matrix_shifts2,
+            )

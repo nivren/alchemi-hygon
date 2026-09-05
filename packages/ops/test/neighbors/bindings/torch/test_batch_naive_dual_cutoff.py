@@ -1,0 +1,1268 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for PyTorch bindings of batched naive dual cutoff neighbor list methods."""
+
+import pytest
+import torch
+
+from nvalchemiops.torch.neighbors.batch_naive import (
+    batch_naive_neighbor_list,
+)
+from nvalchemiops.torch.neighbors.batch_naive_dual_cutoff import (
+    batch_naive_neighbor_list_dual_cutoff,
+)
+from nvalchemiops.torch.neighbors.neighbor_utils import compute_naive_num_shifts
+
+from ...test_utils import (
+    create_batch_systems,
+)
+
+
+def _active_neighbor_shift_rows(
+    neighbor_matrix: torch.Tensor,
+    shifts: torch.Tensor,
+    counts: torch.Tensor,
+    atom_index: int,
+) -> list[tuple[int, int, int, int]]:
+    """Return sorted active ``(neighbor, sx, sy, sz)`` rows for one atom."""
+    count = int(counts[atom_index].item())
+    rows = torch.cat(
+        (
+            neighbor_matrix[atom_index, :count].unsqueeze(1),
+            shifts[atom_index, :count],
+        ),
+        dim=1,
+    )
+    return sorted(tuple(row) for row in rows.detach().cpu().tolist())
+
+
+def create_batch_idx_and_ptr(
+    atoms_per_system: list, device: str = "cpu"
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Create batch_idx and batch_ptr tensors from atoms_per_system list.
+
+    Parameters
+    ----------
+    atoms_per_system : list
+        Number of atoms in each system
+    device : str
+        Device to create tensors on
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        batch_idx and batch_ptr tensors
+    """
+    total_atoms = sum(atoms_per_system)
+    batch_idx = torch.zeros(total_atoms, dtype=torch.int32, device=device)
+    batch_ptr = torch.zeros(len(atoms_per_system) + 1, dtype=torch.int32, device=device)
+
+    start_idx = 0
+    for i, num_atoms in enumerate(atoms_per_system):
+        batch_idx[start_idx : start_idx + num_atoms] = i
+        batch_ptr[i + 1] = batch_ptr[i] + num_atoms
+        start_idx += num_atoms
+
+    return batch_idx, batch_ptr
+
+
+class TestBatchNaiveDualCutoffCorrectness:
+    """Test correctness of batch naive dual cutoff neighbor list."""
+
+    def test_matrix_format_no_pbc(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list in matrix format without PBC."""
+        atoms_per_system = [6, 8]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+
+        neighbor_matrix1, num_neighbors1, neighbor_matrix2, num_neighbors2 = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions=positions_batch,
+                cutoff1=cutoff1,
+                cutoff2=cutoff2,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                max_neighbors1=max_neighbors1,
+                max_neighbors2=max_neighbors2,
+                pbc=None,
+                cell=None,
+                half_fill=half_fill,
+            )
+        )
+
+        # Check output types and shapes
+        expected_rows = positions_batch.shape[0]
+        assert neighbor_matrix1.dtype == torch.int32
+        assert neighbor_matrix2.dtype == torch.int32
+        assert num_neighbors1.dtype == torch.int32
+        assert num_neighbors2.dtype == torch.int32
+        assert neighbor_matrix1.shape == (expected_rows, max_neighbors1)
+        assert neighbor_matrix2.shape == (expected_rows, max_neighbors2)
+        assert num_neighbors1.shape == (positions_batch.shape[0],)
+        assert num_neighbors2.shape == (positions_batch.shape[0],)
+        assert neighbor_matrix1.device == torch.device(device)
+        assert neighbor_matrix2.device == torch.device(device)
+
+        # Check neighbor counts are reasonable
+        assert torch.all(num_neighbors1 >= 0)
+        assert torch.all(num_neighbors2 >= 0)
+        assert torch.all(num_neighbors1 <= max_neighbors1)
+        assert torch.all(num_neighbors2 <= max_neighbors2)
+        assert torch.all(num_neighbors2 >= num_neighbors1)
+
+    def test_matrix_format_with_pbc(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list in matrix format with PBC."""
+        atoms_per_system = [6, 8]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 30
+        max_neighbors2 = 50
+
+        (
+            neighbor_matrix1,
+            num_neighbors1,
+            neighbor_matrix_shifts1,
+            neighbor_matrix2,
+            num_neighbors2,
+            neighbor_matrix_shifts2,
+        ) = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=cutoff1,
+            cutoff2=cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=half_fill,
+        )
+
+        # Check output types and shapes
+        expected_rows = positions_batch.shape[0]
+        assert neighbor_matrix1.shape == (expected_rows, max_neighbors1)
+        assert neighbor_matrix2.shape == (expected_rows, max_neighbors2)
+        assert neighbor_matrix_shifts1.shape == (expected_rows, max_neighbors1, 3)
+        assert neighbor_matrix_shifts2.shape == (expected_rows, max_neighbors2, 3)
+        assert num_neighbors1.shape == (positions_batch.shape[0],)
+        assert num_neighbors2.shape == (positions_batch.shape[0],)
+
+        # Check neighbor counts
+        assert torch.all(num_neighbors1 >= 0)
+        assert torch.all(num_neighbors2 >= 0)
+        assert torch.all(num_neighbors2 >= num_neighbors1)
+
+    def test_consistency_with_single_cutoff(self, device, dtype):
+        """Test that dual cutoff results match two separate single cutoff calls."""
+        atoms_per_system = [6, 8]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 30
+        max_neighbors2 = 50
+
+        # Get dual cutoff result
+        (
+            neighbor_matrix1_dual,
+            num_neighbors1_dual,
+            neighbor_matrix_shifts1_dual,
+            neighbor_matrix2_dual,
+            num_neighbors2_dual,
+            neighbor_matrix_shifts2_dual,
+        ) = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=cutoff1,
+            cutoff2=cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=False,
+        )
+
+        # Get single cutoff results
+        (
+            neighbor_matrix1_single,
+            num_neighbors1_single,
+            neighbor_matrix_shifts1_single,
+        ) = batch_naive_neighbor_list(
+            positions=positions_batch,
+            cutoff=cutoff1,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=max_neighbors2,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=False,
+        )
+
+        (
+            neighbor_matrix2_single,
+            num_neighbors2_single,
+            neighbor_matrix_shifts2_single,
+        ) = batch_naive_neighbor_list(
+            positions=positions_batch,
+            cutoff=cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=max_neighbors2,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=False,
+        )
+
+        # Compare neighbor counts
+        torch.testing.assert_close(
+            num_neighbors1_dual, num_neighbors1_single, rtol=0, atol=0
+        )
+        torch.testing.assert_close(
+            num_neighbors2_dual, num_neighbors2_single, rtol=0, atol=0
+        )
+
+    def test_larger_cutoff_finds_more_neighbors(self, device, dtype):
+        """Test that larger cutoff finds at least as many neighbors as smaller cutoff."""
+        atoms_per_system = [6, 8]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+
+        (
+            _,
+            num_neighbors1,
+            _,
+            _,
+            num_neighbors2,
+            _,
+        ) = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=cutoff1,
+            cutoff2=cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=30,
+            max_neighbors2=50,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=False,
+        )
+
+        # Verify cutoff2 finds at least as many neighbors
+        assert torch.all(num_neighbors2 >= num_neighbors1)
+
+
+class TestBatchNaiveDualCutoffEdgeCases:
+    """Test edge cases for batch naive dual cutoff neighbor list."""
+
+    def test_empty_system(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list with empty system."""
+        positions_empty = torch.empty(0, 3, dtype=dtype, device=device)
+        batch_idx_empty = torch.empty(0, dtype=torch.int32, device=device)
+        batch_ptr_empty = torch.tensor([0, 0], dtype=torch.int32, device=device)
+
+        neighbor_matrix1, num_neighbors1, neighbor_matrix2, num_neighbors2 = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions=positions_empty,
+                cutoff1=1.0,
+                cutoff2=1.5,
+                batch_idx=batch_idx_empty,
+                batch_ptr=batch_ptr_empty,
+                max_neighbors1=10,
+                max_neighbors2=15,
+                pbc=None,
+                cell=None,
+                half_fill=half_fill,
+            )
+        )
+        assert neighbor_matrix1.shape == (0, 10)
+        assert neighbor_matrix2.shape == (0, 15)
+        assert num_neighbors1.shape == (0,)
+        assert num_neighbors2.shape == (0,)
+
+    def test_single_atom_system(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list with single atom."""
+        positions_single = torch.tensor([[0.0, 0.0, 0.0]], dtype=dtype, device=device)
+        batch_idx_single = torch.tensor([0], dtype=torch.int32, device=device)
+        batch_ptr_single = torch.tensor([0, 1], dtype=torch.int32, device=device)
+
+        neighbor_matrix1, num_neighbors1, neighbor_matrix2, num_neighbors2 = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions=positions_single,
+                cutoff1=1.0,
+                cutoff2=1.5,
+                batch_idx=batch_idx_single,
+                batch_ptr=batch_ptr_single,
+                max_neighbors1=10,
+                max_neighbors2=15,
+                pbc=None,
+                cell=None,
+                half_fill=half_fill,
+            )
+        )
+        assert num_neighbors1[0].item() == 0
+        assert num_neighbors2[0].item() == 0
+
+    def test_zero_cutoffs(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list with zero cutoffs."""
+        atoms_per_system = [4, 4]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        neighbor_matrix1, num_neighbors1, neighbor_matrix2, num_neighbors2 = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions=positions_batch,
+                cutoff1=0.0,
+                cutoff2=0.0,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                max_neighbors1=10,
+                max_neighbors2=15,
+                pbc=None,
+                cell=None,
+                half_fill=half_fill,
+            )
+        )
+        assert torch.all(num_neighbors1 == 0)
+        assert torch.all(num_neighbors2 == 0)
+
+    def test_identical_cutoffs(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list with identical cutoff values."""
+        atoms_per_system = [6, 8]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff = 1.5
+        _, num_neighbors1, _, num_neighbors2 = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=cutoff,
+            cutoff2=cutoff,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=20,
+            max_neighbors2=20,
+            pbc=None,
+            cell=None,
+            half_fill=half_fill,
+        )
+
+        # When cutoffs are identical, neighbor counts should match
+        torch.testing.assert_close(num_neighbors1, num_neighbors2, rtol=0, atol=0)
+
+
+class TestBatchNaiveDualCutoffErrors:
+    """Test error conditions for batch naive dual cutoff neighbor list."""
+
+    def test_cell_without_pbc_error(self, device, dtype):
+        """Test that providing cell without pbc raises error."""
+        atoms_per_system = [4, 6]
+        positions_batch, cell_batch, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        with pytest.raises(
+            ValueError, match="If cell is provided, pbc must also be provided"
+        ):
+            batch_naive_neighbor_list_dual_cutoff(
+                positions_batch,
+                1.0,
+                1.5,
+                batch_idx,
+                batch_ptr,
+                max_neighbors1=10,
+                max_neighbors2=15,
+                pbc=None,
+                cell=cell_batch,
+            )
+
+    def test_pbc_without_cell_error(self, device, dtype):
+        """Test that providing pbc without cell raises error."""
+        atoms_per_system = [4, 6]
+        positions_batch, _, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        with pytest.raises(
+            ValueError, match="If pbc is provided, cell must also be provided"
+        ):
+            batch_naive_neighbor_list_dual_cutoff(
+                positions_batch,
+                1.0,
+                1.5,
+                batch_idx,
+                batch_ptr,
+                max_neighbors1=10,
+                max_neighbors2=15,
+                pbc=pbc_batch,
+                cell=None,
+            )
+
+    def test_mismatched_batch_dimensions(self, device, dtype):
+        """Test that mismatched batch_idx length raises RuntimeError."""
+        atoms_per_system = [4, 6]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        # Create mismatched batch_idx (wrong total atoms - 5 instead of 10)
+        bad_batch_idx = torch.zeros(5, dtype=torch.int32, device=device)
+
+        with pytest.raises(
+            RuntimeError, match="batch_idx length.*does not match num_atoms"
+        ):
+            batch_naive_neighbor_list_dual_cutoff(
+                positions_batch,
+                1.0,
+                1.5,
+                bad_batch_idx,
+                batch_ptr,
+                max_neighbors1=10,
+                max_neighbors2=15,
+            )
+
+
+class TestBatchNaiveDualCutoffOutputFormats:
+    """Test different output formats for batch naive dual cutoff neighbor list."""
+
+    def test_list_format_no_pbc(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list in COO format without PBC."""
+        atoms_per_system = [6, 8]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+
+        neighbor_list1, neighbor_ptr1, neighbor_list2, neighbor_ptr2 = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions=positions_batch,
+                cutoff1=cutoff1,
+                cutoff2=cutoff2,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                max_neighbors1=30,
+                max_neighbors2=50,
+                pbc=None,
+                cell=None,
+                half_fill=half_fill,
+                return_neighbor_list=True,
+            )
+        )
+
+        # Check that we get neighbor list format (2, N) instead of matrix
+        assert neighbor_list1.ndim == 2
+        assert neighbor_list2.ndim == 2
+        assert neighbor_list1.shape[0] == 2
+        assert neighbor_list2.shape[0] == 2
+        assert neighbor_list1.dtype == torch.int32
+        assert neighbor_list2.dtype == torch.int32
+
+        # Larger cutoff should find at least as many pairs
+        assert neighbor_list2.shape[1] >= neighbor_list1.shape[1]
+
+    def test_list_format_with_pbc(self, device, dtype, half_fill):
+        """Test dual cutoff batch neighbor list in COO format with PBC."""
+        atoms_per_system = [6, 8]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+
+        (
+            neighbor_list1,
+            neighbor_ptr1,
+            unit_shifts1,
+            neighbor_list2,
+            neighbor_ptr2,
+            unit_shifts2,
+        ) = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=cutoff1,
+            cutoff2=cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=30,
+            max_neighbors2=50,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=half_fill,
+            return_neighbor_list=True,
+        )
+
+        # Check neighbor list format
+        assert neighbor_list1.shape[0] == 2
+        assert neighbor_list2.shape[0] == 2
+        assert unit_shifts1.shape[0] == neighbor_list1.shape[1]
+        assert unit_shifts2.shape[0] == neighbor_list2.shape[1]
+
+        # Larger cutoff should find at least as many pairs
+        assert neighbor_list2.shape[1] >= neighbor_list1.shape[1]
+
+    def test_max_neighbors_same_value(self, device, dtype):
+        """Test that both matrices have correct shape with same max_neighbors."""
+        atoms_per_system = [4, 6]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2,
+            atoms_per_system=atoms_per_system,
+            dtype=dtype,
+            device=device,
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        neighbor_matrix1, _, neighbor_matrix2, _ = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions=positions_batch,
+                cutoff1=1.0,
+                cutoff2=1.5,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                max_neighbors1=10,
+                max_neighbors2=10,
+                pbc=None,
+                cell=None,
+            )
+        )
+
+        assert neighbor_matrix1.shape[1] == neighbor_matrix2.shape[1] == 10
+
+
+class TestBatchNaiveDualCutoffPerformance:
+    """Test performance characteristics of batch naive dual cutoff neighbor list."""
+
+    @pytest.mark.slow
+    def test_cutoff_scaling(self, device):
+        """Test scaling with different cutoff values."""
+        dtype = torch.float32
+        atoms_per_system = [15, 20]
+        max_neighbors1 = 100
+        max_neighbors2 = 150
+
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        # Test different cutoff pairs
+        cutoff_pairs = [(0.5, 1.0), (1.0, 1.5), (1.5, 2.0), (2.0, 2.5)]
+        neighbor_counts1 = []
+        neighbor_counts2 = []
+
+        for cutoff1, cutoff2 in cutoff_pairs:
+            (_, num_neighbors1, _, _, num_neighbors2, _) = (
+                batch_naive_neighbor_list_dual_cutoff(
+                    positions_batch,
+                    cutoff1,
+                    cutoff2,
+                    batch_idx,
+                    batch_ptr,
+                    max_neighbors1=max_neighbors1,
+                    max_neighbors2=max_neighbors2,
+                    pbc=pbc_batch,
+                    cell=cell_batch,
+                    half_fill=True,
+                )
+            )
+            total_pairs1 = num_neighbors1.sum().item()
+            total_pairs2 = num_neighbors2.sum().item()
+            neighbor_counts1.append(total_pairs1)
+            neighbor_counts2.append(total_pairs2)
+
+        # Check that neighbor count increases with cutoff
+        for i in range(1, len(neighbor_counts1)):
+            assert neighbor_counts1[i] >= neighbor_counts1[i - 1]
+            assert neighbor_counts2[i] >= neighbor_counts2[i - 1]
+
+        # Check that cutoff2 finds at least as many neighbors as cutoff1
+        for count1, count2 in zip(neighbor_counts1, neighbor_counts2):
+            assert count2 >= count1
+
+    def test_random_systems_robustness(self, device, dtype, half_fill):
+        """Test with random systems of various sizes and configurations."""
+        for pbc_flag in [True, False]:
+            # Test several random systems
+            for seed in [42, 123, 456]:
+                atoms_per_system = [15, 20, 18]
+                positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+                    num_systems=3,
+                    atoms_per_system=atoms_per_system,
+                    dtype=dtype,
+                    device=device,
+                    seed=seed,
+                    pbc_flag=pbc_flag,
+                )
+                batch_idx, batch_ptr = create_batch_idx_and_ptr(
+                    atoms_per_system, device
+                )
+
+                cutoff1 = 1.0
+                cutoff2 = 1.5
+                max_neighbors1 = 50
+                max_neighbors2 = 80
+
+                if not pbc_flag:
+                    cell_batch = None
+                    pbc_batch = None
+
+                # Should not crash
+                result = batch_naive_neighbor_list_dual_cutoff(
+                    positions=positions_batch,
+                    cutoff1=cutoff1,
+                    cutoff2=cutoff2,
+                    batch_idx=batch_idx,
+                    batch_ptr=batch_ptr,
+                    max_neighbors1=max_neighbors1,
+                    max_neighbors2=max_neighbors2,
+                    pbc=pbc_batch,
+                    cell=cell_batch,
+                    half_fill=half_fill,
+                )
+
+                if pbc_flag:
+                    (
+                        _,
+                        num_neighbors1,
+                        _,
+                        _,
+                        num_neighbors2,
+                        _,
+                    ) = result
+                else:
+                    (
+                        _,
+                        num_neighbors1,
+                        _,
+                        num_neighbors2,
+                    ) = result
+
+                # Basic sanity checks
+                assert torch.all(num_neighbors1 >= 0)
+                assert torch.all(num_neighbors2 >= 0)
+                assert torch.all(num_neighbors2 >= num_neighbors1)
+
+    def test_extreme_geometries(self, device, dtype, half_fill):
+        """Test with extreme cell geometries."""
+        atoms_per_system = [8, 10]
+        positions_batch = torch.rand(18, 3, dtype=dtype, device=device)
+        cell_batch = torch.tensor(
+            [
+                [[10.0, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
+                [[0.1, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 0.1]],
+            ],
+            dtype=dtype,
+            device=device,
+        )
+        pbc_batch = torch.tensor(
+            [[True, True, True], [True, True, True]], device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        # Scale positions to fit in cells
+        positions_batch[:8] = positions_batch[:8] * torch.tensor(
+            [10.0, 0.1, 0.1], device=device
+        )
+        positions_batch[8:] = positions_batch[8:] * torch.tensor(
+            [0.1, 10.0, 0.1], device=device
+        )
+
+        cutoff1 = 0.15
+        cutoff2 = 0.25
+
+        (
+            _,
+            num_neighbors1,
+            _,
+            _,
+            num_neighbors2,
+            _,
+        ) = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=cutoff1,
+            cutoff2=cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=20,
+            max_neighbors2=30,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=half_fill,
+        )
+
+        assert torch.all(num_neighbors1 >= 0)
+        assert torch.all(num_neighbors2 >= 0)
+        assert torch.all(num_neighbors2 >= num_neighbors1)
+
+    def test_large_cutoffs(self, device, dtype, half_fill):
+        """Test with very large cutoffs relative to cell size."""
+        atoms_per_system = [6, 8]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        # Cutoffs larger than cell size
+        large_cutoff1 = 4.0
+        large_cutoff2 = 6.0
+
+        (
+            _,
+            num_neighbors1,
+            _,
+            _,
+            num_neighbors2,
+            _,
+        ) = batch_naive_neighbor_list_dual_cutoff(
+            positions=positions_batch,
+            cutoff1=large_cutoff1,
+            cutoff2=large_cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=100,
+            max_neighbors2=150,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            half_fill=half_fill,
+        )
+
+        # Should find many neighbors
+        assert num_neighbors1.sum() > 0
+        assert num_neighbors2.sum() > 0
+        assert torch.all(num_neighbors2 >= num_neighbors1)
+
+    def test_precision_consistency(self, device, half_fill):
+        """Test that float32 and float64 give consistent results."""
+        atoms_per_system = [6, 8]
+        positions_batch_f32, cell_batch_f32, pbc_batch, _ = create_batch_systems(
+            num_systems=2,
+            atoms_per_system=atoms_per_system,
+            dtype=torch.float32,
+            device=device,
+        )
+        positions_batch_f64 = positions_batch_f32.double()
+        cell_batch_f64 = cell_batch_f32.double()
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+
+        # Get results for both precisions
+        (_, num_neighbors1_f32, _, _, num_neighbors2_f32, _) = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions_batch_f32,
+                cutoff1,
+                cutoff2,
+                batch_idx,
+                batch_ptr,
+                max_neighbors1=50,
+                max_neighbors2=80,
+                pbc=pbc_batch,
+                cell=cell_batch_f32,
+                half_fill=half_fill,
+            )
+        )
+        (_, num_neighbors1_f64, _, _, num_neighbors2_f64, _) = (
+            batch_naive_neighbor_list_dual_cutoff(
+                positions_batch_f64,
+                cutoff1,
+                cutoff2,
+                batch_idx,
+                batch_ptr,
+                max_neighbors1=50,
+                max_neighbors2=80,
+                pbc=pbc_batch,
+                cell=cell_batch_f64,
+                half_fill=half_fill,
+            )
+        )
+
+        # Neighbor counts should be identical
+        torch.testing.assert_close(
+            num_neighbors1_f32, num_neighbors1_f64, rtol=0, atol=0
+        )
+        torch.testing.assert_close(
+            num_neighbors2_f32, num_neighbors2_f64, rtol=0, atol=0
+        )
+
+
+class TestBatchNaiveDualCutoffSelectiveRebuildFlags:
+    """Test selective rebuild (rebuild_flags) for batch_naive_neighbor_list_dual_cutoff."""
+
+    def test_no_rebuild_preserves_data(self, device, dtype, half_fill):
+        """All flags False: neighbor data should remain unchanged for all systems."""
+        atoms_per_system = [5, 6]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+        total_atoms = positions_batch.shape[0]
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+
+        # Initial full build
+        nm1 = torch.full(
+            (total_atoms, max_neighbors1), -1, dtype=torch.int32, device=device
+        )
+        nm2 = torch.full(
+            (total_atoms, max_neighbors2), -1, dtype=torch.int32, device=device
+        )
+        nn1 = torch.zeros(total_atoms, dtype=torch.int32, device=device)
+        nn2 = torch.zeros(total_atoms, dtype=torch.int32, device=device)
+
+        batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            neighbor_matrix1=nm1,
+            neighbor_matrix2=nm2,
+            num_neighbors1=nn1,
+            num_neighbors2=nn2,
+            half_fill=half_fill,
+        )
+
+        saved_nn1 = nn1.clone()
+        saved_nn2 = nn2.clone()
+
+        rebuild_flags = torch.zeros(2, dtype=torch.bool, device=device)
+        batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            neighbor_matrix1=nm1,
+            neighbor_matrix2=nm2,
+            num_neighbors1=nn1,
+            num_neighbors2=nn2,
+            half_fill=half_fill,
+            rebuild_flags=rebuild_flags,
+        )
+
+        assert torch.equal(nn1, saved_nn1), "nn1 must be unchanged when flags are False"
+        assert torch.equal(nn2, saved_nn2), "nn2 must be unchanged when flags are False"
+
+    def test_rebuild_updates_data(self, device, dtype, half_fill):
+        """True flags: rebuilt system data should match a fresh full rebuild."""
+        atoms_per_system = [5, 6]
+        positions_batch, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+        total_atoms = positions_batch.shape[0]
+
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+
+        # Reference: full build
+        nm1_ref = torch.full(
+            (total_atoms, max_neighbors1), -1, dtype=torch.int32, device=device
+        )
+        nm2_ref = torch.full(
+            (total_atoms, max_neighbors2), -1, dtype=torch.int32, device=device
+        )
+        nn1_ref = torch.zeros(total_atoms, dtype=torch.int32, device=device)
+        nn2_ref = torch.zeros(total_atoms, dtype=torch.int32, device=device)
+        batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            neighbor_matrix1=nm1_ref,
+            neighbor_matrix2=nm2_ref,
+            num_neighbors1=nn1_ref,
+            num_neighbors2=nn2_ref,
+            half_fill=half_fill,
+        )
+
+        # Selective rebuild with all flags=True
+        nm1_sel = torch.full(
+            (total_atoms, max_neighbors1), 99, dtype=torch.int32, device=device
+        )
+        nm2_sel = torch.full(
+            (total_atoms, max_neighbors2), 99, dtype=torch.int32, device=device
+        )
+        nn1_sel = torch.full((total_atoms,), 99, dtype=torch.int32, device=device)
+        nn2_sel = torch.full((total_atoms,), 99, dtype=torch.int32, device=device)
+
+        rebuild_flags = torch.ones(2, dtype=torch.bool, device=device)
+        batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            neighbor_matrix1=nm1_sel,
+            neighbor_matrix2=nm2_sel,
+            num_neighbors1=nn1_sel,
+            num_neighbors2=nn2_sel,
+            half_fill=half_fill,
+            rebuild_flags=rebuild_flags,
+        )
+
+        assert torch.equal(nn1_sel, nn1_ref), (
+            "nn1 should match full rebuild when all flags=True"
+        )
+        assert torch.equal(nn2_sel, nn2_ref), (
+            "nn2 should match full rebuild when all flags=True"
+        )
+
+    def test_no_rebuild_preserves_pbc_shift_data(self, device, dtype):
+        """All flags False preserve batched PBC neighbor and shift buffers."""
+        atoms_per_system = [5, 6]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+
+        nm1, nn1, shifts1, nm2, nn2, shifts2 = batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+        )
+        saved = (
+            nm1.clone(),
+            nn1.clone(),
+            shifts1.clone(),
+            nm2.clone(),
+            nn2.clone(),
+            shifts2.clone(),
+        )
+
+        rebuild_flags = torch.zeros(2, dtype=torch.bool, device=device)
+        out = batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            neighbor_matrix1=nm1,
+            neighbor_matrix2=nm2,
+            neighbor_matrix_shifts1=shifts1,
+            neighbor_matrix_shifts2=shifts2,
+            num_neighbors1=nn1,
+            num_neighbors2=nn2,
+            rebuild_flags=rebuild_flags,
+        )
+
+        for result, expected in zip(out, saved):
+            assert torch.equal(result, expected)
+
+    def test_rebuild_updates_pbc_shift_data(self, device, dtype):
+        """All flags True rebuild batched PBC neighbor and shift buffers."""
+        atoms_per_system = [5, 6]
+        positions_batch, cell_batch, pbc_batch, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+
+        reference = batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+        )
+
+        total_atoms = positions_batch.shape[0]
+        nm1 = torch.full(
+            (total_atoms, max_neighbors1), 99, dtype=torch.int32, device=device
+        )
+        nm2 = torch.full(
+            (total_atoms, max_neighbors2), 99, dtype=torch.int32, device=device
+        )
+        shifts1 = torch.full(
+            (total_atoms, max_neighbors1, 3), 7, dtype=torch.int32, device=device
+        )
+        shifts2 = torch.full(
+            (total_atoms, max_neighbors2, 3), 7, dtype=torch.int32, device=device
+        )
+        nn1 = torch.full((total_atoms,), 99, dtype=torch.int32, device=device)
+        nn2 = torch.full((total_atoms,), 99, dtype=torch.int32, device=device)
+
+        rebuild_flags = torch.ones(2, dtype=torch.bool, device=device)
+        out = batch_naive_neighbor_list_dual_cutoff(
+            positions_batch,
+            cutoff1,
+            cutoff2,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            pbc=pbc_batch,
+            cell=cell_batch,
+            max_neighbors1=max_neighbors1,
+            max_neighbors2=max_neighbors2,
+            neighbor_matrix1=nm1,
+            neighbor_matrix2=nm2,
+            neighbor_matrix_shifts1=shifts1,
+            neighbor_matrix_shifts2=shifts2,
+            num_neighbors1=nn1,
+            num_neighbors2=nn2,
+            rebuild_flags=rebuild_flags,
+        )
+
+        out_nm1, out_nn1, out_shifts1, out_nm2, out_nn2, out_shifts2 = out
+        ref_nm1, ref_nn1, ref_shifts1, ref_nm2, ref_nn2, ref_shifts2 = reference
+        assert torch.equal(out_nn1, ref_nn1)
+        assert torch.equal(out_nn2, ref_nn2)
+        for atom_index in range(total_atoms):
+            assert _active_neighbor_shift_rows(
+                out_nm1, out_shifts1, ref_nn1, atom_index
+            ) == _active_neighbor_shift_rows(ref_nm1, ref_shifts1, ref_nn1, atom_index)
+            assert _active_neighbor_shift_rows(
+                out_nm2, out_shifts2, ref_nn2, atom_index
+            ) == _active_neighbor_shift_rows(ref_nm2, ref_shifts2, ref_nn2, atom_index)
+
+
+class TestBatchNaiveDualCutoffCompile:
+    """Torch compile coverage for explicit-buffer batched dual-cutoff paths."""
+
+    @pytest.mark.slow
+    def test_compile_no_pbc_explicit_buffers(self, device, dtype):
+        """Compile the batched no-PBC dual-cutoff runtime with explicit outputs."""
+        atoms_per_system = [5, 6]
+        positions, _, _, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        fill_value = positions.shape[0]
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+
+        def alloc_outputs():
+            return (
+                torch.full(
+                    (fill_value, max_neighbors1),
+                    fill_value,
+                    dtype=torch.int32,
+                    device=device,
+                ),
+                torch.zeros(fill_value, dtype=torch.int32, device=device),
+                torch.full(
+                    (fill_value, max_neighbors2),
+                    fill_value,
+                    dtype=torch.int32,
+                    device=device,
+                ),
+                torch.zeros(fill_value, dtype=torch.int32, device=device),
+            )
+
+        def run(pos, nm1, nn1, nm2, nn2):
+            return batch_naive_neighbor_list_dual_cutoff(
+                pos,
+                cutoff1,
+                cutoff2,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                fill_value=fill_value,
+                neighbor_matrix1=nm1,
+                neighbor_matrix2=nm2,
+                num_neighbors1=nn1,
+                num_neighbors2=nn2,
+            )
+
+        eager = run(positions, *alloc_outputs())
+        compiled = torch.compile(run)(positions, *alloc_outputs())
+
+        for result, expected in zip(compiled, eager):
+            assert torch.equal(result, expected)
+
+    @pytest.mark.slow
+    def test_compile_pbc_explicit_buffers(self, device, dtype):
+        """Compile the batched PBC dual-cutoff runtime with prepared metadata."""
+        atoms_per_system = [5, 6]
+        positions, cell, pbc, _ = create_batch_systems(
+            num_systems=2, atoms_per_system=atoms_per_system, dtype=dtype, device=device
+        )
+        batch_idx, batch_ptr = create_batch_idx_and_ptr(atoms_per_system, device)
+        cutoff1 = 1.0
+        cutoff2 = 1.5
+        fill_value = positions.shape[0]
+        max_neighbors1 = 20
+        max_neighbors2 = 30
+        max_atoms_per_system = max(atoms_per_system)
+        shift_range, num_shifts, max_shifts = compute_naive_num_shifts(
+            cell, cutoff2, pbc
+        )
+
+        def alloc_outputs():
+            return (
+                torch.full(
+                    (fill_value, max_neighbors1),
+                    fill_value,
+                    dtype=torch.int32,
+                    device=device,
+                ),
+                torch.zeros(fill_value, dtype=torch.int32, device=device),
+                torch.zeros(
+                    (fill_value, max_neighbors1, 3), dtype=torch.int32, device=device
+                ),
+                torch.full(
+                    (fill_value, max_neighbors2),
+                    fill_value,
+                    dtype=torch.int32,
+                    device=device,
+                ),
+                torch.zeros(fill_value, dtype=torch.int32, device=device),
+                torch.zeros(
+                    (fill_value, max_neighbors2, 3), dtype=torch.int32, device=device
+                ),
+                torch.empty_like(positions),
+                torch.empty((fill_value, 3), dtype=torch.int32, device=device),
+                torch.empty_like(cell),
+            )
+
+        def run(
+            pos,
+            nm1,
+            nn1,
+            shifts1,
+            nm2,
+            nn2,
+            shifts2,
+            wrapped,
+            offsets,
+            inv_cell,
+        ):
+            return batch_naive_neighbor_list_dual_cutoff(
+                pos,
+                cutoff1,
+                cutoff2,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                pbc=pbc,
+                cell=cell,
+                fill_value=fill_value,
+                neighbor_matrix1=nm1,
+                neighbor_matrix2=nm2,
+                neighbor_matrix_shifts1=shifts1,
+                neighbor_matrix_shifts2=shifts2,
+                num_neighbors1=nn1,
+                num_neighbors2=nn2,
+                shift_range_per_dimension=shift_range,
+                num_shifts_per_system=num_shifts,
+                max_shifts_per_system=max_shifts,
+                max_atoms_per_system=max_atoms_per_system,
+                positions_wrapped_buffer=wrapped,
+                per_atom_cell_offsets_buffer=offsets,
+                inv_cell_buffer=inv_cell,
+            )
+
+        eager = run(positions, *alloc_outputs())
+        compiled = torch.compile(run)(positions, *alloc_outputs())
+
+        (
+            compiled_nm1,
+            compiled_nn1,
+            compiled_shifts1,
+            compiled_nm2,
+            compiled_nn2,
+            compiled_shifts2,
+        ) = compiled
+        eager_nm1, eager_nn1, eager_shifts1, eager_nm2, eager_nn2, eager_shifts2 = eager
+        assert torch.equal(compiled_nn1, eager_nn1)
+        assert torch.equal(compiled_nn2, eager_nn2)
+        for atom_index in range(fill_value):
+            assert _active_neighbor_shift_rows(
+                compiled_nm1,
+                compiled_shifts1,
+                compiled_nn1,
+                atom_index,
+            ) == _active_neighbor_shift_rows(
+                eager_nm1,
+                eager_shifts1,
+                eager_nn1,
+                atom_index,
+            )
+            assert _active_neighbor_shift_rows(
+                compiled_nm2,
+                compiled_shifts2,
+                compiled_nn2,
+                atom_index,
+            ) == _active_neighbor_shift_rows(
+                eager_nm2,
+                eager_shifts2,
+                eager_nn2,
+                atom_index,
+            )

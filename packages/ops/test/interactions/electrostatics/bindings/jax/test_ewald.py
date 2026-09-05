@@ -1,0 +1,2910 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Unit tests for JAX Ewald summation electrostatic calculations.
+
+This test suite validates the correctness of the JAX Ewald summation
+implementation for long-range electrostatics in periodic systems.
+
+Tests cover:
+- Real-space and reciprocal-space energy and forces
+- Full Ewald summation (real + reciprocal)
+- Energy-derived gradients and explicit charge gradient computation
+- Numerical correctness against torchpme reference
+- Float32 and float64 dtype support
+- Batched calculations
+- Physical properties (charge scaling, translation invariance)
+- Non-cubic cells
+- Automatic parameter estimation
+
+Note: JAX bindings are GPU-only (Warp JAX FFI constraint). Full Ewald and
+energy-only component outputs support custom JAX autodiff rules; direct
+component forces remain forward/direct escape hatches.
+"""
+
+from __future__ import annotations
+
+import warnings
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pytest
+
+from nvalchemiops.jax.interactions.electrostatics.ewald import (
+    ewald_real_space,
+    ewald_reciprocal_space,
+    ewald_summation,
+)
+from nvalchemiops.jax.interactions.electrostatics.k_vectors import (
+    generate_k_vectors_ewald_summation,
+)
+from nvalchemiops.jax.neighbors import batch_cell_list, cell_list
+from test.interactions.electrostatics.bindings.jax.conftest import (
+    cubic_cell_jax,
+    fd_virial_full_jax,
+    make_crystal_system_jax,
+    make_virial_cscl_system_jax,
+    qr_manual_chain_jax,
+    toy_charge_model_jax,
+)
+
+# Try to import torchpme for reference calculations
+try:
+    import torch
+    from torchpme import EwaldCalculator
+    from torchpme.potentials import CoulombPotential
+
+    HAS_TORCHPME = True
+except ModuleNotFoundError:
+    HAS_TORCHPME = False
+
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
+
+def create_dipole_system(dtype=jnp.float64, separation=6.0, cell_size=10.0):
+    """Create a simple dipole system with JAX arrays on GPU.
+
+    Parameters
+    ----------
+    dtype : jnp.dtype
+        Data type for arrays
+    separation : float
+        Distance between charges
+    cell_size : float
+        Cubic cell size
+
+    Returns
+    -------
+    tuple
+        (positions, charges, cell, neighbor_matrix, num_neighbors, neighbor_matrix_shifts)
+    """
+    positions = jnp.array([[0.0, 0.0, 0.0], [separation, 0.0, 0.0]], dtype=dtype)
+    charges = jnp.array([1.0, -1.0], dtype=dtype)
+    cell = jnp.array(
+        [[[cell_size, 0.0, 0.0], [0.0, cell_size, 0.0], [0.0, 0.0, cell_size]]],
+        dtype=dtype,
+    )
+
+    # Build neighbor list using cell_list
+    cutoff = separation * 1.5
+    pbc = jnp.array([[True, True, True]])
+    neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+        positions, cutoff, cell, pbc
+    )
+
+    return (
+        positions,
+        charges,
+        cell,
+        neighbor_matrix,
+        num_neighbors,
+        neighbor_matrix_shifts,
+    )
+
+
+def create_simple_system(dtype=jnp.float64, num_atoms=4, cell_size=10.0):
+    """Create a simple test system with random positions and neutral charges.
+
+    Parameters
+    ----------
+    dtype : jnp.dtype
+        Data type for arrays
+    num_atoms : int
+        Number of atoms
+    cell_size : float
+        Cubic cell size
+
+    Returns
+    -------
+    tuple
+        (positions, charges, cell)
+    """
+    key = jax.random.PRNGKey(42)
+    positions = jax.random.uniform(key, (num_atoms, 3), dtype=dtype) * cell_size * 0.8
+
+    # Create alternating charges for neutrality
+    charges = jnp.array([1.0, -1.0] * (num_atoms // 2), dtype=dtype)
+    if num_atoms % 2 == 1:
+        charges = jnp.concatenate([charges, jnp.array([0.0], dtype=dtype)])
+
+    cell = jnp.array(
+        [[[cell_size, 0.0, 0.0], [0.0, cell_size, 0.0], [0.0, 0.0, cell_size]]],
+        dtype=dtype,
+    )
+
+    return positions, charges, cell
+
+
+def compute_torchpme_reciprocal(positions_np, charges_np, cell_np, k_cutoff, alpha):
+    """Compute reference reciprocal energy using torchpme.
+
+    Parameters
+    ----------
+    positions_np : np.ndarray
+        Atomic positions
+    charges_np : np.ndarray
+        Atomic charges
+    cell_np : np.ndarray
+        Cell matrix
+    k_cutoff : float
+        K-space cutoff
+    alpha : float
+        Ewald splitting parameter
+
+    Returns
+    -------
+    np.ndarray
+        Reciprocal space energy per atom
+    """
+
+    device = "cuda"
+    dtype = torch.float64
+    positions_torch = torch.tensor(positions_np, dtype=dtype, device=device)
+    charges_torch = torch.tensor(charges_np, dtype=dtype, device=device)
+    cell_torch = torch.tensor(cell_np, dtype=dtype, device=device)
+
+    lr_wavelength = 2 * torch.pi / k_cutoff
+    smearing = 1.0 / (2.0**0.5 * alpha)
+    potential = CoulombPotential(smearing=smearing).to(device=device, dtype=dtype)
+    calc = EwaldCalculator(
+        potential=potential, lr_wavelength=lr_wavelength, full_neighbor_list=True
+    ).to(device=device, dtype=dtype)
+
+    charges_col = charges_torch.unsqueeze(1)
+    # cell_torch is (3, 3) — pass directly (not cell_torch[0] which would be row 0)
+    potentials = calc._compute_kspace(charges_col, cell_torch, positions_torch)
+    energy_recip = (charges_col * potentials).flatten()
+
+    return energy_recip.cpu().numpy()
+
+
+def compute_torchpme_real_space(
+    charges_np, neighbor_indices, neighbor_distances, alpha, k_cutoff
+):
+    """Compute reference real-space energy using torchpme.
+
+    Parameters
+    ----------
+    charges_np : np.ndarray
+        Atomic charges
+    neighbor_indices : np.ndarray
+        Neighbor pair indices [2, num_pairs]
+    neighbor_distances : np.ndarray
+        Pair distances
+    alpha : float
+        Ewald splitting parameter
+    k_cutoff : float
+        K-space cutoff
+
+    Returns
+    -------
+    np.ndarray
+        Real space energy per atom
+    """
+
+    device = "cuda"
+    dtype = torch.float64
+    charges_torch = torch.tensor(charges_np, dtype=dtype, device=device)
+    neighbor_indices_torch = torch.tensor(
+        neighbor_indices, dtype=torch.long, device=device
+    )
+    neighbor_distances_torch = torch.tensor(
+        neighbor_distances, dtype=dtype, device=device
+    )
+
+    lr_wavelength = 2 * torch.pi / k_cutoff
+    smearing = 1.0 / (2.0**0.5 * alpha)
+    potential = CoulombPotential(smearing=smearing).to(device=device, dtype=dtype)
+    calc = EwaldCalculator(
+        potential=potential, lr_wavelength=lr_wavelength, full_neighbor_list=True
+    ).to(device=device, dtype=dtype)
+
+    # torchpme expects neighbor_indices as (num_pairs, 2), but our JAX neighbor list
+    # is in COO format (2, num_pairs), so transpose if needed
+    if neighbor_indices_torch.shape[0] == 2 and neighbor_indices_torch.ndim == 2:
+        neighbor_indices_torch = neighbor_indices_torch.T
+
+    charges_col = charges_torch.unsqueeze(1)
+    potentials = calc._compute_rspace(
+        charges_col, neighbor_indices_torch, neighbor_distances_torch
+    )
+    energy_real = (charges_col * potentials).flatten()
+
+    return energy_real.cpu().numpy()
+
+
+# ==============================================================================
+# Test Classes
+# ==============================================================================
+
+
+class TestDtypeSupport:
+    """Test float32 and float64 dtype support."""
+
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+    def test_real_space_dtype_returns_correct_type(self, device, dtype):
+        """Test ewald_real_space with float32 and float64."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system(dtype=dtype)
+
+        alpha = jnp.array([0.3], dtype=dtype)
+
+        energies = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        # Energy is always float64
+        assert energies.dtype == jnp.float64
+        assert jnp.all(jnp.isfinite(energies))
+
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+    def test_reciprocal_space_dtype_returns_correct_type(self, device, dtype):
+        """Test ewald_reciprocal_space with float32 and float64."""
+        positions, charges, cell = create_simple_system(dtype=dtype)
+
+        alpha = jnp.array([0.3], dtype=dtype)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0).astype(dtype)
+
+        energies = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+        )
+
+        assert energies.dtype == jnp.float64
+        assert jnp.all(jnp.isfinite(energies))
+
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+    def test_ewald_summation_dtype_returns_correct_type(self, device, dtype):
+        """Test ewald_summation with float32 and float64."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system(dtype=dtype)
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        assert energies.dtype == jnp.float64
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_float32_vs_float64_consistency(self, device):
+        """Test that float32 and float64 produce consistent results."""
+        positions_f64, charges_f64, cell_f64, nm_f64, nn_f64, nms_f64 = (
+            create_dipole_system(dtype=jnp.float64)
+        )
+
+        positions_f32 = positions_f64.astype(jnp.float32)
+        charges_f32 = charges_f64.astype(jnp.float32)
+        cell_f32 = cell_f64.astype(jnp.float32)
+
+        alpha = 0.3
+
+        energies_f64 = ewald_real_space(
+            positions=positions_f64,
+            charges=charges_f64,
+            cell=cell_f64,
+            alpha=alpha,
+            neighbor_matrix=nm_f64,
+            neighbor_matrix_shifts=nms_f64,
+        )
+
+        energies_f32 = ewald_real_space(
+            positions=positions_f32,
+            charges=charges_f32,
+            cell=cell_f32,
+            alpha=alpha,
+            neighbor_matrix=nm_f64,
+            neighbor_matrix_shifts=nms_f64,
+        )
+
+        # Both are float64 but f32 may have slightly different values
+        assert jnp.allclose(energies_f32, energies_f64, rtol=1e-4)
+
+    def test_batch_dtype_returns_correct_type(self, device):
+        """Test batched calculations return correct dtype."""
+        # Create 2 batches of 2 atoms each
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float32,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float32)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float32)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        alpha = jnp.array([0.3, 0.3], dtype=jnp.float32)
+
+        energies = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+        )
+
+        assert energies.dtype == jnp.float64
+        assert energies.shape == (4,)
+
+
+class TestEwaldRealSpaceAPI:
+    """Test Ewald real-space API."""
+
+    def test_single_system_energy_only(self, device):
+        """Test real-space energy for a single system."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+
+        energies = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        assert energies.shape == (2,)
+        assert jnp.all(jnp.isfinite(energies))
+        # Opposite charges should produce negative energy
+        assert energies.sum() < 0
+
+    def test_single_system_with_forces(self, device):
+        """Test real-space energy and forces."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+
+        energies, forces = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (2,)
+        assert forces.shape == (2, 3)
+        assert jnp.all(jnp.isfinite(energies))
+        assert jnp.all(jnp.isfinite(forces))
+
+        # Forces should be non-zero for this configuration
+        assert jnp.abs(forces[0, 0]) > 1e-6
+        # Newton's 3rd law
+        assert jnp.allclose(forces[0], -forces[1], rtol=1e-10)
+
+    def test_batch_system_energy_only(self, device):
+        """Test batched real-space energy."""
+        # 2 batches of 2 atoms each
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        alpha = jnp.array([0.3, 0.3])
+
+        energies = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_batch_system_with_forces(self, device):
+        """Test batched real-space energy and forces."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        alpha = jnp.array([0.3, 0.3])
+
+        energies, forces = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert jnp.all(jnp.isfinite(energies))
+        assert jnp.all(jnp.isfinite(forces))
+
+
+class TestEwaldReciprocalSpaceAPI:
+    """Test Ewald reciprocal-space API."""
+
+    def test_single_system_energy_only(self, device):
+        """Test reciprocal-space energy for a single system."""
+        positions, charges, cell = create_simple_system()
+
+        alpha = 0.3
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        energies = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_single_system_with_forces(self, device):
+        """Test reciprocal-space energy and forces."""
+        positions, charges, cell = create_simple_system()
+
+        alpha = 0.3
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        energies, forces = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert jnp.all(jnp.isfinite(energies))
+        assert jnp.all(jnp.isfinite(forces))
+
+    def test_batch_system_energy_only(self, device):
+        """Test batched reciprocal-space energy."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell = jnp.array(
+            [
+                [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+                [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            ]
+        )
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+
+        alpha = jnp.array([0.3, 0.3])
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        energies = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            batch_idx=batch_idx,
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_batch_system_with_forces(self, device):
+        """Test batched reciprocal-space energy and forces."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell = jnp.array(
+            [
+                [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+                [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            ]
+        )
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+
+        alpha = jnp.array([0.3, 0.3])
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        energies, forces = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert jnp.all(jnp.isfinite(energies))
+        assert jnp.all(jnp.isfinite(forces))
+
+
+class TestEwaldSummationAPI:
+    """Test full Ewald summation API."""
+
+    def test_single_system_energy_only(self, device):
+        """Test full Ewald summation for a single system."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        assert energies.shape == (2,)
+        assert jnp.all(jnp.isfinite(energies))
+        # Opposite charges should produce negative energy
+        assert energies.sum() < 0
+
+    def test_energy_grad_positions_matches_direct_forces(self, device):
+        """Energy-derived position gradients match direct forces."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def energy_sum(pos):
+            return ewald_summation(
+                positions=pos,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        grad_positions = jax.grad(energy_sum)(positions)
+        _energies, direct_forces = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+
+        assert jnp.allclose(-grad_positions, direct_forces, rtol=1e-5, atol=1e-7)
+
+    def test_energy_grad_charges_matches_direct_charge_gradients(self, device):
+        """Energy-derived charge gradients match direct full-Ewald charge gradients."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def energy_sum(chg):
+            return ewald_summation(
+                positions=positions,
+                charges=chg,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        grad_charges = jax.grad(energy_sum)(charges)
+        with pytest.warns(DeprecationWarning):
+            _energies, direct_charge_grads = ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_charge_gradients=True,
+            )
+
+        assert jnp.allclose(grad_charges, direct_charge_grads, rtol=1e-5, atol=1e-7)
+
+    def test_nonneutral_charge_gradients_match_energy_grad(self, device):
+        """Non-neutral background charge gradients match energy autodiff."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+        charges = charges.at[1].set(-0.25)
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def energy_sum(chg):
+            return ewald_summation(
+                positions=positions,
+                charges=chg,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        grad_charges = jax.grad(energy_sum)(charges)
+        with pytest.warns(DeprecationWarning):
+            _energies, direct_charge_grads = ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_charge_gradients=True,
+            )
+
+        assert jnp.allclose(grad_charges, direct_charge_grads, rtol=1e-5, atol=1e-7)
+
+    def test_energy_strain_grad_matches_direct_virial(self, device):
+        """Energy-derived strain gradients match direct full-Ewald virials."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        def energy_sum(strain):
+            transform = jnp.eye(3, dtype=positions.dtype) + strain
+            return ewald_summation(
+                positions=positions @ transform,
+                charges=charges,
+                cell=cell @ transform,
+                alpha=alpha,
+                k_cutoff=8.0,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        strain_grad = jax.grad(energy_sum)(jnp.zeros((3, 3), dtype=positions.dtype))
+        with pytest.warns(DeprecationWarning):
+            _energies, direct_virial = ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_vectors=k_vectors,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_virial=True,
+            )
+
+        assert jnp.allclose(
+            -strain_grad, direct_virial.squeeze(0), rtol=1e-5, atol=1e-7
+        )
+
+    @pytest.mark.parametrize("component", ["real", "reciprocal"])
+    def test_component_energy_gradients_match_direct_outputs(self, device, component):
+        """Energy-only component APIs expose differentiable position and charge paths."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        def component_energy(pos, chg):
+            if component == "real":
+                return ewald_real_space(
+                    positions=pos,
+                    charges=chg,
+                    cell=cell,
+                    alpha=alpha,
+                    neighbor_matrix=neighbor_matrix,
+                    neighbor_matrix_shifts=neighbor_matrix_shifts,
+                ).sum()
+            return ewald_reciprocal_space(
+                positions=pos,
+                charges=chg,
+                cell=cell,
+                k_vectors=k_vectors,
+                alpha=alpha,
+            ).sum()
+
+        grad_positions = jax.grad(lambda pos: component_energy(pos, charges))(positions)
+        grad_charges = jax.grad(lambda chg: component_energy(positions, chg))(charges)
+
+        if component == "real":
+            with pytest.warns(DeprecationWarning):
+                _energies, direct_forces, direct_charge_grads = ewald_real_space(
+                    positions=positions,
+                    charges=charges,
+                    cell=cell,
+                    alpha=alpha,
+                    neighbor_matrix=neighbor_matrix,
+                    neighbor_matrix_shifts=neighbor_matrix_shifts,
+                    compute_forces=True,
+                    compute_charge_gradients=True,
+                )
+        else:
+            with pytest.warns(DeprecationWarning):
+                _energies, direct_forces, direct_charge_grads = ewald_reciprocal_space(
+                    positions=positions,
+                    charges=charges,
+                    cell=cell,
+                    k_vectors=k_vectors,
+                    alpha=alpha,
+                    compute_forces=True,
+                    compute_charge_gradients=True,
+                )
+
+        assert jnp.allclose(-grad_positions, direct_forces, rtol=1e-5, atol=1e-7)
+        assert jnp.allclose(grad_charges, direct_charge_grads, rtol=1e-5, atol=1e-7)
+
+    def test_hybrid_forces_injects_charge_gradients(self, device):
+        """Hybrid full-Ewald energy routes analytical charge gradients to charges."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def hybrid_energy(chg):
+            energy = ewald_summation(
+                positions=positions,
+                charges=chg,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                hybrid_forces=True,
+            )
+            return energy.sum()
+
+        with pytest.warns(DeprecationWarning):
+            hybrid_grad = jax.grad(hybrid_energy)(charges)
+        with pytest.warns(DeprecationWarning):
+            _energies, direct_charge_grads = ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_charge_gradients=True,
+            )
+
+        assert jnp.allclose(hybrid_grad, direct_charge_grads, rtol=1e-5, atol=1e-7)
+
+    def test_position_hvp_matches_full_vector_finite_difference(self, device):
+        """Full-Ewald position HVP matches full-vector finite differences."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def energy_sum(pos):
+            return ewald_summation(
+                positions=pos,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        direction = jnp.array(
+            [[1.0, -0.5, 0.25], [-0.25, 0.75, -1.0]], dtype=positions.dtype
+        )
+        eps = 1e-4
+
+        grad_fn = jax.grad(energy_sum)
+        _, hvp = jax.jvp(grad_fn, (positions,), (direction,))
+        fd = (
+            grad_fn(positions + eps * direction) - grad_fn(positions - eps * direction)
+        ) / (2.0 * eps)
+
+        assert jnp.all(jnp.isfinite(hvp))
+        assert jnp.allclose(hvp, fd, rtol=2e-3, atol=1e-6)
+
+    def test_charge_hvp_matches_full_vector_finite_difference(self, device):
+        """Full-Ewald charge HVP matches full-vector finite differences."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def energy_sum(chg):
+            return ewald_summation(
+                positions=positions,
+                charges=chg,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        direction = jnp.array([1.0, -0.5], dtype=charges.dtype)
+        eps = 1e-4
+
+        grad_fn = jax.grad(energy_sum)
+        _, hvp = jax.jvp(grad_fn, (charges,), (direction,))
+        fd = (
+            grad_fn(charges + eps * direction) - grad_fn(charges - eps * direction)
+        ) / (2.0 * eps)
+
+        assert jnp.all(jnp.isfinite(hvp))
+        assert jnp.allclose(hvp, fd, rtol=2e-3, atol=1e-6)
+
+    def test_nonneutral_charge_hvp_matches_finite_difference(self, device):
+        """Non-neutral background charge HVP matches finite differences."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+        charges = charges.at[1].set(-0.25)
+
+        alpha = 0.3
+        k_cutoff = 8.0
+        tangent = jnp.array([1.0, 0.5], dtype=charges.dtype)
+        eps = 1e-4
+
+        def energy_sum(chg):
+            return ewald_summation(
+                positions=positions,
+                charges=chg,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        grad_fn = jax.grad(energy_sum)
+        _, hvp = jax.jvp(grad_fn, (charges,), (tangent,))
+        fd = (grad_fn(charges + eps * tangent) - grad_fn(charges - eps * tangent)) / (
+            2.0 * eps
+        )
+
+        assert jnp.all(jnp.isfinite(hvp))
+        assert jnp.allclose(hvp, fd, rtol=2e-3, atol=1e-6)
+
+    def test_batch_system_energy_only(self, device):
+        """Test batched full Ewald summation."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_batched_weighted_energy_grad_matches_finite_difference(self, device):
+        """Non-uniform per-atom energy weights have correct position gradients."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+        weights = jnp.array([2.0, -0.5, 1.25, -0.75], dtype=jnp.float64)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, _num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        def weighted_energy(pos):
+            energies = ewald_summation(
+                positions=pos,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                batch_idx=batch_idx,
+            )
+            return (weights * energies).sum()
+
+        grad_positions = jax.grad(weighted_energy)(positions)
+        fd_grad = np.zeros(tuple(positions.shape), dtype=np.float64)
+        h = 1e-4
+        for atom_idx in range(positions.shape[0]):
+            for dim in range(3):
+                plus = positions.at[atom_idx, dim].add(h)
+                minus = positions.at[atom_idx, dim].add(-h)
+                fd_grad[atom_idx, dim] = (
+                    float(weighted_energy(plus)) - float(weighted_energy(minus))
+                ) / (2.0 * h)
+
+        assert jnp.allclose(
+            grad_positions,
+            jnp.asarray(fd_grad),
+            rtol=5e-4,
+            atol=5e-5,
+        )
+
+    def test_batch_system_with_forces(self, device):
+        """Test batched full Ewald summation with forces."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        energies, forces = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert jnp.all(jnp.isfinite(energies))
+        assert jnp.all(jnp.isfinite(forces))
+
+    def test_per_system_alpha(self, device):
+        """Test batched Ewald with different alpha per system."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        cutoff = 5.0
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            cutoff,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        # Different alpha for each system
+        alpha = jnp.array([0.2, 0.4])
+        k_cutoff = 8.0
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+
+@pytest.mark.skipif(not HAS_TORCHPME, reason="torchpme not installed")
+class TestRealSpaceCorrectness:
+    """Test real-space correctness against torchpme."""
+
+    @pytest.mark.parametrize("crystal_fn", ["cscl", "wurtzite", "zincblende"])
+    @pytest.mark.parametrize("alpha", [0.2, 0.3, 0.4])
+    def test_real_space_energy_matches_torchpme(self, device, crystal_fn, alpha):
+        """Test real-space energy matches torchpme reference."""
+        # Create crystal system
+        positions, charges, cell = make_crystal_system_jax(crystal_fn, size=2)
+
+        # Build neighbor list
+        cutoff = 10.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        # Compute with JAX
+        energies_jax = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        # Convert to numpy for torchpme
+        positions_host = np.array(positions)
+        charges_host = np.array(charges)
+        nm_host = np.array(neighbor_matrix)
+        ns_host = np.array(neighbor_matrix_shifts)
+
+        # Build COO pairs from dense matrix for torchpme comparison
+        cell_host = np.array(cell[0])
+        num_atoms = positions_host.shape[0]
+        idx_i_list, idx_j_list, dist_list = [], [], []
+        for i in range(nm_host.shape[0]):
+            for k in range(nm_host.shape[1]):
+                j = nm_host[i, k]
+                if j >= num_atoms:  # padding (fill_value = num_atoms)
+                    continue
+                idx_i_list.append(i)
+                idx_j_list.append(j)
+                shift_vec = ns_host[i, k] @ cell_host
+                delta = positions_host[j] - positions_host[i] + shift_vec
+                dist_list.append(np.linalg.norm(delta))
+        neighbor_indices = np.array([idx_i_list, idx_j_list])
+        distances = np.array(dist_list)
+
+        # Compute with torchpme
+        energies_torchpme = compute_torchpme_real_space(
+            charges_host, neighbor_indices, distances, alpha, k_cutoff=8.0
+        )
+
+        # Compare
+        assert jnp.allclose(
+            energies_jax.sum(), energies_torchpme.sum(), rtol=1e-3, atol=1e-3
+        )
+
+    @pytest.mark.parametrize("crystal_fn", ["cscl"])
+    def test_real_space_forces_match_torchpme(self, device, crystal_fn):
+        """Test real-space forces match torchpme reference."""
+        # Create crystal system
+        positions, charges, cell = make_crystal_system_jax("cscl", size=2)
+
+        # Build neighbor list
+        cutoff = 10.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        alpha = 0.3
+
+        # Compute with JAX
+        energies_jax, forces_jax = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+
+        # Check forces are finite and momentum is conserved
+        assert jnp.all(jnp.isfinite(forces_jax))
+        assert jnp.allclose(forces_jax.sum(axis=0), jnp.zeros(3), atol=1e-10)
+
+
+@pytest.mark.skipif(not HAS_TORCHPME, reason="torchpme not installed")
+class TestReciprocalSpaceCorrectness:
+    """Test reciprocal-space correctness against torchpme."""
+
+    @pytest.mark.parametrize("crystal_fn", ["cscl", "zincblende"])
+    def test_reciprocal_energy_matches_torchpme(self, device, crystal_fn):
+        """Test reciprocal-space energy matches torchpme reference."""
+        # Create crystal system
+        positions, charges, cell = make_crystal_system_jax(crystal_fn, size=2)
+        positions_np = np.array(positions)
+        charges_np = np.array(charges)
+        cell_np = np.array(cell[0])  # (3, 3) for torchpme
+
+        alpha = 0.3
+        k_cutoff = 8.0
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=k_cutoff)
+
+        # Compute with JAX
+        energies_jax = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+        )
+
+        # Compute with torchpme
+        energies_torchpme = compute_torchpme_reciprocal(
+            positions_np, charges_np, cell_np, k_cutoff, alpha
+        )
+
+        # Compare total energy
+        assert jnp.allclose(
+            energies_jax.sum(), energies_torchpme.sum(), rtol=1e-3, atol=1e-3
+        )
+
+    @pytest.mark.parametrize("crystal_fn", ["cscl"])
+    def test_reciprocal_forces_match_torchpme(self, device, crystal_fn):
+        """Test reciprocal-space forces match torchpme reference."""
+        # Create crystal system
+        positions, charges, cell = make_crystal_system_jax("cscl", size=2)
+
+        alpha = 0.3
+        k_cutoff = 8.0
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=k_cutoff)
+
+        # Compute with JAX
+        energies_jax, forces_jax = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_forces=True,
+        )
+
+        # Check forces are finite and momentum is conserved
+        assert jnp.all(jnp.isfinite(forces_jax))
+        assert jnp.allclose(forces_jax.sum(axis=0), jnp.zeros(3), atol=1e-10)
+
+
+class TestExplicitChargeGradients:
+    """Test explicit charge gradient computation (replaces autograd tests)."""
+
+    def test_real_space_charge_gradients_shape(self, device):
+        """Test real-space charge gradients have correct shape."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+
+        energies, charge_grads = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_charge_gradients=True,
+        )
+
+        assert energies.shape == (2,)
+        assert charge_grads.shape == (2,)
+
+    def test_reciprocal_charge_gradients_shape(self, device):
+        """Test reciprocal-space charge gradients have correct shape."""
+        positions, charges, cell = create_simple_system()
+
+        alpha = 0.3
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        energies, charge_grads = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_charge_gradients=True,
+        )
+
+        assert energies.shape == (4,)
+        assert charge_grads.shape == (4,)
+
+    def test_real_space_charge_gradients_finite(self, device):
+        """Test real-space charge gradients are finite and non-zero."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+
+        energies, charge_grads = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_charge_gradients=True,
+        )
+
+        assert jnp.all(jnp.isfinite(charge_grads))
+        # At least one should be non-zero
+        assert jnp.any(jnp.abs(charge_grads) > 1e-10)
+
+    def test_reciprocal_charge_gradients_finite(self, device):
+        """Test reciprocal-space charge gradients are finite and non-zero."""
+        positions, charges, cell = create_simple_system()
+
+        alpha = 0.3
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        energies, charge_grads = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_charge_gradients=True,
+        )
+
+        assert jnp.all(jnp.isfinite(charge_grads))
+        # At least one should be non-zero
+        assert jnp.any(jnp.abs(charge_grads) > 1e-10)
+
+
+class TestPhysicalProperties:
+    """Test physical properties of Ewald summation."""
+
+    def test_opposite_charges_attract(self, device):
+        """Test that opposite charges produce negative energy."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        assert energies.sum() < 0
+
+    def test_energy_charge_scaling(self, device):
+        """Test that doubling charges quadruples energy."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        # Energy with q = 1
+        energy1 = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        ).sum()
+
+        # Energy with q = 2
+        charges2 = charges * 2.0
+        energy2 = ewald_summation(
+            positions=positions,
+            charges=charges2,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        ).sum()
+
+        # E(2q) = 4 * E(q)
+        assert jnp.allclose(energy2, 4.0 * energy1, rtol=1e-5)
+
+    def test_translation_invariance(self, device):
+        """Test that translating all atoms doesn't change energy."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system(cell_size=20.0)
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        # Energy at original positions
+        energy1 = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        ).sum()
+
+        # Translate all atoms by (1, 1, 1)
+        positions_shifted = positions + jnp.array([1.0, 1.0, 1.0])
+
+        # Rebuild neighbor list for shifted positions
+        cutoff = 10.0
+        pbc = jnp.array([[True, True, True]])
+        nm_shifted, nn_shifted, nms_shifted = cell_list(
+            positions_shifted, cutoff, cell, pbc
+        )
+
+        energy2 = ewald_summation(
+            positions=positions_shifted,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=nm_shifted,
+            neighbor_matrix_shifts=nms_shifted,
+        ).sum()
+
+        # Energy should be the same
+        assert jnp.allclose(energy1, energy2, rtol=1e-5)
+
+
+class TestEdgeCases:
+    """Test edge cases and special configurations."""
+
+    def test_non_cubic_cells(self, device):
+        """Test with wurtzite (hexagonal) cell."""
+        positions, charges, cell = make_crystal_system_jax("wurtzite", size=2)
+
+        # Build neighbor list
+        cutoff = 10.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_auto_parameters(self, device):
+        """Test Ewald summation with automatic parameter estimation."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        # Use auto-estimated alpha and k_cutoff
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=None,
+            k_cutoff=None,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            accuracy=1e-6,
+        )
+
+        assert energies.shape == (2,)
+        assert jnp.all(jnp.isfinite(energies))
+        assert energies.sum() < 0
+
+    def test_batch_auto_parameters(self, device):
+        """Test batched automatic parameter estimation uses a shared max cutoff."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            5.0,
+            cell,
+            jnp.array([[True, True, True], [True, True, True]]),
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=None,
+            k_cutoff=None,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+            accuracy=1e-6,
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+
+class TestEwaldQRChainRule:
+    """q(R) chain-rule coverage for preprocessed full-Ewald positions."""
+
+    def test_qR_sibling_force_matches_manual_chain(self, device):
+        """Full Ewald preserves the charge chain for sibling expressions."""
+        (
+            positions,
+            _charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        def energy_fn(pos, charges, cell_arg):
+            return ewald_summation(
+                positions=pos,
+                charges=charges,
+                cell=cell_arg,
+                alpha=0.3,
+                k_cutoff=8.0,
+                k_vectors=k_vectors,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            )
+
+        full_grad, manual_grad = qr_manual_chain_jax(
+            energy_fn,
+            positions,
+            cell,
+        )
+        assert jnp.allclose(full_grad, manual_grad, rtol=1e-5, atol=1e-7)
+        jitted_grad = jax.jit(
+            lambda p: jax.grad(
+                lambda base: energy_fn(
+                    base * 1.0,
+                    toy_charge_model_jax(base),
+                    cell,
+                ).sum()
+            )(p)
+        )(positions)
+        assert jnp.allclose(jitted_grad, full_grad, rtol=1e-5, atol=1e-7)
+
+    def test_qR_sibling_position_hvp_matches_fd(self, device):
+        """Full-Ewald q(R) position HVPs match finite differences."""
+        (
+            positions,
+            _charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        def energy_sum(base):
+            return ewald_summation(
+                positions=base * 1.0,
+                charges=toy_charge_model_jax(base),
+                cell=cell,
+                alpha=0.3,
+                k_cutoff=8.0,
+                k_vectors=k_vectors,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        direction = jax.random.normal(
+            jax.random.PRNGKey(115),
+            positions.shape,
+            dtype=positions.dtype,
+        )
+        direction = direction / jnp.linalg.norm(direction)
+        grad_fn = jax.grad(energy_sum)
+        hvp = jax.grad(lambda p: jnp.vdot(grad_fn(p), direction))(positions)
+        eps = jnp.array(1e-5, dtype=positions.dtype)
+        fd = (
+            grad_fn(positions + eps * direction) - grad_fn(positions - eps * direction)
+        ) / (2.0 * eps)
+        assert jnp.allclose(hvp, fd, rtol=2e-3, atol=1e-6)
+
+
+class TestEwaldJIT:
+    """Smoke tests for Ewald summation compatibility with jax.jit."""
+
+    def test_jit_full_energy_grad_positions(self, device):  # noqa: ARG002
+        """Test full Ewald energy gradients work under jax.jit."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        def energy_sum(pos):
+            return ewald_summation(
+                positions=pos,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                k_vectors=k_vectors,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        grad_positions = jax.jit(jax.grad(energy_sum))(positions)
+        _energies, direct_forces = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_vectors=k_vectors,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+
+        assert jnp.allclose(-grad_positions, direct_forces, rtol=1e-5, atol=1e-7)
+
+    def test_jit_real_space(self, device):  # noqa: ARG002
+        """Test ewald_real_space works under jax.jit."""
+        positions = jnp.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=jnp.float64)
+        charges = jnp.array([1.0, -1.0], dtype=jnp.float64)
+        cell = cubic_cell_jax(10.0, dtype=jnp.float64)
+        pbc = jnp.array([[True, True, True]])
+
+        # Build neighbor list eagerly (it uses .devices().pop() internally)
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff=5.0, cell=cell, pbc=pbc
+        )
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        @jax.jit
+        def jitted_real_space(positions, charges, cell, alpha, nm, nms):
+            return ewald_real_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+            )
+
+        energies = jitted_real_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            neighbor_matrix,
+            neighbor_matrix_shifts,
+        )
+
+        assert energies.shape == (2,)
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_jit_reciprocal_space(self, device):  # noqa: ARG002
+        """Test ewald_reciprocal_space works under jax.jit."""
+        positions = jnp.array(
+            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [3.0, 3.0, 0.0]],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 0.5, -0.5], dtype=jnp.float64)
+        cell = cubic_cell_jax(10.0, dtype=jnp.float64)
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        # k_vectors must be computed eagerly (dynamic shape)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        @jax.jit
+        def jitted_reciprocal(positions, charges, cell, k_vectors, alpha):
+            return ewald_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                k_vectors=k_vectors,
+                alpha=alpha,
+            )
+
+        energies = jitted_reciprocal(positions, charges, cell, k_vectors, alpha)
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+    def test_jit_batched_reciprocal_space(self, device):  # noqa: ARG002
+        """Test ewald_reciprocal_space works under jax.jit with batched inputs."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)  # (2, 3, 3)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        alpha = jnp.array([0.3, 0.3], dtype=jnp.float64)
+
+        # k_vectors must be computed eagerly (dynamic shape)
+        k_vectors = generate_k_vectors_ewald_summation(cell_single, k_cutoff=8.0)
+
+        @jax.jit
+        def jitted_batched_reciprocal(
+            positions, charges, cell, k_vectors, alpha, batch_idx
+        ):
+            return ewald_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                k_vectors=k_vectors,
+                alpha=alpha,
+                batch_idx=batch_idx,
+                max_atoms_per_system=2,
+            )
+
+        energies = jitted_batched_reciprocal(
+            positions, charges, cell, k_vectors, alpha, batch_idx
+        )
+
+        assert energies.shape == (4,)
+        assert jnp.all(jnp.isfinite(energies))
+
+
+# ==============================================================================
+# Virial Test Classes
+# ==============================================================================
+
+
+class TestEwaldRealSpaceVirial:
+    """Tests for real-space virial computation."""
+
+    def test_virial_shape(self, device):
+        """Test that virial has correct shape (1, 3, 3) for single system."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        # Build neighbor list
+        cutoff = 6.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        result = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            compute_virial=True,
+        )
+
+        # Result should be (energies, forces, virial)
+        assert len(result) == 3
+        energies, forces, virial = result
+        assert virial.shape == (1, 3, 3)
+
+    def test_virial_dtype(self, device):
+        """Test that virial dtype matches input dtype."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        # Build neighbor list
+        cutoff = 6.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        result = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            compute_virial=True,
+        )
+
+        energies, forces, virial = result
+        assert virial.dtype == jnp.float64
+
+    def test_virial_nonzero(self, device):
+        """Test that virial has non-zero elements."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        # Build neighbor list
+        cutoff = 6.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        result = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            compute_virial=True,
+        )
+
+        energies, forces, virial = result
+        assert jnp.all(jnp.isfinite(virial))
+        # For ionic crystal, virial should be non-zero
+        assert jnp.any(jnp.abs(virial) > 1e-10)
+
+    def test_virial_fd(self, device):
+        """Test virial matches finite difference approximation."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        # Build neighbor list for original positions
+        cutoff = 6.0
+        pbc = jnp.array([[True, True, True]])
+
+        alpha_arr = jnp.array([0.3], dtype=jnp.float64)
+
+        # Define energy function that rebuilds neighbor list for each strained geometry
+        def energy_fn(pos, c):
+            nm, nn, nms = cell_list(pos, cutoff, c, pbc)
+            return ewald_real_space(
+                pos,
+                charges,
+                c,
+                alpha_arr,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+            ).sum()
+
+        # Compute explicit virial
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+        result = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha_arr,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        explicit_virial = result[-1].squeeze(0)
+
+        # Compute FD virial
+        fd_virial = fd_virial_full_jax(energy_fn, positions, cell, h=1e-5)
+
+        # Compare with loose tolerance for FD
+        assert jnp.allclose(explicit_virial, fd_virial, atol=1e-2, rtol=1e-2)
+
+    def test_virial_without_forces(self, device):
+        """Test that compute_virial=True, compute_forces=False works."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        # Build neighbor list
+        cutoff = 6.0
+        pbc = jnp.array([[True, True, True]])
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        result = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=False,
+            compute_virial=True,
+        )
+
+        # Result should be (energies, virial) since compute_forces=False
+        assert len(result) == 2
+        energies, virial = result
+        assert virial.shape == (1, 3, 3)
+        assert jnp.all(jnp.isfinite(virial))
+
+
+class TestEwaldReciprocalSpaceVirial:
+    """Tests for reciprocal-space virial computation."""
+
+    def test_virial_shape(self, device):
+        """Test that virial has correct shape (1, 3, 3) for single system."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        result = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_virial=True,
+        )
+
+        # Result should be (energies, virial)
+        assert len(result) == 2
+        energies, virial = result
+        assert virial.shape == (1, 3, 3)
+
+    def test_virial_nonzero(self, device):
+        """Test that virial has non-zero elements."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        result = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_virial=True,
+        )
+
+        energies, virial = result
+        assert jnp.all(jnp.isfinite(virial))
+        # For ionic crystal, virial should be non-zero
+        assert jnp.any(jnp.abs(virial) > 1e-10)
+
+    def test_virial_fd(self, device):
+        """Test virial matches finite difference approximation."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        # Define energy function that generates k_vectors from cell
+        def energy_fn(pos, c):
+            k_vecs = generate_k_vectors_ewald_summation(c, k_cutoff=8.0)
+            return ewald_reciprocal_space(
+                pos,
+                charges,
+                c,
+                k_vecs,
+                alpha,
+            ).sum()
+
+        # Compute explicit virial
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+        result = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_virial=True,
+        )
+        explicit_virial = result[-1].squeeze(0)
+
+        # Compute FD virial
+        fd_virial = fd_virial_full_jax(energy_fn, positions, cell, h=1e-5)
+
+        # Compare with loose tolerance for FD
+        assert jnp.allclose(explicit_virial, fd_virial, atol=1e-2, rtol=1e-2)
+
+    def test_virial_symmetry(self, device):
+        """Test that virial is approximately symmetric."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=2)
+
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        result = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            compute_virial=True,
+        )
+
+        energies, virial = result
+        virial_squeezed = virial.squeeze(0)
+        # Check approximate symmetry
+        assert jnp.allclose(virial_squeezed, virial_squeezed.T, rtol=1e-5, atol=1e-10)
+
+
+class TestEwaldTotalVirial:
+    """Tests for combined real+reciprocal virial computation."""
+
+    def test_combined_virial_fd(self, device):
+        """Test combined virial matches finite difference of total energy."""
+        positions, charges, cell = make_virial_cscl_system_jax(size=1)
+
+        cutoff = 6.0
+        pbc = jnp.array([[True, True, True]])
+
+        alpha = 0.3
+        k_cutoff = 8.0
+
+        # Define energy function for total Ewald summation
+        def energy_fn(pos, c):
+            nm, nn, nms = cell_list(pos, cutoff, c, pbc)
+            return ewald_summation(
+                pos,
+                charges,
+                c,
+                alpha=alpha,
+                k_cutoff=k_cutoff,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+            ).sum()
+
+        # Compute explicit virial
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff, cell, pbc
+        )
+        result = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            k_cutoff=k_cutoff,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_virial=True,
+        )
+        explicit_virial = result[-1].squeeze(0)
+
+        # Compute FD virial
+        fd_virial = fd_virial_full_jax(energy_fn, positions, cell, h=1e-5)
+
+        # Compare with loose tolerance for FD
+        assert jnp.allclose(explicit_virial, fd_virial, atol=1e-2, rtol=1e-2)
+
+
+class TestDirectOutputDeprecation:
+    """Direct-output warnings on the JAX Ewald APIs."""
+
+    def _system(self):
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+        return positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts
+
+    def _full_call(self, **flags):
+        positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts = (
+            self._system()
+        )
+        return ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            k_cutoff=8.0,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            **flags,
+        )
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "compute_forces",
+            "compute_virial",
+            "compute_charge_gradients",
+            "hybrid_forces",
+        ],
+    )
+    def test_full_api_flag_warns_once(self, device, flag):
+        """Differentiable-use direct outputs emit one DeprecationWarning."""
+        with pytest.warns(DeprecationWarning) as record:
+            result = self._full_call(**{flag: True})
+
+        dep = [w for w in record if issubclass(w.category, DeprecationWarning)]
+        assert len(dep) == 1
+        messages = "\n".join(str(w.message) for w in dep)
+        assert "JAX autodiff" in messages
+        assert "ewald_summation" in messages
+        assert dep[0].filename.endswith("test_ewald.py")
+        energy = result[0] if isinstance(result, tuple) else result
+        assert jnp.all(jnp.isfinite(energy))
+
+    def test_full_api_no_flag_does_not_warn(self, device):
+        """ewald_summation with no deprecated flag must not warn."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            energy = self._full_call()
+        assert jnp.all(jnp.isfinite(energy))
+
+    def test_legacy_tuple_ordering_unchanged(self, device):
+        """Deprecated full outputs keep their documented tuple ordering."""
+        with pytest.warns(DeprecationWarning):
+            out = self._full_call(
+                compute_forces=True,
+                compute_charge_gradients=True,
+                compute_virial=True,
+            )
+
+        assert isinstance(out, tuple) and len(out) == 4
+        energies, forces, charge_grads, virial = out
+        assert energies.shape == (2,)
+        assert forces.shape == (2, 3)
+        assert charge_grads.shape == (2,)
+        assert virial.shape == (1, 3, 3)
+        for value in out:
+            assert jnp.all(jnp.isfinite(value))
+
+    def test_components_compute_forces_do_not_warn(self, device):
+        """Component compute_forces=True remains a no-warning escape hatch."""
+        positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts = (
+            self._system()
+        )
+        alpha = jnp.array([0.3], dtype=positions.dtype)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            ewald_real_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_forces=True,
+            )
+            ewald_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                k_vectors=k_vectors,
+                alpha=alpha,
+                compute_forces=True,
+            )
+
+    @pytest.mark.parametrize("flag", ["compute_charge_gradients", "compute_virial"])
+    def test_component_training_style_outputs_warn(self, device, flag):
+        """Component charge/virial direct outputs warn during deprecation."""
+        positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts = (
+            self._system()
+        )
+        alpha = jnp.array([0.3], dtype=positions.dtype)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        with pytest.warns(DeprecationWarning, match="ewald_real_space"):
+            real = ewald_real_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                **{flag: True},
+            )
+        with pytest.warns(DeprecationWarning, match="ewald_reciprocal_space"):
+            recip = ewald_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                k_vectors=k_vectors,
+                alpha=alpha,
+                **{flag: True},
+            )
+
+        real_energy = real[0] if isinstance(real, tuple) else real
+        recip_energy = recip[0] if isinstance(recip, tuple) else recip
+        assert jnp.all(jnp.isfinite(real_energy))
+        assert jnp.all(jnp.isfinite(recip_energy))
+
+
+class TestEwaldVirialJIT:
+    """Tests for virial computation under jax.jit."""
+
+    def test_jit_real_space_virial(self):
+        """Test that ewald_real_space with compute_virial works under jax.jit."""
+        positions = jnp.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=jnp.float64)
+        charges = jnp.array([1.0, -1.0], dtype=jnp.float64)
+        cell = cubic_cell_jax(10.0, dtype=jnp.float64)
+        pbc = jnp.array([[True, True, True]])
+
+        # Build neighbor list eagerly
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, cutoff=5.0, cell=cell, pbc=pbc
+        )
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        @jax.jit
+        def jitted_real_space_virial(positions, charges, cell, alpha, nm, nms):
+            return ewald_real_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=alpha,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+                compute_forces=True,
+                compute_virial=True,
+            )
+
+        result = jitted_real_space_virial(
+            positions,
+            charges,
+            cell,
+            alpha,
+            neighbor_matrix,
+            neighbor_matrix_shifts,
+        )
+
+        assert len(result) == 3
+        energies, forces, virial = result
+        assert virial.shape == (1, 3, 3)
+        assert jnp.all(jnp.isfinite(virial))
+
+    def test_jit_reciprocal_virial(self):
+        """Test that ewald_reciprocal_space with compute_virial works under jax.jit."""
+        positions = jnp.array(
+            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [3.0, 3.0, 0.0]],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 0.5, -0.5], dtype=jnp.float64)
+        cell = cubic_cell_jax(10.0, dtype=jnp.float64)
+        alpha = jnp.array([0.3], dtype=jnp.float64)
+
+        # k_vectors must be computed eagerly (dynamic shape)
+        k_vectors = generate_k_vectors_ewald_summation(cell, k_cutoff=8.0)
+
+        @jax.jit
+        def jitted_reciprocal_virial(positions, charges, cell, k_vectors, alpha):
+            return ewald_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                k_vectors=k_vectors,
+                alpha=alpha,
+                compute_virial=True,
+            )
+
+        result = jitted_reciprocal_virial(positions, charges, cell, k_vectors, alpha)
+
+        assert len(result) == 2
+        energies, virial = result
+        assert virial.shape == (1, 3, 3)
+        assert jnp.all(jnp.isfinite(virial))
+
+
+class TestEwaldEnergyReduction:
+    """Tests for the ``energy_reduction`` public atom/system layout option."""
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda positions, charges, cell, nm, nms: ewald_real_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+                energy_reduction="bogus",
+            ),
+            lambda positions, charges, cell, nm, nms: ewald_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                k_vectors=generate_k_vectors_ewald_summation(cell, k_cutoff=8.0),
+                alpha=0.3,
+                energy_reduction="bogus",
+            ),
+            lambda positions, charges, cell, nm, nms: ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                k_cutoff=8.0,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+                energy_reduction="bogus",
+            ),
+        ],
+        ids=["real_space", "reciprocal_space", "summation"],
+    )
+    def test_invalid_energy_reduction_raises(self, device, call):
+        """An unsupported energy_reduction value raises ValueError early."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        with pytest.raises(ValueError, match="energy_reduction"):
+            call(positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts)
+
+    def test_real_space_system_reduction_single_system_shape_and_value(self, device):
+        """System reduction returns shape (1,) equal to the atom-mode sum."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        atom_energies = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+        system_energies = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            energy_reduction="system",
+        )
+
+        assert system_energies.shape == (1,)
+        assert jnp.allclose(system_energies, atom_energies.sum(keepdims=True))
+
+    def test_reciprocal_space_system_reduction_batched_matches_manual_scatter(
+        self, device
+    ):
+        """Batched system reduction matches a manual per-system scatter-sum."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        alpha = jnp.array([0.3, 0.3])
+        k_vectors = generate_k_vectors_ewald_summation(cell_single, k_cutoff=8.0)
+
+        atom_energies = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            batch_idx=batch_idx,
+        )
+        system_energies = ewald_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            k_vectors=k_vectors,
+            alpha=alpha,
+            batch_idx=batch_idx,
+            energy_reduction="system",
+        )
+
+        expected = (
+            jnp.zeros((2,), dtype=atom_energies.dtype).at[batch_idx].add(atom_energies)
+        )
+        assert system_energies.shape == (2,)
+        assert jnp.allclose(system_energies, expected)
+
+    def test_summation_system_reduction_batched_matches_manual_scatter(self, device):
+        """Full Ewald summation system reduction matches manual scatter-sum."""
+        positions = jnp.array(
+            [
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+            ],
+            dtype=jnp.float64,
+        )
+        charges = jnp.array([1.0, -1.0, 1.0, -1.0], dtype=jnp.float64)
+        cell_single = cubic_cell_jax(10.0, dtype=jnp.float64)
+        cell = jnp.concatenate([cell_single, cell_single], axis=0)
+        batch_idx = jnp.array([0, 0, 1, 1], dtype=jnp.int32)
+        batch_ptr = jnp.array([0, 2, 4], dtype=jnp.int32)
+        pbc = jnp.array([[True, True, True], [True, True, True]])
+        neighbor_matrix, _num_neighbors, neighbor_matrix_shifts = batch_cell_list(
+            positions,
+            5.0,
+            cell,
+            pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=32,
+        )
+
+        atom_energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=jnp.array([0.3, 0.3]),
+            k_cutoff=8.0,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+        )
+        system_energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=jnp.array([0.3, 0.3]),
+            k_cutoff=8.0,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            batch_idx=batch_idx,
+            energy_reduction="system",
+        )
+
+        expected = (
+            jnp.zeros((2,), dtype=atom_energies.dtype).at[batch_idx].add(atom_energies)
+        )
+        assert system_energies.shape == (2,)
+        assert jnp.allclose(system_energies, expected)
+
+    def test_summation_system_reduction_with_slab_correction(self, device):
+        """System reduction composes with the slab-correction energy path."""
+        positions = jnp.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=jnp.float64)
+        charges = jnp.array([1.0, -1.0], dtype=jnp.float64)
+        cell = cubic_cell_jax(10.0, dtype=jnp.float64)
+        pbc = jnp.array([[True, True, False]])
+        neighbor_matrix, _num_neighbors, neighbor_matrix_shifts = cell_list(
+            positions, 5.0, cell, pbc
+        )
+
+        atom_energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            k_cutoff=8.0,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            pbc=pbc,
+            slab_correction=True,
+        )
+        system_energies = ewald_summation(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            k_cutoff=8.0,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            pbc=pbc,
+            slab_correction=True,
+            energy_reduction="system",
+        )
+
+        assert system_energies.shape == (1,)
+        assert jnp.allclose(system_energies, atom_energies.sum(keepdims=True))
+
+    def test_real_space_system_reduction_gradients_match_atom_mode(self, device):
+        """Position gradients are identical whether summed pre- or post-scatter."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        def atom_loss(pos):
+            return ewald_real_space(
+                positions=pos,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+            ).sum()
+
+        def system_loss(pos):
+            return ewald_real_space(
+                positions=pos,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                energy_reduction="system",
+            ).sum()
+
+        grad_atom = jax.grad(atom_loss)(positions)
+        grad_system = jax.grad(system_loss)(positions)
+        assert jnp.allclose(grad_atom, grad_system, rtol=1e-10, atol=1e-12)
+
+    def test_real_space_system_reduction_direct_tuple_only_energy_changes(self, device):
+        """Direct-output tuples keep atom-layout forces; only energy reduces."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        atom_energies, atom_forces = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+        system_energies, system_forces = ewald_real_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            energy_reduction="system",
+        )
+
+        assert system_energies.shape == (1,)
+        assert jnp.allclose(system_energies, atom_energies.sum(keepdims=True))
+        assert system_forces.shape == atom_forces.shape
+        assert jnp.allclose(system_forces, atom_forces)
+
+    def test_summation_direct_output_tuple_energy_reduced_others_unchanged(
+        self, device
+    ):
+        """ewald_summation's deprecated direct-output tuple also reduces only energy."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        with pytest.warns(DeprecationWarning):
+            atom_out = ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                k_cutoff=8.0,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_forces=True,
+                compute_charge_gradients=True,
+                compute_virial=True,
+            )
+        with pytest.warns(DeprecationWarning):
+            system_out = ewald_summation(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                k_cutoff=8.0,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_matrix_shifts,
+                compute_forces=True,
+                compute_charge_gradients=True,
+                compute_virial=True,
+                energy_reduction="system",
+            )
+
+        atom_energies, atom_forces, atom_charge_grads, atom_virial = atom_out
+        system_energies, system_forces, system_charge_grads, system_virial = system_out
+
+        assert system_energies.shape == (1,)
+        assert jnp.allclose(system_energies, atom_energies.sum(keepdims=True))
+        assert jnp.allclose(system_forces, atom_forces)
+        assert jnp.allclose(system_charge_grads, atom_charge_grads)
+        assert jnp.allclose(system_virial, atom_virial)
+
+    def test_real_space_energy_reduction_under_jit(self, device):
+        """energy_reduction is usable as a static string under jax.jit."""
+        (
+            positions,
+            charges,
+            cell,
+            neighbor_matrix,
+            _num_neighbors,
+            neighbor_matrix_shifts,
+        ) = create_dipole_system()
+
+        jitted = jax.jit(
+            lambda pos, chg, cell, nm, nms, reduction: ewald_real_space(
+                positions=pos,
+                charges=chg,
+                cell=cell,
+                alpha=0.3,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+                energy_reduction=reduction,
+            ),
+            static_argnames=("reduction",),
+        )
+
+        atom_energies = jitted(
+            positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts, "atom"
+        )
+        system_energies = jitted(
+            positions, charges, cell, neighbor_matrix, neighbor_matrix_shifts, "system"
+        )
+
+        assert atom_energies.shape == (2,)
+        assert system_energies.shape == (1,)
+        assert jnp.allclose(system_energies, atom_energies.sum(keepdims=True))

@@ -1,0 +1,725 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for private electrostatics Torch utility autograd shims."""
+
+from __future__ import annotations
+
+import gc
+import weakref
+
+import pytest
+
+torch = pytest.importorskip("torch")
+_util = pytest.importorskip("nvalchemiops.torch.interactions.electrostatics._util")
+_InjectChargeGrad = _util._InjectChargeGrad
+_InjectCachedEvalGrad = _util._InjectCachedEvalGrad
+_InjectCachedEvalGradWithFallback = _util._InjectCachedEvalGradWithFallback
+_energy_cotangents = _util._energy_cotangents
+_is_per_system_uniform_cotangent = _util._is_per_system_uniform_cotangent
+_is_uniform_cotangent = _util._is_uniform_cotangent
+
+from test.interactions.electrostatics._deriv_check import (  # noqa: E402
+    finite_difference_jacobian,
+)
+
+DT = torch.float64
+
+
+def _expected_charge_grad(grad_energy, charge_grad, batch_idx):
+    """Reference charge-gradient injector backward math."""
+    if batch_idx is not None:
+        atom_grad = grad_energy.index_select(0, batch_idx)
+    else:
+        atom_grad = grad_energy.squeeze(0)
+    return charge_grad * atom_grad
+
+
+def test_charge_grad_single_system_bit_identical():
+    """Single-system per-system cotangent matches the injector charge path."""
+    energy = torch.tensor([3.0], dtype=DT)
+    charges = torch.tensor([1.0, -1.0, 0.5], dtype=DT, requires_grad=True)
+    charge_grad = torch.tensor([0.2, -0.3, 0.1], dtype=DT)
+
+    out = _InjectChargeGrad.apply(energy, charges, charge_grad, None)
+    assert torch.equal(out, energy)
+    grad_energy = torch.tensor([1.7], dtype=DT)
+    out.backward(grad_energy)
+
+    expected = _expected_charge_grad(grad_energy, charge_grad, None)
+    assert torch.equal(charges.grad, expected)
+
+
+def test_charge_grad_batched_bit_identical():
+    """Batched per-system cotangents are selected by ``batch_idx``."""
+    energy = torch.tensor([3.0, 1.5], dtype=DT)
+    charges = torch.tensor([1.0, -1.0, 0.5, 2.0], dtype=DT, requires_grad=True)
+    charge_grad = torch.tensor([0.2, -0.3, 0.1, 0.4], dtype=DT)
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32)
+
+    out = _InjectChargeGrad.apply(energy, charges, charge_grad, batch_idx)
+    grad_energy = torch.tensor([2.0, 5.0], dtype=DT)
+    out.backward(grad_energy)
+
+    expected = _expected_charge_grad(grad_energy, charge_grad, batch_idx)
+    assert torch.equal(charges.grad, expected)
+
+
+def test_charge_grad_single_system_per_atom_cotangent_uses_mean():
+    """Non-uniform per-atom cotangents pass through to the energy graph."""
+    energy = torch.arange(3, dtype=DT, requires_grad=True)
+    charges = torch.tensor([1.0, -1.0, 0.5], dtype=DT, requires_grad=True)
+    charge_grad = torch.tensor([0.2, -0.3, 0.1], dtype=DT)
+
+    out = _InjectChargeGrad.apply(energy, charges, charge_grad, None)
+    grad_energy = torch.tensor([2.0, 4.0, 9.0], dtype=DT)
+    out.backward(grad_energy)
+
+    assert charges.grad is None
+    assert torch.equal(energy.grad, grad_energy)
+
+
+def test_charge_grad_batched_per_atom_cotangent_uses_system_mean():
+    """Batched non-uniform per-atom cotangents use the energy graph."""
+    energy = torch.arange(4, dtype=DT, requires_grad=True)
+    charges = torch.tensor([1.0, -1.0, 0.5, 2.0], dtype=DT, requires_grad=True)
+    charge_grad = torch.tensor([0.2, -0.3, 0.1, 0.4], dtype=DT)
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32)
+
+    out = _InjectChargeGrad.apply(energy, charges, charge_grad, batch_idx)
+    grad_energy = torch.tensor([2.0, 4.0, 5.0, 7.0], dtype=DT)
+    out.backward(grad_energy)
+
+    assert charges.grad is None
+    assert torch.equal(energy.grad, grad_energy)
+
+
+def test_cached_eval_qR_nonuniform_fallback_uses_partial_derivatives():
+    """q(R) weighted fallback returns partial dE/dR plus dE/dq for one chain term."""
+    positions = torch.randn(3, 3, dtype=DT, requires_grad=True)
+    theta = torch.randn(3, dtype=DT, requires_grad=True)
+    charges = positions[:, 0].square() + theta
+    cell = torch.eye(3, dtype=DT).unsqueeze(0).requires_grad_()
+    energy = positions[:, 1].detach().clone().requires_grad_()
+    pos_grad_state = torch.zeros_like(positions)
+    charge_grad_state = torch.zeros_like(charges)
+    cell_grad_state = torch.zeros_like(cell)
+    grad_energy = torch.tensor([1.0, 2.0, 4.0], dtype=DT)
+
+    def fallback_fn(p, q, _cell, *_state):
+        return p[:, 1] * q + 0.5 * p[:, 2].square()
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        pos_grad_state,
+        charge_grad_state,
+        cell_grad_state,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+    )
+
+    out.backward(grad_energy)
+
+    expected_positions_grad = torch.stack(
+        (
+            grad_energy * 2.0 * positions.detach()[:, 0] * positions.detach()[:, 1],
+            grad_energy * charges.detach(),
+            grad_energy * positions.detach()[:, 2],
+        ),
+        dim=1,
+    )
+    torch.testing.assert_close(positions.grad, expected_positions_grad)
+
+    expected_theta_grad = grad_energy * positions.detach()[:, 1]
+    torch.testing.assert_close(theta.grad, expected_theta_grad)
+
+
+def test_cached_eval_qR_create_graph_second_order():
+    """create_graph q(R) fallback differentiates connected position gradients once."""
+    positions = torch.randn(3, 3, dtype=DT, requires_grad=True)
+    theta = torch.randn(3, dtype=DT, requires_grad=True)
+    charges = positions[:, 0].square() + theta
+    cell = torch.eye(3, dtype=DT).unsqueeze(0)
+    energy = positions[:, 1].detach().clone()
+    pos_grad_state = torch.zeros_like(positions)
+    charge_grad_state = torch.zeros_like(charges)
+    cell_grad_state = torch.zeros_like(cell)
+
+    def fallback_fn(p, q, _cell, *_state):
+        return p[:, 1] * q + 0.5 * p[:, 2].square()
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        pos_grad_state,
+        charge_grad_state,
+        cell_grad_state,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+    )
+
+    grad_pos = torch.autograd.grad(out.sum(), positions, create_graph=True)[0]
+    loss = grad_pos.pow(2).sum()
+    (grad_theta_ad,) = torch.autograd.grad(loss, theta)
+
+    def loss_of_theta(theta_in: torch.Tensor) -> torch.Tensor:
+        p = positions.detach().clone().requires_grad_(True)
+        q = p[:, 0].square() + theta_in
+        e = fallback_fn(p, q, cell)
+        g = torch.autograd.grad(e.sum(), p, create_graph=True)[0]
+        return g.pow(2).sum()
+
+    eps = 1e-6
+    grad_theta_fd = finite_difference_jacobian(loss_of_theta, theta.detach(), eps=eps)
+
+    torch.testing.assert_close(
+        grad_theta_ad,
+        grad_theta_fd,
+        rtol=1e-5,
+        atol=1e-7,
+    )
+
+
+def test_cached_eval_qR_create_graph_sibling_positions():
+    """create_graph q(R) fallback preserves a sibling position charge chain."""
+    torch.manual_seed(0)
+    base_positions = torch.randn(3, 3, dtype=DT, requires_grad=True)
+    theta = torch.randn(3, dtype=DT, requires_grad=True)
+    positions_for_op = base_positions * 1.0
+    charges = base_positions[:, 0].square() + theta
+    cell = torch.eye(3, dtype=DT).unsqueeze(0)
+    energy = positions_for_op[:, 1].detach().clone()
+    pos_grad_state = torch.zeros_like(positions_for_op)
+    charge_grad_state = torch.zeros_like(charges)
+    cell_grad_state = torch.zeros_like(cell)
+
+    def fallback_fn(p, q, _cell, *_state):
+        return p[:, 1] * q + 0.5 * p[:, 2].square()
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions_for_op,
+        charges,
+        cell,
+        pos_grad_state,
+        charge_grad_state,
+        cell_grad_state,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+    )
+
+    (grad_base,) = torch.autograd.grad(out.sum(), base_positions, create_graph=True)
+    expected_grad = torch.stack(
+        (
+            2.0 * base_positions[:, 0] * base_positions[:, 1],
+            charges,
+            base_positions[:, 2],
+        ),
+        dim=1,
+    )
+    torch.testing.assert_close(grad_base, expected_grad)
+
+    loss = grad_base.square().sum()
+    (grad_theta,) = torch.autograd.grad(loss, theta)
+
+    def loss_of_theta(theta_in: torch.Tensor) -> torch.Tensor:
+        p = base_positions.detach().clone().requires_grad_(True)
+        q = p[:, 0].square() + theta_in
+        e = fallback_fn(p * 1.0, q, cell)
+        (grad_p,) = torch.autograd.grad(e.sum(), p, create_graph=True)
+        return grad_p.square().sum()
+
+    grad_theta_fd = finite_difference_jacobian(
+        loss_of_theta,
+        theta.detach(),
+        eps=1e-6,
+    )
+    torch.testing.assert_close(grad_theta, grad_theta_fd, rtol=1e-5, atol=1e-7)
+
+
+def test_cached_eval_qR_create_graph_cell_dependent_charges():
+    """create_graph q(cell) fallback applies the cell charge chain once."""
+    positions = torch.randn(3, 3, dtype=DT)
+    cell = torch.eye(3, dtype=DT).unsqueeze(0).requires_grad_()
+    charges = cell[0, 0, :].clone()
+    energy = positions[:, 1].detach().clone()
+    pos_grad_state = torch.zeros_like(positions)
+    charge_grad_state = torch.zeros_like(charges)
+    cell_grad_state = torch.zeros_like(cell)
+
+    def fallback_fn(p, q, _cell, *_state):
+        return p[:, 1] * q + 0.5 * p[:, 2].square()
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        pos_grad_state,
+        charge_grad_state,
+        cell_grad_state,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+    )
+
+    (grad_cell,) = torch.autograd.grad(out.sum(), cell, create_graph=True)
+    expected = torch.zeros_like(cell)
+    expected[0, 0, :] = positions[:, 1]
+    torch.testing.assert_close(grad_cell, expected)
+
+
+def test_cached_eval_create_graph_dechains_nested_inputs():
+    """create_graph fallback de-chains cell -> positions -> charges."""
+    cell = torch.tensor(2.0, dtype=DT, requires_grad=True)
+    positions = 3.0 * cell
+    charges = 5.0 * positions
+    energy = torch.zeros((), dtype=DT)
+    states = tuple(torch.zeros_like(value) for value in (positions, charges, cell))
+
+    def fallback_fn(p, q, c, *_state):
+        return p.square() + 2.0 * q + 7.0 * c
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        *states,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+    )
+    (grad_cell,) = torch.autograd.grad(out, cell, create_graph=True)
+    (hvp,) = torch.autograd.grad(grad_cell, cell)
+
+    assert grad_cell.item() == pytest.approx(73.0)
+    assert hvp.item() == pytest.approx(18.0)
+
+
+def test_cached_eval_weighted_dechains_nested_inputs():
+    """Weighted fallback de-chains nested connected inputs without reuse errors."""
+    cell = torch.tensor(2.0, dtype=DT, requires_grad=True)
+    positions = 3.0 * cell
+    charges = 5.0 * positions
+    energy = torch.zeros(2, dtype=DT)
+    states = tuple(torch.zeros_like(value) for value in (positions, charges, cell))
+    weights = torch.tensor([1.0, 2.0], dtype=DT)
+
+    def fallback_fn(p, q, c, *_state):
+        return torch.stack(
+            (
+                p.square() + 2.0 * q + 7.0 * c,
+                2.0 * p.square() + 3.0 * q + 11.0 * c,
+            )
+        )
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        *states,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+    )
+    (grad_cell,) = torch.autograd.grad(out, cell, grad_outputs=weights)
+
+    assert grad_cell.item() == pytest.approx(329.0)
+
+
+def test_cached_eval_releases_fallback_state_after_uniform_backward():
+    """Saved fallback state is released after uniform cached backward."""
+    positions = torch.zeros((2, 3), dtype=DT, requires_grad=True)
+    charges = torch.zeros(2, dtype=DT)
+    cell = torch.eye(3, dtype=DT).unsqueeze(0)
+    energy = torch.zeros(2, dtype=DT)
+    fallback_state = torch.ones(2, dtype=DT)
+    state_ref = weakref.ref(fallback_state)
+
+    def fallback_fn(*_args):
+        raise AssertionError("uniform cached backward must not call the fallback")
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        torch.zeros_like(positions),
+        None,
+        None,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+        fallback_state,
+    )
+    del fallback_state
+
+    out.sum().backward()
+    gc.collect()
+
+    assert state_ref() is None
+
+
+def test_cached_eval_releases_fallback_state_after_weighted_backward():
+    """Saved fallback state is released after weighted fallback backward."""
+    positions = torch.zeros((2, 3), dtype=DT, requires_grad=True)
+    charges = torch.zeros(2, dtype=DT)
+    cell = torch.eye(3, dtype=DT).unsqueeze(0)
+    energy = torch.zeros(2, dtype=DT)
+    fallback_state = torch.tensor([2.0, 3.0], dtype=DT)
+    state_ref = weakref.ref(fallback_state)
+
+    def fallback_fn(p, _q, _c, _batch_idx, state):
+        return p[:, 0] * state
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        torch.zeros_like(positions),
+        None,
+        None,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+        fallback_state,
+    )
+    del fallback_state
+
+    out.backward(torch.tensor([1.0, 2.0], dtype=DT))
+    gc.collect()
+
+    assert state_ref() is None
+
+
+def test_cached_eval_retains_fallback_state_until_final_backward():
+    """Saved fallback state survives retained backward then releases finally."""
+    positions = torch.zeros((2, 3), dtype=DT, requires_grad=True)
+    charges = torch.zeros(2, dtype=DT)
+    cell = torch.eye(3, dtype=DT).unsqueeze(0)
+    energy = torch.zeros(2, dtype=DT)
+    fallback_state = torch.tensor([2.0, 3.0], dtype=DT)
+    state_ref = weakref.ref(fallback_state)
+
+    def fallback_fn(p, _q, _c, _batch_idx, state):
+        return p[:, 0] * state
+
+    out = _InjectCachedEvalGradWithFallback.apply(
+        energy,
+        positions,
+        charges,
+        cell,
+        torch.zeros_like(positions),
+        None,
+        None,
+        None,
+        fallback_fn,
+        "atom",
+        1,
+        False,
+        False,
+        fallback_state,
+    )
+    del fallback_state
+    weights = torch.tensor([1.0, 2.0], dtype=DT)
+
+    out.backward(weights, retain_graph=True)
+    gc.collect()
+    assert state_ref() is not None
+
+    out.backward(weights)
+    gc.collect()
+    assert state_ref() is None
+
+
+def test_cached_eval_without_fallback_releases_batch_idx_after_backward():
+    """Cached direct-gradient state releases tensor-valued batch indices."""
+    positions = torch.zeros((2, 3), dtype=DT, requires_grad=True)
+    charges = torch.zeros(2, dtype=DT)
+    cell = torch.eye(3, dtype=DT).unsqueeze(0)
+    batch_idx = torch.tensor([0, 0], dtype=torch.int32)
+    batch_idx_ref = weakref.ref(batch_idx)
+
+    out = _InjectCachedEvalGrad.apply(
+        torch.zeros(1, dtype=DT),
+        positions,
+        charges,
+        cell,
+        torch.zeros_like(positions),
+        None,
+        None,
+        batch_idx,
+    )
+    del batch_idx
+
+    out.sum().backward()
+    gc.collect()
+
+    assert batch_idx_ref() is None
+
+
+def _available_devices():
+    """Devices available for cotangent predicate tests."""
+    devices = ["cpu"]
+    if torch.cuda.is_available():
+        devices.append("cuda")
+    return devices
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_uniform_cotangent_accepts_expanded_scalar(device):
+    """A ``sum``-style expanded scalar cotangent is uniform without a sync."""
+    grad = torch.ones((), dtype=DT, device=device).expand(6)
+
+    assert _is_uniform_cotangent(grad)
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_uniform_cotangent_accepts_eager_contiguous_constants(device):
+    """Eager mode checks materialized CPU and CUDA constants exactly."""
+    grad = torch.ones(6, dtype=DT, device=device)
+
+    assert _is_uniform_cotangent(grad)
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_energy_cotangents_disambiguate_equal_atom_and_system_lengths(device):
+    """Explicit layout distinguishes N == B when one system has no atoms."""
+    batch_idx = torch.tensor([0, 0], dtype=torch.int32, device=device)
+    grad = torch.tensor([1.0, 2.0], dtype=DT, device=device)
+
+    atom_system, atom_grad = _energy_cotangents(
+        grad,
+        batch_idx,
+        num_atoms=2,
+        num_systems=2,
+        layout="atom",
+    )
+    system_system, system_grad = _energy_cotangents(
+        grad,
+        batch_idx,
+        num_atoms=2,
+        num_systems=2,
+        layout="system",
+    )
+
+    torch.testing.assert_close(
+        atom_system,
+        torch.tensor([1.5, 0.0], dtype=DT, device=device),
+    )
+    torch.testing.assert_close(atom_grad, grad)
+    torch.testing.assert_close(system_system, grad)
+    torch.testing.assert_close(
+        system_grad,
+        torch.tensor([1.0, 1.0], dtype=DT, device=device),
+    )
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_partial_empty_batch_atom_uniformity(device):
+    """Atom-mode inspection rejects nonuniform weights when N equals B."""
+    batch_idx = torch.tensor([0, 0], dtype=torch.int32, device=device)
+    nonuniform = torch.tensor([1.0, 2.0], dtype=DT, device=device)
+    uniform = torch.tensor([3.0, 3.0], dtype=DT, device=device)
+
+    assert not _is_per_system_uniform_cotangent(nonuniform, batch_idx, 2)
+    assert _is_per_system_uniform_cotangent(uniform, batch_idx, 2)
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_ewald_uniform_predicates_accept_expanded_scalar(device):
+    """Ewald real/reciprocal chains consume CUDA ``sum`` cotangents."""
+    real_chain = pytest.importorskip(
+        "nvalchemiops.torch.interactions.electrostatics._ewald_real_chain"
+    )
+    recip_chain = pytest.importorskip(
+        "nvalchemiops.torch.interactions.electrostatics._ewald_recip_chain"
+    )
+    grad = torch.ones((), dtype=DT, device=device).expand(4)
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+    assert real_chain._cotangent_per_system_uniform(grad, batch_idx, 2)
+    assert recip_chain._cotangent_per_system_uniform(grad, batch_idx, 2)
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_ewald_uniform_predicates_accept_eager_per_system_constants(device):
+    """Eager mode recognizes materialized per-system-uniform cotangents exactly."""
+    real_chain = pytest.importorskip(
+        "nvalchemiops.torch.interactions.electrostatics._ewald_real_chain"
+    )
+    recip_chain = pytest.importorskip(
+        "nvalchemiops.torch.interactions.electrostatics._ewald_recip_chain"
+    )
+    grad = torch.tensor([2.0, 2.0, 3.0, 3.0], dtype=DT, device=device)
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+    assert real_chain._cotangent_per_system_uniform(grad, batch_idx, 2)
+    assert recip_chain._cotangent_per_system_uniform(grad, batch_idx, 2)
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_single_system_sum_and_mean_avoid_segmented_reduction(device):
+    """Single-system reductions produce direct sums and means for scalar through matrix values."""
+    batch_idx = torch.zeros(3, dtype=torch.int32, device=device)
+    values = torch.tensor(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[5.0, 6.0], [7.0, 8.0]],
+            [[9.0, 10.0], [11.0, 12.0]],
+        ],
+        dtype=DT,
+        device=device,
+    )
+
+    sums = _util._sum_atom_values_by_system(values, batch_idx, 1)
+    means = _util._mean_atom_values_by_system(values, batch_idx, 1)
+
+    assert torch.equal(sums, values.sum(dim=0, keepdim=True))
+    assert torch.equal(means, values.mean(dim=0, keepdim=True))
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_single_system_empty_reductions_have_exact_shapes(device):
+    """Empty B=1 reductions retain a leading system dimension and trailing shape."""
+    batch_idx = torch.empty(0, dtype=torch.int32, device=device)
+    values = torch.empty((0, 3, 3), dtype=DT, device=device)
+
+    sums = _util._sum_atom_values_by_system(values, batch_idx, 1)
+    means = _util._mean_atom_values_by_system(values, batch_idx, 1)
+
+    assert sums.shape == (1, 3, 3)
+    assert means.shape == (1, 3, 3)
+    assert torch.equal(sums, torch.zeros_like(sums))
+    assert torch.equal(means, torch.zeros_like(means))
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_single_system_broadcast_and_mean_adjoint(device):
+    """B=1 broadcasts directly and distributes a mean cotangent with 1/N scaling."""
+    batch_idx = torch.zeros(3, dtype=torch.int32, device=device)
+    per_system = torch.tensor([[6.0, -3.0]], dtype=DT, device=device)
+
+    broadcast = _util._broadcast_system_values_to_atoms(per_system, batch_idx, 1, 3)
+    distributed = _util._distribute_system_mean_cotangent_to_atoms(
+        per_system, batch_idx, 1, 3
+    )
+
+    assert torch.equal(broadcast, per_system.expand(3, 2))
+    assert torch.equal(distributed, (per_system / 3.0).expand(3, 2))
+    assert distributed._base is None
+
+
+@pytest.mark.parametrize("device", _available_devices())
+def test_heterogeneous_two_system_helpers_match_explicit_references(device):
+    """B=2 helpers preserve segmented behavior for unequal atom counts."""
+    batch_idx = torch.tensor([0, 1, 1, 1], dtype=torch.int32, device=device)
+    values = torch.tensor(
+        [[2.0, 4.0], [3.0, 9.0], [6.0, 8.0], [5.0, 10.0]],
+        dtype=DT,
+        device=device,
+    )
+    per_system_cotangent = torch.tensor(
+        [[6.0, -3.0], [-9.0, 12.0]],
+        dtype=DT,
+        device=device,
+    )
+    expected_sum = torch.zeros((2, 2), dtype=DT, device=device).index_add(
+        0, batch_idx, values
+    )
+    counts = torch.zeros(2, dtype=DT, device=device).index_add(
+        0, batch_idx, torch.ones(4, dtype=DT, device=device)
+    )
+    expected_mean = expected_sum / counts.clamp_min(1)[:, None]
+    expected_broadcast = per_system_cotangent.index_select(0, batch_idx)
+    expected_distributed = (
+        per_system_cotangent / counts.clamp_min(1)[:, None]
+    ).index_select(0, batch_idx)
+
+    assert torch.equal(counts, torch.tensor([1.0, 3.0], dtype=DT, device=device))
+    assert torch.equal(
+        _util._sum_atom_values_by_system(values, batch_idx, 2), expected_sum
+    )
+    assert torch.equal(
+        _util._mean_atom_values_by_system(values, batch_idx, 2), expected_mean
+    )
+    assert torch.equal(
+        _util._broadcast_system_values_to_atoms(per_system_cotangent, batch_idx, 2, 4),
+        expected_broadcast,
+    )
+    assert torch.equal(
+        _util._distribute_system_mean_cotangent_to_atoms(
+            per_system_cotangent, batch_idx, 2, 4
+        ),
+        expected_distributed,
+    )
+
+
+def test_compiled_single_system_reduction_graph_has_no_atomic_scatter():
+    """The B=1 helper graph contains no index/scatter atomic reduction."""
+    graphs = []
+    batch_idx = torch.zeros(3, dtype=torch.int32)
+
+    def backend(graph_module, _example_inputs):
+        graphs.append(graph_module)
+        return graph_module.forward
+
+    def reduction(values):
+        return _util._mean_atom_values_by_system(values, batch_idx, 1)
+
+    compiled = torch.compile(reduction, backend=backend, fullgraph=True)
+    actual = compiled(torch.tensor([2.0, 4.0, 9.0], dtype=DT))
+
+    assert torch.equal(actual, torch.tensor([5.0], dtype=DT))
+    assert graphs
+    graph_text = "\n".join(str(graph.graph) for graph in graphs)
+    assert "index_add" not in graph_text
+    assert "scatter_add" not in graph_text
+    assert "index_put" not in graph_text

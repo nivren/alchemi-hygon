@@ -1,0 +1,336 @@
+# SPDX-FileCopyrightText: Copyright (c) 2027 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Orchestrator. Decides which test tier runs and aggregates status; the tiers
+# themselves live in reusable-gpu-tests.yml and the caches they consume are
+# published by cache-warm.yml.
+#
+# See .github/workflows/README.md for the full semantics: tier definitions,
+# cache lifecycle, and the four traps in this repository that behave unlike
+# their defaults.
+#
+# PULL REQUESTS run two tiers in parallel, whose union is what gets gated:
+#   test-minimal   3 shards, no testmon, always runs in full  -> the floor
+#   test-impacted  testmon-selected, everything else it touches
+# MAIN AND NIGHTLY run the whole suite across the Python matrix.
+
+name: "CI"
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC daily, two hours after cache-warm
+
+# Permissions are declared per job rather than here, so a job only ever holds
+# the scopes it actually uses: `pull-requests: read` exists for get-pr-labels
+# alone, and `actions: write` for the jobs whose runs call prune-caches.sh.
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_CACHE_DIR: /tmp/uv-cache
+  PRE_COMMIT_HOME: /tmp/pre-commit-cache
+
+jobs:
+  # ============================================================================
+  # PRE-FLIGHT
+  # ============================================================================
+  changed-files:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+
+      - name: Get merge-base commit
+        id: merge-base
+        run: |
+          MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "HEAD~1")
+          echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "Merge-base commit: $MERGE_BASE"
+
+      - uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46
+        id: changed-files
+        with:
+          base_sha: ${{ steps.merge-base.outputs.merge-base }}
+          files: |
+            **
+            !**.md
+            !.github/**
+            !.gitignore
+            .github/workflows/**
+            .github/actions/**
+            .github/scripts/**
+
+      - name: Show output
+        run: |
+          echo '${{ toJSON(steps.changed-files.outputs) }}'
+
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+
+      - name: Cache pre-commit
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pre-commit-cache
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-
+
+      - name: Install dependencies and run lint
+        run: |
+          uv sync --extra torch --extra jax
+          make lint
+
+  get-pr-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # reads ciflow:* labels off the pull request
+    outputs:
+      labels: ${{ steps.get-labels.outputs.labels || steps.get-labels-empty.outputs.labels }}
+    steps:
+      - name: Get PR number from branch
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        id: get-pr-num
+        run: |
+          PR_NUM=$(echo ${{ github.ref_name }} | grep -oE '[0-9]+$')
+          echo "pr_num=$PR_NUM" >> $GITHUB_OUTPUT
+
+      - name: Get PR labels
+        id: get-labels
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          echo "Retrieved labels: $LABELS"
+
+      - name: Set empty labels for non-PR branches
+        if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
+        id: get-labels-empty
+        run: |
+          echo "labels=[]" >> $GITHUB_OUTPUT
+          echo "Set empty labels for non-PR branch"
+
+  # ============================================================================
+  # PULL-REQUEST TIER
+  # ============================================================================
+  # Bounded and predictable: the same 4,275 tests every time, sharded by measured
+  # cost. Only shard 1 publishes a cache — it owns electrostatics_torch, whose
+  # PME kernels are the expensive ones, and one cache per pull request keeps the
+  # repository inside its 10 GB budget.
+  test-minimal:
+    name: PR minimal
+    needs: [lint, get-pr-labels, changed-files]
+    if: |
+      (github.event_name != 'schedule') &&
+      (github.ref != 'refs/heads/main') &&
+      !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+      !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') &&
+      (needs.changed-files.outputs.any_changed == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    permissions:
+      contents: read
+      actions: write # prune-caches.sh deletes superseded cache entries
+    uses: ./.github/workflows/reusable-gpu-tests.yml
+    with:
+      suite: minimal
+      shard: ${{ matrix.shard }}
+      save-warp-cache: ${{ matrix.shard == 1 }}
+      timeout-minutes: 60
+
+  # Runs alongside the minimal tier, never gating the fast verdict. Unbounded by
+  # nature: a change to a core electrostatics file selects most of the suite.
+  test-impacted:
+    name: PR impacted
+    needs: [lint, get-pr-labels, changed-files]
+    if: |
+      (github.event_name != 'schedule') &&
+      (github.ref != 'refs/heads/main') &&
+      !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+      !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') &&
+      (needs.changed-files.outputs.any_changed == 'true')
+    permissions:
+      contents: read
+      actions: write # prune-caches.sh deletes superseded cache entries
+    uses: ./.github/workflows/reusable-gpu-tests.yml
+    with:
+      suite: impacted
+      timeout-minutes: 120
+
+  # Applies the coverage threshold once, to the union of both tiers. Needs only
+  # coverage and the source tree, so it runs on an ordinary runner rather than
+  # occupying a GPU to read SQLite files. `[tool.coverage.paths]` in
+  # pyproject.toml remaps the shards' absolute paths onto this checkout.
+  pr-coverage:
+    name: PR coverage gate
+    needs: [test-minimal, test-impacted]
+    if: |
+      always() &&
+      needs.test-minimal.result == 'success' &&
+      needs.test-impacted.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # download-artifact reads this run's artifacts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          enable-cache: true
+
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+
+      - name: Combine and enforce the threshold
+        run: make coverage-combine UV_RUN="uv run --no-project --with coverage"
+
+      - name: Upload coverage to Codecov
+        if: github.event_name != 'merge_group'
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./nvalchemiops.coverage.xml
+          fail_ci_if_error: false
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-pr
+          path: nvalchemiops.coverage.xml
+          retention-days: 7
+
+  # ============================================================================
+  # FULL TIER
+  # ============================================================================
+  # Each matrix job restores and saves its own per-combination cache, so every
+  # lane stays warm from its own previous run without a dedicated producer.
+  # cache-warm.yml only covers py3.12/CUDA 13, the lane a human waits on.
+  test-full:
+    name: Full CUDA 13
+    needs: [lint, get-pr-labels]
+    if: |
+      (github.event_name == 'schedule') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all')
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    permissions:
+      contents: read
+      actions: write # prune-caches.sh deletes superseded cache entries
+    uses: ./.github/workflows/reusable-gpu-tests.yml
+    with:
+      suite: full
+      python-version: ${{ matrix.python-version }}
+      # py3.12/CUDA 13 is cache-warm.yml's lane; two writers on the same key
+      # would delete each other's entry. Every other lane maintains its own.
+      save-warp-cache: ${{ matrix.python-version != '3.12' }}
+      timeout-minutes: 480
+
+  test-cuda12:
+    name: Full CUDA 12
+    needs: [lint]
+    if: github.event_name == 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    permissions:
+      contents: read
+      actions: write # prune-caches.sh deletes superseded cache entries
+    uses: ./.github/workflows/reusable-gpu-tests.yml
+    with:
+      suite: full
+      python-version: ${{ matrix.python-version }}
+      cuda-major: "12"
+      torch-extra: torch-cu12
+      jax-extra: jax-cu12
+      save-warp-cache: true
+      timeout-minutes: 480
+
+  # ============================================================================
+  # STATUS
+  # ============================================================================
+  verify-status:
+    needs:
+      - lint
+      - get-pr-labels
+      - changed-files
+      - test-minimal
+      - test-impacted
+      - pr-coverage
+      - test-full
+      - test-cuda12
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: always()
+    steps:
+      - name: Check job statuses
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "Some jobs have failed or been cancelled!"
+            exit 1
+          else
+            echo "All jobs have completed successfully or been skipped!"
+            exit 0
+          fi

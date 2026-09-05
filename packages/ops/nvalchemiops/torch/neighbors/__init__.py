@@ -1,0 +1,619 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""PyTorch neighbor list API.
+
+This module provides the main entry point for PyTorch users of the neighbor list API.
+"""
+
+from __future__ import annotations
+
+import torch
+
+from nvalchemiops.neighbors.base_dispatch import (
+    NEIGHBOR_LIST_STRATEGIES,
+    neighbor_list_strategy_run_args,
+)
+from nvalchemiops.torch.neighbors._compiled_pair_fn import (
+    CompiledPairFn,
+    compile_pair_fn,
+)
+from nvalchemiops.torch.neighbors._dispatch import (
+    _auto_method_from_geometry,
+    _reject_unsupported_cluster_tile_combo,
+    _squeeze_single_system_cell_pbc,
+    broadcast_shared_cell_for_batch,
+    estimate_neighbor_list_costs,
+    suggest_neighbor_list_method,
+)
+
+# Batch cell list functions
+from nvalchemiops.torch.neighbors.batch_cell_list import (
+    batch_cell_list,
+    estimate_batch_cell_list_sizes,
+)
+
+# Batched cluster-pair tile functions
+from nvalchemiops.torch.neighbors.batch_cluster_tile import (
+    batch_cluster_tile_neighbor_list,
+)
+
+# Batch naive functions
+from nvalchemiops.torch.neighbors.batch_naive import (
+    batch_naive_neighbor_list,
+)
+
+# Batch naive dual cutoff functions
+from nvalchemiops.torch.neighbors.batch_naive_dual_cutoff import (
+    batch_naive_neighbor_list_dual_cutoff,
+)
+
+# Unbatched cell list functions
+from nvalchemiops.torch.neighbors.cell_list import (
+    cell_list,
+    estimate_cell_list_sizes,
+)
+
+# Unbatched cluster-pair tile functions
+from nvalchemiops.torch.neighbors.cluster_tile import (
+    cluster_tile_neighbor_list,
+)
+
+# Unbatched naive functions
+from nvalchemiops.torch.neighbors.naive import (
+    naive_neighbor_list,
+)
+
+# Unbatched naive dual cutoff functions
+from nvalchemiops.torch.neighbors.naive_dual_cutoff import (
+    naive_neighbor_list_dual_cutoff,
+)
+
+# Utility functions
+from nvalchemiops.torch.neighbors.neighbor_utils import (
+    prepare_batch_idx_ptr,
+    synthesize_cell_for_batch,
+    synthesize_cell_for_ss,
+)
+
+
+def neighbor_list(
+    positions: torch.Tensor,
+    cutoff: float,
+    cell: torch.Tensor | None = None,
+    pbc: torch.Tensor | None = None,
+    batch_idx: torch.Tensor | None = None,
+    batch_ptr: torch.Tensor | None = None,
+    cutoff2: float | None = None,
+    half_fill: bool = False,
+    fill_value: int | None = None,
+    return_neighbor_list: bool = False,
+    method: str | None = None,
+    wrap_positions: bool = True,
+    **kwargs: dict,
+):
+    """Compute neighbor list using the appropriate method based on the provided parameters.
+
+    This is the main entry point for PyTorch users of the neighbor list API. It automatically
+    selects the most appropriate algorithm (naive :math:`O(N^2)` or cell list :math:`O(N)`) based on system
+    size and parameters.
+
+    Parameters
+    ----------
+    positions : torch.Tensor, shape (total_atoms, 3)
+        Concatenated atomic coordinates for all systems in Cartesian space.
+        Each row represents one atom's (x, y, z) position.
+        Unwrapped (box-crossing) coordinates are supported when PBC is used;
+        the kernel wraps positions internally.
+    cutoff : float
+        Cutoff distance for neighbor detection in Cartesian units.
+        Must be positive. Atoms within this distance are considered neighbors.
+    cell : torch.Tensor, shape (3, 3) or (num_systems, 3, 3), optional
+        Cell matrix defining the simulation box.
+    pbc : torch.Tensor, shape (3,) or (num_systems, 3), dtype=torch.bool, optional
+        Periodic boundary condition flags for each dimension.
+    batch_idx : torch.Tensor, shape (total_atoms,), dtype=torch.int32, optional
+        System index for each atom.  Must be **sorted by system** (i.e.,
+        atoms in system 0 first, then system 1, and so on).  Interleaved
+        layouts are not supported by ``cluster_tile`` / ``batch_cluster_tile``
+        and will silently emit cross-system pairs.  For ``cell_list`` /
+        ``naive`` methods, interleaved layouts work but ``batch_ptr``
+        will still be derived assuming a contiguous layout.
+    batch_ptr : torch.Tensor, shape (num_systems + 1,), dtype=torch.int32, optional
+        Cumulative atom counts defining system boundaries.
+    cutoff2 : float, optional
+        Second cutoff distance for neighbor detection in Cartesian units.
+        Must be positive. Atoms within this distance are considered neighbors.
+    half_fill : bool, optional
+        If True, only store half of the neighbor relationships to avoid double counting.
+        Another half could be reconstructed by swapping source and target indices and inverting unit shifts.
+    fill_value : int | None, optional
+        Value to fill the neighbor matrix with. Default is total_atoms.
+    return_neighbor_list : bool, optional - default = False
+        If True, convert the neighbor matrix to a neighbor list (idx_i, idx_j) format by
+        creating a mask over the fill_value, which can incur a performance penalty.
+        We recommend using the neighbor matrix format,
+        and only convert to a neighbor list format if absolutely necessary.
+    method : str | None, optional
+        Method to use for neighbor list computation.
+        Choices: "naive", "cell_list", "cluster_tile", "batch_naive",
+        "batch_cell_list", "batch_cluster_tile", "naive_dual_cutoff",
+        "batch_naive_dual_cutoff". If None, a default method is chosen by
+        comparing estimated work from per-system atom counts and cell (or
+        bounding-box) volumes and can select cluster-tile when the CUDA,
+        float32, fully-periodic, contiguous-batch, and output-option guards
+        allow it. Method names that do not start with ``batch_`` refer to
+        single-system algorithms. When ``batch_idx`` or ``batch_ptr`` (batch
+        metadata) is supplied, those explicit method names are treated as aliases
+        for the corresponding ``batch_*`` methods. For example,
+        ``method="naive"`` is dispatched as ``method="batch_naive"`` when batch
+        metadata is provided. When only ``batch_idx`` is provided (no
+        ``batch_ptr`` or 3-D ``cell``),
+        auto-selection computes ``batch_idx.max() + 1`` (and a ``bincount``)
+        which triggers a device-to-host
+        synchronization. To avoid this, pass ``batch_ptr``, a 3-D ``cell``
+        array, or specify ``method`` explicitly.
+    wrap_positions : bool, default=True
+        If True, wrap input positions into the primary cell before
+        neighbor search. Set to False when positions are already
+        wrapped (e.g. by a preceding integration step) to save two
+        GPU kernel launches per call. Only applies to naive methods; cell list
+        methods handle wrapping internally.
+    **kwargs : dict, optional
+        Additional keyword arguments to pass to the method.
+
+        max_neighbors : int, optional
+            Maximum number of neighbors per atom.
+            Can be provided to aid in allocation for both naive and cell list methods.
+        max_neighbors2 : int, optional
+            Maximum number of neighbors per atom within cutoff2.
+            Can be provided to aid in allocation for naive dual cutoff method.
+        neighbor_matrix : torch.Tensor, optional
+            Pre-allocated tensor of shape (num_rows, max_neighbors) for neighbor indices,
+            where ``num_rows`` is ``total_atoms`` normally and
+            ``len(target_indices)`` for partial lists.
+            Can be provided to avoid reallocation for both naive and cell list methods.
+        neighbor_matrix_shifts : torch.Tensor, optional
+            Pre-allocated tensor of shape (num_rows, max_neighbors, 3) for shift vectors.
+            Can be provided to avoid reallocation for both naive and cell list methods.
+        num_neighbors : torch.Tensor, optional
+            Pre-allocated tensor of shape (num_rows,) for neighbor counts.
+            Can be provided to avoid reallocation for both naive and cell list methods.
+        shift_range_per_dimension : torch.Tensor, optional
+            Pre-allocated tensor of shape (1, 3) for shift range in each dimension.
+            Can be provided to avoid reallocation for naive methods.
+        num_shifts_per_system : torch.Tensor, optional
+            Pre-computed tensor of shape (num_systems,) for the number of periodic
+            shifts per system. Can be provided to avoid recomputation for naive methods.
+        max_shifts_per_system : int, optional
+            Maximum per-system shift count.
+            Can be provided to avoid recomputation for naive methods.
+        cells_per_dimension : torch.Tensor, optional
+            Pre-allocated tensor of shape (3,) for number of cells in x, y, z directions.
+            Can be provided to avoid reallocation for cell list construction.
+        neighbor_search_radius : torch.Tensor, optional
+            Pre-allocated tensor of shape (3,) for radius of neighboring cells to search
+            in each dimension. Can be provided to avoid reallocation for cell list construction.
+        atom_periodic_shifts : torch.Tensor, optional
+            Pre-allocated tensor of shape (total_atoms, 3) for periodic boundary crossings
+            for each atom. Can be provided to avoid reallocation for cell list construction.
+        atom_to_cell_mapping : torch.Tensor, optional
+            Pre-allocated tensor of shape (total_atoms, 3) for cell coordinates for each atom.
+            Can be provided to avoid reallocation for cell list construction.
+        atoms_per_cell_count : torch.Tensor, optional
+            Pre-allocated tensor of shape (max_total_cells,) for number of atoms in each cell.
+            Can be provided to avoid reallocation for cell list construction.
+        cell_atom_start_indices : torch.Tensor, optional
+            Pre-allocated tensor of shape (max_total_cells,) for starting index in
+            cell_atom_list for each cell. Can be provided to avoid reallocation for
+            cell list construction.
+        cell_atom_list : torch.Tensor, optional
+            Pre-allocated tensor of shape (total_atoms,) for flattened list of atom
+            indices organized by cell. Can be provided to avoid reallocation for
+            cell list construction.
+        max_atoms_per_system : int, optional
+            Maximum number of atoms per system. Used in batch naive implementation
+            with PBC. If not provided, it will be computed automatically.
+            Can be provided to avoid CUDA synchronization.
+        target_indices : torch.Tensor, optional
+            Restrict the source rows of the neighbor list to this subset of atom
+            indices (partial neighbor list). Matrix outputs use
+            ``len(target_indices)`` compact rows; COO source rows are compact row
+            ids. Supported by naive and cell-list methods; not by cluster_tile.
+        return_distances : bool, default=False
+            Also return per-pair distances ``|r_ij|`` in matrix layout
+            ``(num_rows, max_neighbors)``, where ``num_rows`` is
+            ``total_atoms`` normally and ``len(target_indices)`` for partial
+            lists, differentiable w.r.t. positions (and cell). See the user
+            guide for layout notes.
+        return_vectors : bool, default=False
+            Also return per-pair displacement vectors ``r_ij`` in matrix layout
+            ``(num_rows, max_neighbors, 3)``, differentiable w.r.t. positions
+            (and cell).
+        rebuild_flags : torch.Tensor, optional
+            Boolean flags selecting which systems to re-enumerate; systems whose
+            flag is ``False`` keep their previous output (per-system skip for the
+            batched methods, whole-list flag for single-system methods).
+        pair_offsets, pair_counts : torch.Tensor, optional
+            Fixed segmented COO metadata for explicit
+            ``method="cluster_tile"`` with ``return_neighbor_list=True`` and
+            ``rebuild_flags``. Single-system tensors have shapes ``(2,)`` and
+            ``(1,)`` int32 and are returned with the fixed-capacity COO buffers.
+        return_state : bool, default=False
+            With ``rebuild_flags`` and an explicit ``method="cluster_tile"`` or
+            ``method="batch_cluster_tile"``, append reusable tile state to the
+            result. See the selected method's return contract for exact tensors.
+        pair_fn : warp.Function or CompiledPairFn, optional
+            Inline Warp pair potential evaluated as neighbors are enumerated;
+            requires ``pair_params`` and fills ``pair_energies`` / ``pair_forces``.
+            Forward-only (not differentiable). Pass ``compile_pair_fn(pair_fn)``
+            before ``torch.compile(fullgraph=True)`` to use fixed-shape matrix
+            outputs in compiled regions. See ``examples/neighbors/06_pair_outputs_lj.py``.
+        pair_params, pair_energies, pair_forces : torch.Tensor, optional
+            Per-atom parameter table and per-pair energy / force output buffers
+            consumed and filled by ``pair_fn``.
+
+    Returns
+    -------
+    results : tuple of torch.Tensor
+        Variable-length tuple depending on input parameters. The return pattern follows:
+
+        **Single cutoff:**
+          - No PBC, matrix format: ``(neighbor_matrix, num_neighbors)``
+          - No PBC, list format: ``(neighbor_list, neighbor_ptr)``
+          - With PBC, matrix format: ``(neighbor_matrix, num_neighbors, neighbor_matrix_shifts)``
+          - With PBC, list format: ``(neighbor_list, neighbor_ptr, neighbor_list_shifts)``
+
+        **Dual cutoff:**
+          - No PBC, matrix format: ``(neighbor_matrix1, num_neighbors1, neighbor_matrix2, num_neighbors2)``
+          - No PBC, list format: ``(neighbor_list1, neighbor_ptr1, neighbor_list2, neighbor_ptr2)``
+          - With PBC, matrix format: ``(neighbor_matrix1, num_neighbors1, neighbor_matrix_shifts1, neighbor_matrix2, num_neighbors2, neighbor_matrix_shifts2)``
+          - With PBC, list format: ``(neighbor_list1, neighbor_ptr1, neighbor_list_shifts1, neighbor_list2, neighbor_ptr2, neighbor_list_shifts2)``
+
+        **Components returned:**
+
+        - **neighbor_data** (tensor): Neighbor indices, format depends on ``return_neighbor_list``:
+
+            - If ``return_neighbor_list=False`` (default): Returns ``neighbor_matrix``
+              with shape (num_rows, max_neighbors), dtype int32, where
+              ``num_rows`` is ``total_atoms`` normally and ``len(target_indices)``
+              for partial lists. Row ``r`` contains neighbors for atom ``r`` or
+              ``target_indices[r]`` respectively.
+            - If ``return_neighbor_list=True``: Returns ``neighbor_list`` with shape
+              (2, num_pairs), dtype int32, in COO format [source_rows, target_atoms].
+              With ``target_indices``, source rows are compact row ids.
+
+        - **num_neighbor_data** (tensor): Information about the number of neighbors for each atom,
+          format depends on ``return_neighbor_list``:
+
+            - If ``return_neighbor_list=False`` (default): Returns ``num_neighbors`` with shape (num_rows,), dtype int32.
+              Count of neighbors found for each atom.
+            - If ``return_neighbor_list=True``: Returns ``neighbor_ptr`` with shape (num_rows + 1,), dtype int32.
+              CSR-style pointer arrays where ``neighbor_ptr_data[i]`` to ``neighbor_ptr_data[i+1]`` gives the range of
+              neighbors for row i in the flattened neighbor list.
+
+        - **neighbor_shift_data** (tensor, optional): Periodic shift vectors, only when ``pbc`` is provided:
+          format depends on ``return_neighbor_list``:
+
+            - If ``return_neighbor_list=False`` (default): Returns ``neighbor_matrix_shifts`` with
+              shape (num_rows, max_neighbors, 3), dtype int32.
+            - If ``return_neighbor_list=True``: Returns ``unit_shifts`` with shape
+              (num_pairs, 3), dtype int32.
+
+        When ``cutoff2`` is provided, the pattern repeats for the second cutoff with interleaved
+        components (neighbor_data2, num_neighbor_data2, neighbor_shift_data2) appended to the tuple.
+        Explicit cluster-tile methods append their documented tile-state suffix
+        when ``return_state=True``.
+
+        Single-system selective COO calls to explicit ``method="cluster_tile"``
+        return ``(neighbor_list, pair_offsets, pair_counts,
+        neighbor_list_shifts)`` instead of the compact COO pointer tuple. With
+        ``return_state=True``, ``(num_tiles, tile_row_group, tile_col_group)``
+        is appended.
+
+        Batched selective calls to explicit ``method="batch_cluster_tile"`` append
+        ``(tile_offsets, tile_counts, num_tiles, tile_row_group, tile_col_group,
+        tile_system)`` when ``return_state=True``. The resulting matrix tuple has
+        nine tensors (or twelve with ``cutoff2``); segmented COO returns
+        ``(neighbor_list, pair_offsets, pair_counts, neighbor_list_shifts,
+        tile_offsets, tile_counts, num_tiles, tile_row_group, tile_col_group,
+        tile_system)``.
+
+    Examples
+    --------
+    Single cutoff, matrix format, with PBC::
+
+        >>> nm, num, shifts = neighbor_list(pos, 5.0, cell=cell, pbc=pbc)
+
+    Single cutoff, list format, no PBC::
+
+        >>> nlist, ptr = neighbor_list(pos, 5.0, return_neighbor_list=True)
+
+    Dual cutoff, matrix format, with PBC::
+
+        >>> nm1, num1, sh1, nm2, num2, sh2 = neighbor_list(
+        ...     pos, 2.5, cutoff2=5.0, cell=cell, pbc=pbc
+        ... )
+
+    See Also
+    --------
+    naive_neighbor_list : Direct access to naive :math:`O(N^2)` algorithm
+    cell_list : Direct access to cell list :math:`O(N)` algorithm
+    batch_naive_neighbor_list : Batched naive algorithm
+    batch_cell_list : Batched cell list algorithm
+    """
+    if cell is not None and pbc is None:
+        raise ValueError(
+            "`pbc` is required when `cell` is provided. "
+            "Pass a boolean tensor of shape (3,) or (num_systems, 3), "
+            "e.g. pbc=torch.tensor([True, True, True])."
+        )
+
+    if batch_ptr is not None and batch_ptr.shape[0] < 2:
+        raise ValueError("batch_ptr must have length at least 2")
+
+    use_pair_fn_option = bool(kwargs.pop("use_pair_fn", False))
+    selected_atom_centric_path = str(kwargs.pop("atom_centric_path", "auto"))
+    target_indices = kwargs.get("target_indices")
+    return_vectors = bool(kwargs.get("return_vectors", False))
+    return_distances = bool(kwargs.get("return_distances", False))
+    use_pair_fn = (
+        use_pair_fn_option
+        or kwargs.get("pair_fn") is not None
+        or kwargs.get("pair_params") is not None
+        or kwargs.get("pair_energies") is not None
+        or kwargs.get("pair_forces") is not None
+    )
+    rebuild_flags = kwargs.get("rebuild_flags")
+    return_state = bool(kwargs.get("return_state", False))
+    if return_state and method is None:
+        raise ValueError(
+            "return_state=True requires an explicit cluster_tile method "
+            "(method='cluster_tile' or method='batch_cluster_tile')"
+        )
+    selected_naive_strategy = "auto"
+    selected_cell_strategy = "auto"
+
+    def _apply_auto_suboptions(
+        naive_strategy: str, cell_strategy: str, path: str
+    ) -> None:
+        nonlocal selected_naive_strategy, selected_cell_strategy
+        nonlocal selected_atom_centric_path
+        if selected_naive_strategy == "auto" and naive_strategy != "auto":
+            selected_naive_strategy = naive_strategy
+        if selected_cell_strategy == "auto" and cell_strategy != "auto":
+            selected_cell_strategy = cell_strategy
+        if selected_atom_centric_path == "auto" and path != "auto":
+            selected_atom_centric_path = path
+
+    if method is None:
+        total_atoms = positions.shape[0]
+        has_batch_inputs = batch_idx is not None or batch_ptr is not None
+
+        if has_batch_inputs:
+            batch_idx, batch_ptr = prepare_batch_idx_ptr(
+                batch_idx, batch_ptr, total_atoms, positions.device
+            )
+            num_systems = batch_ptr.shape[0] - 1
+        elif cell is not None and cell.ndim == 3:
+            num_systems = cell.shape[0]
+        else:
+            num_systems = 1
+
+        strategy_name = _auto_method_from_geometry(
+            positions,
+            max(
+                float(cutoff), float(cutoff2) if cutoff2 is not None else float(cutoff)
+            ),
+            cell,
+            pbc,
+            batch_idx if has_batch_inputs else None,
+            batch_ptr if has_batch_inputs else None,
+            num_systems,
+            cutoff2=cutoff2,
+            half_fill=half_fill,
+            return_neighbor_list=return_neighbor_list,
+            target_indices=target_indices,
+            return_vectors=return_vectors,
+            return_distances=return_distances,
+            use_pair_fn=use_pair_fn,
+            rebuild_flags=rebuild_flags,
+            wrap_positions=wrap_positions,
+        )
+        method, auto_native, auto_cell, auto_path = neighbor_list_strategy_run_args(
+            strategy_name
+        )
+        if cutoff2 is not None and method in ("naive", "cell_list"):
+            method = "naive_dual_cutoff"
+        _apply_auto_suboptions(auto_native, auto_cell, auto_path)
+
+        if has_batch_inputs and num_systems > 1:
+            method = "batch_" + method
+        elif has_batch_inputs:
+            cell, pbc = _squeeze_single_system_cell_pbc(cell, pbc)
+    else:
+        if batch_idx is not None or batch_ptr is not None:
+            # Route explicit single-system method names through the matching
+            # batch method when batch metadata is provided.
+            if not method.startswith("batch_"):
+                method = "batch_" + method
+        base = method[len("batch_") :] if method.startswith("batch_") else method
+        if base in NEIGHBOR_LIST_STRATEGIES:
+            # Fine-grained strategy name (e.g. from suggest/report): decompose
+            # to the base method plus its sub-options, honoring batch_ prefix.
+            method, fg_native, fg_cell, fg_path = neighbor_list_strategy_run_args(
+                method
+            )
+            _apply_auto_suboptions(fg_native, fg_cell, fg_path)
+    if return_state and method not in ("cluster_tile", "batch_cluster_tile"):
+        raise ValueError(
+            "return_state=True is supported only by explicit cluster_tile methods"
+        )
+    match method:
+        case "naive":
+            return naive_neighbor_list(
+                positions,
+                cutoff,
+                pbc=pbc,
+                cell=cell,
+                half_fill=half_fill,
+                fill_value=fill_value,
+                return_neighbor_list=return_neighbor_list,
+                wrap_positions=wrap_positions,
+                strategy=selected_naive_strategy,
+                **kwargs,
+            )
+        case "cell_list":
+            if cell is None:
+                positions, cell, pbc = synthesize_cell_for_ss(positions, cutoff)
+            return cell_list(
+                positions,
+                cutoff,
+                cell,
+                pbc,
+                half_fill=half_fill,
+                fill_value=fill_value,
+                return_neighbor_list=return_neighbor_list,
+                strategy=selected_cell_strategy,
+                atom_centric_path=selected_atom_centric_path,
+                **kwargs,
+            )
+        case "batch_naive":
+            return batch_naive_neighbor_list(
+                positions,
+                cutoff,
+                pbc=pbc,
+                cell=cell,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                half_fill=half_fill,
+                fill_value=fill_value,
+                return_neighbor_list=return_neighbor_list,
+                wrap_positions=wrap_positions,
+                strategy=selected_naive_strategy,
+                **kwargs,
+            )
+        case "batch_cell_list":
+            if batch_idx is None or batch_ptr is None:
+                batch_idx, batch_ptr = prepare_batch_idx_ptr(
+                    batch_idx, batch_ptr, positions.shape[0], positions.device
+                )
+            if cell is None:
+                positions, cell, pbc = synthesize_cell_for_batch(
+                    positions, batch_idx, batch_ptr, cutoff
+                )
+            return batch_cell_list(
+                positions,
+                cutoff,
+                cell,
+                pbc,
+                batch_idx,
+                half_fill=half_fill,
+                fill_value=fill_value,
+                return_neighbor_list=return_neighbor_list,
+                strategy=selected_cell_strategy,
+                atom_centric_path=selected_atom_centric_path,
+                **kwargs,
+            )
+        case "cluster_tile":
+            # format="tile" is reachable only via cluster_tile_neighbor_list directly.
+            # Reject before any cell handling (mirrors the JAX dispatch): cluster_tile is
+            # PBC-implicit, so a missing cell / non-periodic input must error rather than
+            # synthesize a tiny box and force PBC (which would emit spurious wrap-around pairs).
+            _reject_unsupported_cluster_tile_combo(pbc, half_fill)
+            if cell is None:
+                raise ValueError("cell is required for method='cluster_tile'")
+            return cluster_tile_neighbor_list(
+                positions,
+                cutoff,
+                cell,
+                fill_value=fill_value,
+                format="coo" if return_neighbor_list else "matrix",
+                cutoff2=cutoff2,
+                **kwargs,
+            )
+        case "batch_cluster_tile":
+            # Reject before any cell handling (mirrors the JAX dispatch); see the
+            # single-system case above for why cluster_tile must not synthesize a cell.
+            _reject_unsupported_cluster_tile_combo(pbc, half_fill)
+            if batch_idx is None or batch_ptr is None:
+                batch_idx, batch_ptr = prepare_batch_idx_ptr(
+                    batch_idx, batch_ptr, positions.shape[0], positions.device
+                )
+            if cell is None:
+                raise ValueError("cell is required for method='batch_cluster_tile'")
+            cell = broadcast_shared_cell_for_batch(cell, batch_ptr.shape[0] - 1)
+            return batch_cluster_tile_neighbor_list(
+                positions,
+                cutoff,
+                cell,
+                batch_ptr,
+                fill_value=fill_value,
+                format="coo" if return_neighbor_list else "matrix",
+                cutoff2=cutoff2,
+                **kwargs,
+            )
+        case "naive_dual_cutoff":
+            return naive_neighbor_list_dual_cutoff(
+                positions,
+                cutoff,
+                cutoff2,
+                pbc=pbc,
+                cell=cell,
+                half_fill=half_fill,
+                fill_value=fill_value,
+                return_neighbor_list=return_neighbor_list,
+                wrap_positions=wrap_positions,
+                **kwargs,
+            )
+        case "batch_naive_dual_cutoff":
+            return batch_naive_neighbor_list_dual_cutoff(
+                positions,
+                cutoff,
+                cutoff2,
+                pbc=pbc,
+                cell=cell,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                half_fill=half_fill,
+                fill_value=fill_value,
+                return_neighbor_list=return_neighbor_list,
+                wrap_positions=wrap_positions,
+                **kwargs,
+            )
+        case _:
+            raise ValueError(f"Invalid method: {method}")
+
+
+__all__ = [
+    # High-level API
+    "neighbor_list",
+    "estimate_neighbor_list_costs",
+    "suggest_neighbor_list_method",
+    "CompiledPairFn",
+    "compile_pair_fn",
+    # Unbatched algorithms
+    "cell_list",
+    "naive_neighbor_list",
+    "naive_neighbor_list_dual_cutoff",
+    "cluster_tile_neighbor_list",
+    "estimate_cell_list_sizes",
+    # Batched algorithms
+    "batch_cell_list",
+    "batch_naive_neighbor_list",
+    "batch_naive_neighbor_list_dual_cutoff",
+    "batch_cluster_tile_neighbor_list",
+    "estimate_batch_cell_list_sizes",
+]

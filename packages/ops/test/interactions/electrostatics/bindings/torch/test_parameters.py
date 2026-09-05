@@ -1,0 +1,1035 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Test suite for parameter estimation functions.
+
+Tests the automatic parameter estimation for Ewald summation and PME methods.
+"""
+
+import math
+
+import pytest
+import torch
+
+from nvalchemiops.torch.interactions.electrostatics.parameters import (
+    EwaldParameters,
+    PMEParameters,
+    _count_atoms_per_system,
+    estimate_ewald_parameters,
+    estimate_pme_mesh_dimensions,
+    estimate_pme_parameters,
+    mesh_spacing_to_dimensions,
+)
+from nvalchemiops.torch.neighbors import cell_list
+
+
+class TestCountAtomsPerSystem:
+    """Tests for the _count_atoms_per_system helper function."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_single_system(self, device):
+        """Test atom counting for single system."""
+        positions = torch.randn(100, 3, device=device)
+        counts = _count_atoms_per_system(positions, num_systems=1, batch_idx=None)
+
+        assert counts.shape == (1,)
+        assert counts[0].item() == 100
+        assert counts.device == device
+        assert counts.dtype == torch.int32
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_uniform(self, device):
+        """Test atom counting for batch with uniform distribution."""
+        positions = torch.randn(30, 3, device=device)
+        batch_idx = torch.tensor(
+            [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+            ],
+            dtype=torch.int32,
+            device=device,
+        )
+        counts = _count_atoms_per_system(positions, num_systems=3, batch_idx=batch_idx)
+
+        assert counts.shape == (3,)
+        assert counts[0].item() == 10
+        assert counts[1].item() == 10
+        assert counts[2].item() == 10
+        assert counts.dtype == torch.int32
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_nonuniform(self, device):
+        """Test atom counting for batch with non-uniform distribution."""
+        positions = torch.randn(15, 3, device=device)
+        batch_idx = torch.tensor(
+            [0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2],
+            dtype=torch.int32,
+            device=device,
+        )
+        counts = _count_atoms_per_system(positions, num_systems=3, batch_idx=batch_idx)
+
+        assert counts.shape == (3,)
+        assert counts[0].item() == 3
+        assert counts[1].item() == 5
+        assert counts[2].item() == 7
+
+
+class TestEstimateEwaldParameters:
+    """Tests for estimate_ewald_parameters function."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_single_system_returns_tensors(self, device):
+        """Test that single-system mode returns tensor values."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params = estimate_ewald_parameters(positions, cell, accuracy=1e-6)
+
+        assert isinstance(params, EwaldParameters)
+        assert isinstance(params.alpha, torch.Tensor)
+        assert params.alpha.shape == (1,)
+        assert isinstance(params.real_space_cutoff, torch.Tensor)
+        assert params.real_space_cutoff.shape == (1,)
+        assert isinstance(params.reciprocal_space_cutoff, torch.Tensor)
+        assert params.reciprocal_space_cutoff.shape == (1,)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_returns_tensors(self, device):
+        """Test that batch mode returns tensor values."""
+        positions = torch.randn(100, 3, device=device)
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 25.0]
+        )
+        batch_idx = torch.tensor([0] * 50 + [1] * 50, dtype=torch.int32, device=device)
+
+        params = estimate_ewald_parameters(
+            positions, cells, batch_idx=batch_idx, accuracy=1e-6
+        )
+
+        assert isinstance(params, EwaldParameters)
+        assert isinstance(params.alpha, torch.Tensor)
+        assert params.alpha.shape == (2,)
+        assert isinstance(params.real_space_cutoff, torch.Tensor)
+        assert params.real_space_cutoff.shape == (2,)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_reasonable_alpha_values(self, device):
+        """Test that alpha values are in reasonable range."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params = estimate_ewald_parameters(positions, cell, accuracy=1e-6)
+
+        # Alpha should typically be in range 0.1-1.0 for typical systems
+        alpha_val = params.alpha.item()
+        assert 0.05 < alpha_val < 2.0, f"alpha={alpha_val} out of expected range"
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_larger_cell_smaller_alpha(self, device):
+        """Test that larger cells lead to smaller alpha."""
+        positions = torch.randn(100, 3, device=device)
+
+        cell_small = torch.eye(3, device=device).unsqueeze(0) * 15.0
+        cell_large = torch.eye(3, device=device).unsqueeze(0) * 30.0
+
+        params_small = estimate_ewald_parameters(positions, cell_small, accuracy=1e-6)
+        params_large = estimate_ewald_parameters(positions, cell_large, accuracy=1e-6)
+
+        assert params_large.alpha.item() < params_small.alpha.item()
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_more_atoms_larger_alpha(self, device):
+        """Test that more atoms lead to larger alpha (for same volume)."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        positions_few = torch.randn(50, 3, device=device)
+        positions_many = torch.randn(200, 3, device=device)
+
+        params_few = estimate_ewald_parameters(positions_few, cell, accuracy=1e-6)
+        params_many = estimate_ewald_parameters(positions_many, cell, accuracy=1e-6)
+
+        assert params_many.alpha.item() > params_few.alpha.item()
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_higher_accuracy_larger_cutoffs(self, device):
+        """Test that higher accuracy leads to larger cutoffs."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params_low = estimate_ewald_parameters(positions, cell, accuracy=1e-4)
+        params_high = estimate_ewald_parameters(positions, cell, accuracy=1e-8)
+
+        assert (
+            params_high.real_space_cutoff.item() > params_low.real_space_cutoff.item()
+        )
+        assert (
+            params_high.reciprocal_space_cutoff.item()
+            > params_low.reciprocal_space_cutoff.item()
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_cutoff_product_independent_of_cell_size(self, device):
+        """Test that r_cutoff * k_cutoff is roughly constant (depends only on accuracy)."""
+        positions = torch.randn(100, 3, device=device)
+
+        cell_small = torch.eye(3, device=device).unsqueeze(0) * 1.0
+        cell_large = torch.eye(3, device=device).unsqueeze(0) * 30.0
+
+        params_small = estimate_ewald_parameters(positions, cell_small, accuracy=1e-6)
+        params_large = estimate_ewald_parameters(positions, cell_large, accuracy=1e-6)
+
+        product_small = (
+            params_small.real_space_cutoff.item()
+            * params_small.reciprocal_space_cutoff.item()
+        )
+        product_large = (
+            params_large.real_space_cutoff.item()
+            * params_large.reciprocal_space_cutoff.item()
+        )
+
+        # Product should be the same (it's -2*log(accuracy))
+        expected = -2.0 * math.log(1e-6)
+        assert abs(product_small - expected) < 1e-5
+        assert abs(product_large - expected) < 1e-5
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_different_cells(self, device):
+        """Test batch mode with systems of different sizes."""
+        # Create two systems with different volumes
+        n_atoms_per_system = 50
+        positions = torch.randn(n_atoms_per_system * 2, 3, device=device)
+        cells = torch.stack(
+            [
+                torch.eye(3, device=device) * 15.0,  # Smaller cell
+                torch.eye(3, device=device) * 25.0,  # Larger cell
+            ]
+        )
+        batch_idx = torch.tensor(
+            [0] * n_atoms_per_system + [1] * n_atoms_per_system,
+            dtype=torch.int32,
+            device=device,
+        )
+
+        params = estimate_ewald_parameters(
+            positions, cells, batch_idx=batch_idx, accuracy=1e-6
+        )
+
+        # Larger cell should have smaller alpha
+        assert params.alpha[1].item() < params.alpha[0].item()
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_different_atom_counts(self, device):
+        """Test batch mode with systems having different atom counts."""
+        # Create two systems: 30 atoms and 70 atoms
+        positions = torch.randn(100, 3, device=device)
+        cells = torch.stack(
+            [
+                torch.eye(3, device=device) * 20.0,
+                torch.eye(3, device=device) * 20.0,
+            ]
+        )
+        batch_idx = torch.tensor([0] * 30 + [1] * 70, dtype=torch.int32, device=device)
+
+        params = estimate_ewald_parameters(
+            positions, cells, batch_idx=batch_idx, accuracy=1e-6
+        )
+
+        # System with more atoms should have larger alpha
+        assert params.alpha[1].item() > params.alpha[0].item()
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_2d_cell_unsqueezed(self, device):
+        """Test that 2D cell input is handled correctly."""
+        positions = torch.randn(100, 3, device=device)
+        cell_2d = torch.eye(3, device=device) * 20.0
+
+        params = estimate_ewald_parameters(positions, cell_2d, accuracy=1e-6)
+
+        assert isinstance(params.alpha, torch.Tensor)
+        assert params.alpha.shape == (1,)
+
+
+class TestEstimatePMEMeshDimensions:
+    """Tests for estimate_pme_mesh_dimensions function."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_returns_tuple(self, device):
+        """Test that function returns a tuple of 3 integers."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+        alpha = torch.tensor([0.3], device=device)
+
+        dims = estimate_pme_mesh_dimensions(cell, alpha, accuracy=1e-6)
+
+        assert isinstance(dims, tuple)
+        assert len(dims) == 3
+        assert all(isinstance(d, int) for d in dims)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_power_of_two_dimensions(self, device):
+        """Test that all dimensions are powers of 2."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+        alpha = torch.tensor([0.3], device=device)
+
+        dims = estimate_pme_mesh_dimensions(cell, alpha, accuracy=1e-6)
+
+        for d in dims:
+            # Check if power of 2: d & (d - 1) == 0
+            assert d > 0 and (d & (d - 1)) == 0, f"{d} is not a power of 2"
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_larger_alpha_more_points(self, device):
+        """Test that larger alpha leads to more mesh points."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        dims_small_alpha = estimate_pme_mesh_dimensions(
+            cell, torch.tensor([0.2], device=device), accuracy=1e-6
+        )
+        dims_large_alpha = estimate_pme_mesh_dimensions(
+            cell, torch.tensor([0.5], device=device), accuracy=1e-6
+        )
+
+        assert all(
+            d_large >= d_small
+            for d_large, d_small in zip(dims_large_alpha, dims_small_alpha)
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_higher_accuracy_more_points(self, device):
+        """Test that higher accuracy leads to more mesh points."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+        alpha = torch.tensor([0.3], device=device)
+
+        dims_low = estimate_pme_mesh_dimensions(cell, alpha, accuracy=1e-4)
+        dims_high = estimate_pme_mesh_dimensions(cell, alpha, accuracy=1e-8)
+
+        assert all(d_high >= d_low for d_high, d_low in zip(dims_high, dims_low))
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_rectangular_cell(self, device):
+        """Test with a rectangular (non-cubic) cell."""
+        cell = torch.diag(torch.tensor([10.0, 20.0, 30.0], device=device)).unsqueeze(0)
+        alpha = torch.tensor([0.3], device=device)
+
+        dims = estimate_pme_mesh_dimensions(cell, alpha, accuracy=1e-6)
+
+        # Longer dimension should have more points (or equal if rounded to same power of 2)
+        assert dims[0] <= dims[1] <= dims[2]
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_uses_max(self, device):
+        """Test that batch mode uses max dimensions across systems."""
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 30.0]
+        )
+        alpha = torch.tensor([0.3, 0.3], device=device)
+
+        dims = estimate_pme_mesh_dimensions(cells, alpha, accuracy=1e-6)
+
+        # Should return tuple of 3 integers (max across batch)
+        assert isinstance(dims, tuple)
+        assert len(dims) == 3
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_max_dimensions_correct(self, device):
+        """Test that batch mode correctly computes max dimensions."""
+        # Create two systems with different sizes
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 15.0, torch.eye(3, device=device) * 30.0]
+        )
+        alpha = torch.tensor([0.3, 0.3], device=device)
+
+        dims_batch = estimate_pme_mesh_dimensions(cells, alpha, accuracy=1e-6)
+
+        # Compare with single-system for the larger cell
+        dims_large = estimate_pme_mesh_dimensions(
+            cells[1:2], torch.tensor([0.3], device=device), accuracy=1e-6
+        )
+
+        # Batch dims should be >= single system dims for larger cell
+        assert all(
+            d_batch >= d_large for d_batch, d_large in zip(dims_batch, dims_large)
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_2d_cell_input(self, device):
+        """Test that 2D cell input is handled correctly."""
+        cell = torch.eye(3, device=device) * 20.0  # 2D cell
+        alpha = torch.tensor([0.3], device=device)
+
+        dims = estimate_pme_mesh_dimensions(cell, alpha, accuracy=1e-6)
+
+        assert isinstance(dims, tuple)
+        assert len(dims) == 3
+
+
+class TestEstimatePMEParameters:
+    """Tests for estimate_pme_parameters function."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_single_system_returns_correct_types(self, device):
+        """Test that single-system mode returns correct types."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params = estimate_pme_parameters(positions, cell, accuracy=1e-6)
+
+        assert isinstance(params, PMEParameters)
+        assert isinstance(params.alpha, torch.Tensor)
+        assert params.alpha.shape == (1,)
+        assert isinstance(params.mesh_dimensions, tuple)
+        assert len(params.mesh_dimensions) == 3
+        assert all(isinstance(d, int) for d in params.mesh_dimensions)
+        assert isinstance(params.mesh_spacing, torch.Tensor)
+        assert params.mesh_spacing.shape == (1, 3)
+        assert isinstance(params.real_space_cutoff, torch.Tensor)
+        assert params.real_space_cutoff.shape == (1,)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_returns_correct_shapes(self, device):
+        """Test that batch mode returns correct tensor shapes."""
+        positions = torch.randn(100, 3, device=device)
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 25.0]
+        )
+        batch_idx = torch.tensor([0] * 50 + [1] * 50, dtype=torch.int32, device=device)
+
+        params = estimate_pme_parameters(
+            positions, cells, batch_idx=batch_idx, accuracy=1e-6
+        )
+
+        # Alpha and real_space_cutoff should have shape (B,)
+        assert isinstance(params.alpha, torch.Tensor)
+        assert params.alpha.shape == (2,)
+        assert isinstance(params.real_space_cutoff, torch.Tensor)
+        assert params.real_space_cutoff.shape == (2,)
+
+        # mesh_dimensions should be a tuple of 3 integers (max across batch)
+        assert isinstance(params.mesh_dimensions, tuple)
+        assert len(params.mesh_dimensions) == 3
+        assert all(isinstance(d, int) for d in params.mesh_dimensions)
+
+        # mesh_spacing should have shape (B, 3)
+        assert isinstance(params.mesh_spacing, torch.Tensor)
+        assert params.mesh_spacing.shape == (2, 3)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_batch_uses_shared_median_system_cutoff_and_alpha(self, device):
+        """Batched PME uses one cutoff/alpha from median batch properties."""
+        positions = torch.randn(120, 3, dtype=torch.float64, device=device)
+        cells = torch.stack(
+            [
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+                torch.eye(3, dtype=torch.float64, device=device) * 20.0,
+                torch.eye(3, dtype=torch.float64, device=device) * 30.0,
+            ]
+        )
+        batch_idx = torch.tensor(
+            [0] * 20 + [1] * 40 + [2] * 60,
+            dtype=torch.int32,
+            device=device,
+        )
+
+        accuracy = 1e-6
+        params = estimate_pme_parameters(
+            positions,
+            cells,
+            batch_idx=batch_idx,
+            accuracy=accuracy,
+        )
+
+        n_repr = 40.0
+        v_repr = 20.0**3
+        eta = (v_repr**2 / n_repr) ** (1.0 / 6.0) / math.sqrt(2.0 * math.pi)
+        expected_cutoff = math.sqrt(-2.0 * math.log(accuracy)) * eta
+        expected_alpha = 1.0 / (math.sqrt(2.0) * eta)
+
+        assert torch.allclose(params.real_space_cutoff, params.real_space_cutoff[0])
+        assert torch.allclose(params.alpha, params.alpha[0])
+        assert torch.allclose(
+            params.real_space_cutoff,
+            torch.full_like(params.real_space_cutoff, expected_cutoff),
+        )
+        assert torch.allclose(
+            params.alpha,
+            torch.full_like(params.alpha, expected_alpha),
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_mesh_dimensions_are_power_of_two(self, device):
+        """Test that mesh dimensions are powers of 2."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params = estimate_pme_parameters(positions, cell, accuracy=1e-6)
+
+        for d in params.mesh_dimensions:
+            assert d > 0 and (d & (d - 1)) == 0, f"{d} is not a power of 2"
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_pme_alpha_matches_ewald_closed_form(self, device):
+        """Default PME estimator uses the same Essmann/Kolafa-Perram
+        closed-form as the Ewald estimator (both derive rc and α from
+        a single length scale η)."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        pme_params = estimate_pme_parameters(positions, cell, accuracy=1e-6)
+        ewald_params = estimate_ewald_parameters(positions, cell, accuracy=1e-6)
+
+        assert torch.allclose(
+            pme_params.real_space_cutoff, ewald_params.real_space_cutoff
+        )
+        assert torch.allclose(pme_params.alpha, ewald_params.alpha)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_pme_cutoff_in_sane_range(self, device):
+        """Cost-optimal PME rc should land in the 4–20 Å band for typical systems."""
+        positions = torch.randn(500, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 25.0
+
+        params = estimate_pme_parameters(positions, cell, accuracy=1e-6)
+        rc = float(params.real_space_cutoff[0].item())
+        assert 4.0 <= rc <= 20.0, f"rc={rc} outside sane band"
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_pme_user_supplied_cutoff_respected(self, device):
+        """When real_space_cutoff is given, it is used as-is."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params = estimate_pme_parameters(
+            positions,
+            cell,
+            accuracy=1e-6,
+            real_space_cutoff=7.5,
+        )
+        assert torch.allclose(
+            params.real_space_cutoff,
+            torch.tensor([7.5], dtype=positions.dtype, device=device),
+        )
+        # Alpha derived from the user-supplied rc: α = √(-log ε) / rc.
+        expected_alpha = math.sqrt(-math.log(1e-6)) / 7.5
+        assert torch.allclose(
+            params.alpha,
+            torch.tensor([expected_alpha], dtype=positions.dtype, device=device),
+            rtol=1e-5,
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_mesh_spacing_varies_per_system(self, device):
+        """Test that mesh_spacing varies per system in batch mode."""
+        positions = torch.randn(100, 3, device=device)
+        # Create two cells of different sizes
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 30.0]
+        )
+        batch_idx = torch.tensor([0] * 50 + [1] * 50, dtype=torch.int32, device=device)
+
+        params = estimate_pme_parameters(
+            positions, cells, batch_idx=batch_idx, accuracy=1e-6
+        )
+
+        # mesh_spacing should be different for systems with different cell sizes
+        # (same mesh_dimensions but different cell lengths)
+        assert not torch.allclose(params.mesh_spacing[0], params.mesh_spacing[1])
+
+        # Larger cell should have larger mesh spacing
+        assert torch.all(params.mesh_spacing[1] > params.mesh_spacing[0])
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_mesh_spacing_consistent_with_dimensions(self, device):
+        """Test that mesh_spacing = cell_lengths / mesh_dimensions."""
+        positions = torch.randn(100, 3, device=device)
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        params = estimate_pme_parameters(positions, cell, accuracy=1e-6)
+
+        # Compute expected spacing
+        cell_lengths = torch.norm(cell, dim=2)  # (1, 3)
+        mesh_dims_tensor = torch.tensor(
+            params.mesh_dimensions, dtype=cell_lengths.dtype, device=device
+        )
+        expected_spacing = cell_lengths / mesh_dims_tensor
+
+        assert torch.allclose(params.mesh_spacing, expected_spacing)
+
+
+class TestMeshSpacingToDimensions:
+    """Tests for mesh_spacing_to_dimensions function."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_returns_tensor(self, device):
+        """Test that function returns a tensor."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        dims = mesh_spacing_to_dimensions(cell, mesh_spacing=0.5)
+
+        assert isinstance(dims, tuple)
+        assert len(dims) == 3
+        assert all(isinstance(d, int) for d in dims)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_power_of_two_dimensions(self, device):
+        """Test that all dimensions are powers of 2."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        dims = mesh_spacing_to_dimensions(cell, mesh_spacing=0.5)
+
+        for d_val in dims:
+            assert d_val > 0 and (d_val & (d_val - 1)) == 0, (
+                f"{d_val} is not a power of 2"
+            )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_smaller_spacing_more_points(self, device):
+        """Test that smaller spacing leads to more mesh points."""
+        cell = torch.eye(3, device=device).unsqueeze(0) * 20.0
+
+        dims_large_spacing = mesh_spacing_to_dimensions(cell, mesh_spacing=1.0)
+        dims_small_spacing = mesh_spacing_to_dimensions(cell, mesh_spacing=0.25)
+
+        assert all(
+            d_small >= d_large
+            for d_small, d_large in zip(dims_small_spacing, dims_large_spacing)
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_rectangular_cell(self, device):
+        """Test with rectangular cell."""
+        cell = torch.diag(torch.tensor([10.0, 20.0, 30.0], device=device)).unsqueeze(0)
+
+        dims = mesh_spacing_to_dimensions(cell, mesh_spacing=0.5)
+
+        # Longer dimension should have more points
+        assert dims[0] <= dims[1] <= dims[2]
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_tensor_spacing_1d(self, device):
+        """Test with 1D tensor mesh spacing (per-system, uniform direction)."""
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 30.0]
+        )
+        spacing = torch.tensor([0.5, 0.5], device=device)
+
+        dims = mesh_spacing_to_dimensions(cells, mesh_spacing=spacing)
+
+        assert len(dims) == 3
+        assert isinstance(dims, tuple)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_tensor_spacing_2d(self, device):
+        """Test with 2D tensor mesh spacing (per-system, per-direction)."""
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 30.0]
+        )
+        # Different spacing for each direction
+        spacing = torch.tensor([[0.5, 0.4, 0.3], [0.6, 0.5, 0.4]], device=device)
+
+        dims = mesh_spacing_to_dimensions(cells, mesh_spacing=spacing)
+
+        assert len(dims) == 3
+        assert isinstance(dims, tuple)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_invalid_spacing_shape_raises(self, device):
+        """Test that invalid spacing shape raises an error."""
+        cells = torch.stack(
+            [torch.eye(3, device=device) * 20.0, torch.eye(3, device=device) * 30.0]
+        )
+        # Wrong batch size
+        spacing = torch.tensor([0.5, 0.5, 0.5], device=device)
+
+        with pytest.raises(ValueError):
+            mesh_spacing_to_dimensions(cells, mesh_spacing=spacing)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_2d_cell_input(self, device):
+        """Test that 2D cell input is handled correctly."""
+        cell = torch.eye(3, device=device) * 20.0  # 2D cell
+
+        dims = mesh_spacing_to_dimensions(cell, mesh_spacing=0.5)
+
+        assert len(dims) == 3
+        assert isinstance(dims, tuple)
+
+
+class TestIntegration:
+    """Integration tests for parameter estimation."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_ewald_parameters_work_with_ewald_summation(self, device):
+        """Test that estimated parameters can be used with ewald_summation."""
+        pytest.importorskip("nvalchemiops.torch.interactions.electrostatics.ewald")
+
+        from nvalchemiops.torch.interactions.electrostatics import ewald_summation
+
+        # Create a simple system
+        positions = torch.randn(20, 3, device=device, dtype=torch.float64) * 5.0 + 5.0
+        charges = torch.randn(20, device=device, dtype=torch.float64)
+        charges = charges - charges.mean()  # Neutralize
+        cell = torch.eye(3, device=device, dtype=torch.float64).unsqueeze(0) * 15.0
+
+        # Estimate parameters
+        params = estimate_ewald_parameters(positions, cell, accuracy=1e-4)
+
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+        # This should run without error
+        energies = ewald_summation(
+            positions,
+            charges,
+            cell,
+            alpha=params.alpha,
+            k_cutoff=params.reciprocal_space_cutoff,
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=False,
+        )
+        assert energies.shape == (20,)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_pme_parameters_work_with_particle_mesh_ewald(self, device):
+        """Test that estimated parameters can be used with particle_mesh_ewald."""
+        pytest.importorskip("nvalchemiops.torch.interactions.electrostatics.pme")
+
+        from nvalchemiops.torch.interactions.electrostatics import particle_mesh_ewald
+
+        # Create a simple system
+        positions = (
+            torch.randn(20, 3, device=device, dtype=torch.float64) * 5.0 + 5.0
+        ).requires_grad_(False)
+        charges = torch.randn(20, device=device, dtype=torch.float64)
+        charges = charges - charges.mean()  # Neutralize
+        cell = torch.eye(3, device=device, dtype=torch.float64).unsqueeze(0) * 15.0
+
+        # Estimate parameters
+        params = estimate_pme_parameters(positions, cell, accuracy=1e-4)
+
+        # Create a simple neighbor list
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        # This should run without error
+        energies = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=params.alpha,
+            mesh_dimensions=tuple(params.mesh_dimensions),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=False,
+        )
+
+        assert energies.shape == (20,)
+
+
+# ---------------------------------------------------------------------------
+# Multipole (GTO-Ewald) parameter estimators
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateMultipoleEwaldParameters:
+    """Tests for ``estimate_multipole_ewald_parameters``."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_sigma_zero_recovers_monopole(self, device):
+        """``sigma → 0`` should reproduce the monopole estimator's alpha + cutoffs bit-exactly."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.randn(500, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 25.0
+
+        mono = estimate_ewald_parameters(positions, cell, accuracy=1e-6)
+        multi = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=1e-12, accuracy=1e-6
+        )
+        # rcut and kcut should match exactly (formula independent of sigma).
+        assert torch.allclose(
+            mono.real_space_cutoff, multi.real_space_cutoff, rtol=0, atol=0
+        )
+        assert torch.allclose(
+            mono.reciprocal_space_cutoff,
+            multi.reciprocal_space_cutoff,
+            rtol=0,
+            atol=0,
+        )
+        # alpha matches to within float64 round-off (sigma**2 << eta**2 means
+        # the discriminant correction is at the round-off floor).
+        assert torch.allclose(mono.alpha, multi.alpha, rtol=1e-9, atol=0)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_finite_sigma_alpha_larger_than_monopole(self, device):
+        """Finite sigma forces sigma_c >= sigma, so alpha must be > monopole alpha at the same eta."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.randn(1024, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 30.0
+
+        mono = estimate_ewald_parameters(positions, cell, accuracy=1e-6)
+        multi = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=1.0, accuracy=1e-6
+        )
+        # alpha = 1 / (sqrt(2) sqrt(eta^2 - 2 sigma^2)) > 1 / (sqrt(2) eta) = monopole alpha.
+        assert (multi.alpha > mono.alpha).all()
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_sigma_carried_through(self, device):
+        """``MultipoleEwaldParameters.sigma`` is the broadcast input sigma."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.randn(100, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 20.0
+        params = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=0.5, accuracy=1e-6
+        )
+        assert params.sigma.shape == (1,)
+        assert torch.isclose(
+            params.sigma, torch.tensor(0.5, dtype=torch.float64, device=device)
+        ).all()
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_validity_guard_fires_when_sigma_too_large(self, device):
+        """Raise ``ValueError`` when GTO smearing dominates the Kolafa-Perram scale."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.randn(100, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 10.0
+        # eta ~ 1.7 for these dims; sigma=10 gives 2 sigma^2 >> eta^2.
+        with pytest.raises(ValueError, match="sigma is too large"):
+            estimate_multipole_ewald_parameters(
+                positions, cell, sigma=10.0, accuracy=1e-6
+            )
+
+
+class TestMultipoleEwaldCostRatio:
+    """Cost-ratio knob in the multipole Ewald estimator."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_default_matches_canonical_kp(self, device):
+        """cost_ratio=1.0 (default) reproduces the canonical Kolafa-Perram estimator."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.randn(500, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 25.0
+        a = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=0.5, accuracy=1e-6
+        )
+        b = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=0.5, accuracy=1e-6, cost_ratio=1.0
+        )
+        for fa, fb in zip(
+            (a.alpha, a.real_space_cutoff, a.reciprocal_space_cutoff),
+            (b.alpha, b.real_space_cutoff, b.reciprocal_space_cutoff),
+        ):
+            assert torch.equal(fa, fb)
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_cost_ratio_scales_rcut_as_one_over_sixth_root(self, device):
+        """rcut(R) = rcut(1) / R**(1/6); kcut(R) = kcut(1) * R**(1/6)."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.randn(2000, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 30.0
+        sigma = 0.5
+        a = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=sigma, accuracy=1e-6, cost_ratio=1.0
+        )
+        for R in (8.0, 30.0, 64.0):
+            b = estimate_multipole_ewald_parameters(
+                positions, cell, sigma=sigma, accuracy=1e-6, cost_ratio=R
+            )
+            scale = R ** (1.0 / 6.0)
+            assert torch.allclose(
+                b.real_space_cutoff, a.real_space_cutoff / scale, rtol=1e-12, atol=0
+            )
+            assert torch.allclose(
+                b.reciprocal_space_cutoff,
+                a.reciprocal_space_cutoff * scale,
+                rtol=1e-12,
+                atol=0,
+            )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_cost_ratio_must_be_positive(self, device):
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_ewald_parameters,
+        )
+
+        positions = torch.zeros((100, 3), device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 20.0
+        with pytest.raises(ValueError, match="cost_ratio must be positive"):
+            estimate_multipole_ewald_parameters(
+                positions, cell, sigma=0.5, accuracy=1e-6, cost_ratio=0.0
+            )
+        with pytest.raises(ValueError, match="cost_ratio must be positive"):
+            estimate_multipole_ewald_parameters(
+                positions, cell, sigma=0.5, accuracy=1e-6, cost_ratio=-1.0
+            )
+
+
+class TestEstimateMultipolePMEParameters:
+    """Tests for ``estimate_multipole_pme_parameters``."""
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_sigma_zero_recovers_monopole(self, device):
+        """Mesh dims and rcut should match the monopole PME estimator at sigma → 0."""
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_pme_parameters,
+        )
+
+        positions = torch.randn(500, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 25.0
+
+        mono = estimate_pme_parameters(positions, cell, accuracy=1e-6)
+        multi = estimate_multipole_pme_parameters(
+            positions, cell, sigma=1e-12, accuracy=1e-6
+        )
+        assert mono.mesh_dimensions == multi.mesh_dimensions
+        # The monopole and multipole estimators share the balance but run
+        # separate code paths, so the cutoff agrees to fp64 precision (not
+        # bit-for-bit, esp. on CUDA).
+        assert torch.allclose(
+            mono.real_space_cutoff, multi.real_space_cutoff, rtol=1e-9, atol=0
+        )
+
+    @pytest.mark.parametrize("device", [torch.device("cpu"), torch.device("cuda:0")])
+    def test_validity_guard_fires_when_sigma_too_large(self, device):
+        from nvalchemiops.torch.interactions.electrostatics.parameters import (
+            estimate_multipole_pme_parameters,
+        )
+
+        positions = torch.randn(100, 3, device=device, dtype=torch.float64)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * 10.0
+        with pytest.raises(ValueError, match="sigma too large"):
+            estimate_multipole_pme_parameters(
+                positions, cell, sigma=10.0, accuracy=1e-6
+            )
+
+
+class TestMultipoleEwaldSummationAutoEstimate:
+    """End-to-end: ``multipole_ewald_summation`` with ``alpha=None``."""
+
+    @pytest.mark.parametrize("device", [torch.device("cuda:0")])
+    def test_alpha_none_runs_and_matches_explicit(self, device):
+        """Energy with alpha=None matches the energy from explicit alpha+kcut at the same accuracy."""
+        from nvalchemiops.torch.interactions.electrostatics import (
+            estimate_multipole_ewald_parameters,
+            multipole_ewald_summation,
+        )
+        from nvalchemiops.torch.neighbors import neighbor_list
+
+        torch.manual_seed(0)
+        n_atoms = 256
+        L = 12.0
+        positions = torch.rand(n_atoms, 3, device=device, dtype=torch.float64) * L
+        charges = torch.randn(n_atoms, device=device, dtype=torch.float64)
+        charges = charges - charges.mean()
+        dipoles = torch.randn(n_atoms, 3, device=device, dtype=torch.float64) * 0.1
+        sf = torch.stack([charges, dipoles[:, 1], dipoles[:, 2], dipoles[:, 0]], dim=1)
+        cell = torch.eye(3, device=device, dtype=torch.float64) * L
+        sigma = 0.5
+
+        params = estimate_multipole_ewald_parameters(
+            positions, cell, sigma=sigma, accuracy=1e-6
+        )
+        rcut = float(params.real_space_cutoff.item())
+        rcut_capped = min(rcut, 0.499 * L)
+        pbc = torch.tensor([True, True, True], device=device)
+        pairs, nptr, shifts = neighbor_list(
+            positions, rcut_capped, cell=cell, pbc=pbc, return_neighbor_list=True
+        )
+        idx_j = pairs[1].contiguous().to(torch.int32)
+        nptr = nptr.to(torch.int32)
+        shifts = shifts.to(torch.int32)
+
+        e_explicit = multipole_ewald_summation(
+            positions,
+            sf,
+            cell,
+            idx_j,
+            nptr,
+            shifts,
+            sigma=sigma,
+            alpha=float(params.alpha.item()),
+            k_cutoff=float(params.reciprocal_space_cutoff.item()),
+        )
+        e_auto = multipole_ewald_summation(
+            positions,
+            sf,
+            cell,
+            idx_j,
+            nptr,
+            shifts,
+            sigma=sigma,
+            accuracy=1e-6,
+        )
+        # Same estimator + same alpha/kcut → physically same energy. The
+        # reciprocal sum uses atomic_add reductions whose order can vary
+        # by a few ULPs between calls, so allow a tiny relative tolerance.
+        assert torch.allclose(e_explicit, e_auto, rtol=1e-13, atol=1e-15)

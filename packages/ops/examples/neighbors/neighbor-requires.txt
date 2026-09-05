@@ -1,0 +1,2 @@
+# Requirements for neighborlist examples
+pymatgen>=2025.10.7

@@ -1,0 +1,77 @@
+# Electrostatics Benchmark Configuration
+# =======================================
+# Per-module config following upstream pattern.
+# Two systems (CsCl, NH3) × three scaling modes.
+#
+# Usage (run from the repository root):
+#   RESULT_DIR="$BENCHMARK_SCRATCH/results/manual-el-run"
+#   python -m benchmarks.interactions.electrostatics.benchmark_electrostatics_suite \
+#       --config benchmarks/interactions/electrostatics/benchmark_config.yaml \
+#       --output-dir "$RESULT_DIR"
+
+# -----------------------------------------------------------------------------
+# Global Parameters
+# -----------------------------------------------------------------------------
+parameters:
+  warmup_runs: 3
+  timing_runs: 10
+  profile_components: false
+  # Cap PME's real-space neighbor-list radius. Direct Ewald keeps the
+  # automatically balanced real- and reciprocal-space cutoffs.
+  max_real_space_cutoff: 9.0
+
+# -----------------------------------------------------------------------------
+# Systems
+# -----------------------------------------------------------------------------
+systems:
+  cscl:
+    enabled: true
+    atom_counts: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
+    constant_atoms_sizes: [250, 8192]   # CsCl valid: 2*5^3=250, 2*16^3=8192
+
+  nh3:
+    enabled: true
+    pdb_dir: ../../nh3
+    atom_counts: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
+    constant_atoms_sizes: [256, 8192]
+
+# -----------------------------------------------------------------------------
+# Scaling Modes
+# -----------------------------------------------------------------------------
+scaling:
+  system_size:
+    enabled: true
+    batch_size: 1
+
+  constant_workload:
+    enabled: true
+    target_atoms: 131072
+
+  batch_scaling:
+    enabled: true
+    max_total_atoms: 131072
+
+# -----------------------------------------------------------------------------
+# Methods
+# -----------------------------------------------------------------------------
+methods:
+  - name: pme
+    enabled: true
+    description: "Particle Mesh Ewald - recommended for large systems"
+    spline_order: 4
+
+  - name: ewald
+    enabled: true
+    description: "Direct Ewald summation"
+
+# Accuracy levels to benchmark
+accuracies: [1.0e-4, 1.0e-6]
+
+# Every row evaluates energy and derives forces plus charge gradients through
+# framework autograd. This is one workload, not a configurable row dimension.
+
+# -----------------------------------------------------------------------------
+# Output
+# -----------------------------------------------------------------------------
+output:
+  base_dir: ../../benchmark-results

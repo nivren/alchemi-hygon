@@ -1,0 +1,7498 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Unified Test Suite for Particle Mesh Ewald (PME) Implementation
+================================================================
+
+This test suite validates the correctness of the unified PME API:
+
+1. Unit Tests - Basic API functionality and shapes
+2. Correctness Tests - Validation against torchpme reference
+3. Batch Tests - Batch vs single-system consistency
+4. Autograd Tests - Gradient computation validation
+5. Conservation Laws - Momentum and energy properties
+"""
+
+import gc
+import math
+import warnings
+import weakref
+from importlib import import_module
+
+import pytest
+import torch
+import warp as wp
+
+from nvalchemiops.torch.interactions.electrostatics import (
+    compute_bspline_moduli_1d,
+    estimate_pme_parameters,
+    particle_mesh_ewald,
+    pme_reciprocal_space,
+)
+from nvalchemiops.torch.interactions.electrostatics.ewald import ewald_real_space
+from nvalchemiops.torch.interactions.electrostatics.k_vectors import (
+    generate_k_vectors_pme,
+)
+from nvalchemiops.torch.interactions.electrostatics.pme import (
+    _pme_convolve_backward_args,
+    _pme_reciprocal_space_impl,
+    _prepare_alpha,
+    pme_energy_corrections,
+    pme_energy_corrections_with_charge_grad,
+)
+from nvalchemiops.torch.interactions.electrostatics.pme import (
+    compute_bspline_moduli_1d as pme_compute_bspline_moduli_1d,
+)
+from nvalchemiops.torch.neighbors import batch_cell_list, cell_list, neighbor_list
+
+# Check for optional dependencies
+try:
+    _ = import_module("torchpme")
+    HAS_TORCHPME = True
+    from torchpme import PMECalculator
+    from torchpme.potentials import CoulombPotential
+except ModuleNotFoundError:
+    HAS_TORCHPME = False
+    PMECalculator = None
+    CoulombPotential = None
+
+# Crystal structure generators from shared electrostatics conftest
+# Virial test utilities from torch-specific test_utils
+# F3 energy-derivative-contract harness (shared with Ewald + the selftest).
+from test.interactions.electrostatics._deriv_check import (
+    autograd_charge_grad,
+    autograd_forces,
+    autograd_strain_virial,
+    fd_charge_grad,
+    fd_forces,
+    fd_strain_virial,
+    finite_difference_jacobian,
+    gradgradcheck_energy,
+    max_abs_rel,
+    qr_hvp_positions,
+    qr_manual_chain_gradient,
+    toy_charge_model,
+)
+from test.interactions.electrostatics.bindings.torch.test_utils import (
+    VIRIAL_DTYPE,
+    fd_virial_full,
+    get_virial_neighbor_data,
+    make_non_neutral_system,
+    make_virial_batch_cscl_system,
+    make_virial_cscl_system,
+)
+from test.interactions.electrostatics.conftest import (
+    create_cscl_supercell,
+    create_wurtzite_system,
+    create_zincblende_system,
+)
+
+###########################################################################################
+########################### Helper Functions ##############################################
+###########################################################################################
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("part", ["reciprocal", "full"])
+def test_system_energy_matches_atom_reduction_and_weighted_gradient(device, part):
+    """PME system layout retains arbitrary per-system cotangent provenance."""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+    dev = torch.device(device)
+    dtype = torch.float64
+    positions = torch.tensor(
+        [
+            [1.0, 2.0, 3.0],
+            [3.0, 2.0, 1.0],
+            [1.5, 2.5, 3.5],
+            [3.5, 2.5, 1.5],
+        ],
+        dtype=dtype,
+        device=dev,
+    )
+    charges = torch.tensor([0.7, -0.7, 0.4, -0.4], dtype=dtype, device=dev)
+    cell = torch.eye(3, dtype=dtype, device=dev).repeat(2, 1, 1) * 8.0
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=dev)
+    neighbor_list = torch.tensor(
+        [[0, 1, 2, 3], [1, 0, 3, 2]], dtype=torch.int32, device=dev
+    )
+    neighbor_ptr = torch.tensor([0, 1, 2, 3, 4], dtype=torch.int32, device=dev)
+    shifts = torch.zeros(4, 3, dtype=torch.int32, device=dev)
+
+    def energy(pos, reduction):
+        common = {
+            "positions": pos,
+            "charges": charges + 0.01 * pos[:, 0],
+            "cell": cell,
+            "alpha": torch.tensor([0.3, 0.35], dtype=dtype, device=dev),
+            "mesh_dimensions": (8, 8, 8),
+            "batch_idx": batch_idx,
+            "energy_reduction": reduction,
+        }
+        if part == "reciprocal":
+            return pme_reciprocal_space(**common)
+        return particle_mesh_ewald(
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=shifts,
+            **common,
+        )
+
+    pos_atom = positions.clone().requires_grad_(True)
+    atom_energy = energy(pos_atom, "atom")
+    expected = torch.zeros(2, dtype=atom_energy.dtype, device=dev).index_add(
+        0, batch_idx.long(), atom_energy
+    )
+    pos_system = positions.clone().requires_grad_(True)
+    system_energy = energy(pos_system, "system")
+    weights = torch.tensor([1.7, -0.4], dtype=dtype, device=dev)
+
+    assert system_energy.shape == (2,)
+    torch.testing.assert_close(system_energy, expected)
+    grad_atom = torch.autograd.grad(
+        atom_energy,
+        pos_atom,
+        grad_outputs=weights.index_select(0, batch_idx.long()),
+        create_graph=True,
+    )[0]
+    grad_system = torch.autograd.grad(
+        system_energy, pos_system, grad_outputs=weights, create_graph=True
+    )[0]
+    torch.testing.assert_close(grad_system, grad_atom, rtol=2e-6, atol=2e-7)
+    direction = torch.arange(positions.numel(), dtype=dtype, device=dev).reshape_as(
+        positions
+    )
+    hvp_atom = torch.autograd.grad((grad_atom * direction).sum(), pos_atom)[0]
+    hvp_system = torch.autograd.grad((grad_system * direction).sum(), pos_system)[0]
+    torch.testing.assert_close(hvp_system, hvp_atom, rtol=3e-5, atol=3e-7)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_pme_system_cotangent_bypasses_atom_uniformity_check(monkeypatch):
+    """Cached system mode consumes arbitrary (B,) cotangents structurally."""
+    device = torch.device("cuda")
+    positions = torch.tensor(
+        [[1.0, 2.0, 3.0], [3.0, 2.0, 1.0], [1.5, 2.5, 3.5], [3.5, 2.5, 1.5]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+    charges = torch.tensor([0.7, -0.7, 0.4, -0.4], dtype=torch.float64, device=device)
+    cell = torch.eye(3, dtype=torch.float64, device=device).repeat(2, 1, 1) * 8.0
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+    pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+
+    def _unexpected_atom_check(*_args):
+        raise AssertionError("system cotangent reached atom-layout predicate")
+
+    monkeypatch.setattr(
+        pme_module, "_is_per_system_uniform_cotangent", _unexpected_atom_check
+    )
+    energy = pme_reciprocal_space(
+        positions,
+        charges,
+        cell,
+        alpha=torch.tensor([0.3, 0.35], dtype=torch.float64, device=device),
+        mesh_dimensions=(8, 8, 8),
+        batch_idx=batch_idx,
+        energy_reduction="system",
+    )
+    weights = torch.tensor([1.7, -0.4], dtype=torch.float64, device=device)
+    (grad_positions,) = torch.autograd.grad(energy, positions, grad_outputs=weights)
+    assert torch.isfinite(grad_positions).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_pme_atom_materialized_per_system_cotangent_uses_cache(monkeypatch):
+    """Exact eager CUDA checks keep per-system-uniform atom weights cached."""
+    device = torch.device("cuda")
+    positions = torch.tensor(
+        [[1.0, 2.0, 3.0], [3.0, 2.0, 1.0], [1.5, 2.5, 3.5], [3.5, 2.5, 1.5]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+    charges = torch.tensor([0.7, -0.7, 0.4, -0.4], dtype=torch.float64, device=device)
+    cell = torch.eye(3, dtype=torch.float64, device=device).repeat(2, 1, 1) * 8.0
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+    atom_weights = torch.tensor(
+        [1.7, 1.7, -0.4, -0.4], dtype=torch.float64, device=device
+    )
+    pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+    call_count = 0
+    original_impl = pme_module._pme_reciprocal_space_impl
+
+    def _counting_impl(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return original_impl(*args, **kwargs)
+
+    monkeypatch.setattr(pme_module, "_pme_reciprocal_space_impl", _counting_impl)
+    energy = pme_reciprocal_space(
+        positions,
+        charges,
+        cell,
+        alpha=torch.tensor([0.3, 0.35], dtype=torch.float64, device=device),
+        mesh_dimensions=(8, 8, 8),
+        batch_idx=batch_idx,
+    )
+    torch.autograd.grad(energy, positions, grad_outputs=atom_weights)
+
+    assert call_count == 1
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_pme_system_direct_virial_create_graph_keeps_atom_cotangent_shape(device):
+    """Cell-only cached state still expands system cotangents to all atoms."""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+    dev = torch.device(device)
+    positions = torch.tensor(
+        [[1.0, 2.0, 3.0], [3.0, 2.0, 1.0], [1.5, 2.5, 3.5]],
+        dtype=torch.float64,
+        device=dev,
+    )
+    charges = torch.tensor([0.7, -0.7, 0.0], dtype=torch.float64, device=dev)
+    cell = (torch.eye(3, dtype=torch.float64, device=dev) * 8.0).requires_grad_(True)
+
+    with pytest.warns(DeprecationWarning):
+        energy, _virial = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=torch.tensor(0.3, dtype=torch.float64, device=dev),
+            mesh_dimensions=(8, 8, 8),
+            compute_virial=True,
+            energy_reduction="system",
+        )
+    weights = torch.tensor([1.7], dtype=torch.float64, device=dev)
+    (cell_grad,) = torch.autograd.grad(
+        energy, cell, grad_outputs=weights, create_graph=True
+    )
+
+    assert cell_grad.shape == cell.shape
+    assert torch.isfinite(cell_grad).all()
+
+
+def _torchpme_smearing(alpha: float | torch.Tensor) -> float:
+    """Convert Ewald alpha to the scalar smearing parameter torchpme expects."""
+    if isinstance(alpha, torch.Tensor):
+        alpha = float(alpha.detach().cpu())
+    return 1.0 / (math.sqrt(2.0) * alpha)
+
+
+def _particle_mesh_ewald_without_direct_output_deprecation(*args, **kwargs):
+    """Call deprecated direct-output PME paths without polluting warning summaries."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="The direct-output flags .* on particle_mesh_ewald are deprecated",
+            category=DeprecationWarning,
+        )
+        return particle_mesh_ewald(*args, **kwargs)
+
+
+def _compile_pme_setup(
+    device: torch.device,
+    *,
+    full_pme: bool,
+    num_atoms: int = 2,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    dict[str, object],
+]:
+    """Build fixed explicit-B=1 PME inputs outside compiled callables."""
+    dtype = torch.float64
+    if num_atoms == 1:
+        positions = torch.tensor([[5.0, 5.0, 5.0]], dtype=dtype, device=device)
+        charges = torch.tensor([1.0], dtype=dtype, device=device)
+    else:
+        positions = torch.tensor(
+            [[2.0, 5.0, 5.0], [8.0, 5.0, 5.0]],
+            dtype=dtype,
+            device=device,
+        )
+        charges = torch.tensor([1.0, -1.0], dtype=dtype, device=device)
+    cell = torch.eye(3, dtype=dtype, device=device).unsqueeze(0) * 10.0
+    batch_idx = torch.zeros(num_atoms, dtype=torch.int32, device=device)
+
+    if num_atoms == 1:
+        pme_common: dict[str, object] = {
+            "alpha": torch.tensor([0.3], dtype=dtype, device=device),
+            "mesh_dimensions": (8, 8, 8),
+            "spline_order": 4,
+        }
+    else:
+        with torch.no_grad():
+            params = estimate_pme_parameters(
+                positions,
+                cell,
+                batch_idx=batch_idx,
+                accuracy=1e-6,
+            )
+        pme_common = {
+            "alpha": params.alpha,
+            "mesh_dimensions": tuple(params.mesh_dimensions),
+            "spline_order": 4,
+        }
+
+    if full_pme:
+        if num_atoms == 1:
+            neighbor_matrix = torch.full(
+                (1, 1),
+                num_atoms,
+                dtype=torch.int32,
+                device=device,
+            )
+            neighbor_shifts = torch.zeros(
+                (1, 1, 3),
+                dtype=torch.int32,
+                device=device,
+            )
+            max_neighbors = 1
+        else:
+            with torch.no_grad():
+                neighbor_matrix, max_neighbors, neighbor_shifts = neighbor_list(
+                    positions=positions,
+                    cell=cell,
+                    pbc=torch.ones((1, 3), dtype=torch.bool, device=device),
+                    cutoff=params.real_space_cutoff.max().item(),
+                    batch_idx=batch_idx,
+                    fill_value=num_atoms,
+                )
+            max_neighbors = max(int(max_neighbors.max()), 1)
+        pme_common.update(
+            neighbor_matrix=neighbor_matrix[:, :max_neighbors].to(torch.int32),
+            neighbor_matrix_shifts=neighbor_shifts[:, :max_neighbors].to(torch.int32),
+            mask_value=num_atoms,
+            accuracy=1e-6,
+        )
+    return positions, charges, cell, batch_idx, pme_common
+
+
+def _pme_energy_and_grads(
+    loss_fn,
+    positions: torch.Tensor,
+    charges: torch.Tensor,
+    cell: torch.Tensor,
+) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Evaluate a scalar PME loss and its public first-order derivatives."""
+    positions = positions.clone().requires_grad_(True)
+    charges = charges.clone().requires_grad_(True)
+    cell = cell.clone().requires_grad_(True)
+    loss = loss_fn(positions, charges, cell)
+    gradients = torch.autograd.grad(loss, (positions, charges, cell))
+    return loss, gradients
+
+
+def create_simple_system(
+    device: torch.device,
+    dtype: torch.dtype = torch.float64,
+    num_atoms: int = 4,
+    cell_size: float = 10.0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Create a simple test system with random positions and neutral charges."""
+    positions = (
+        torch.rand((num_atoms, 3), dtype=dtype, device=device) * cell_size * 0.8
+        + cell_size * 0.1
+    )
+    charges = torch.randn(num_atoms, dtype=dtype, device=device)
+    charges[-1] = -charges[:-1].sum()  # Make neutral
+    cell = torch.eye(3, dtype=dtype, device=device) * cell_size
+    return positions, charges, cell
+
+
+def create_dipole_system(
+    device: torch.device,
+    dtype: torch.dtype = torch.float64,
+    separation: float = 2.0,
+    cell_size: float = 10.0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Create a simple dipole system."""
+    center = cell_size / 2
+    positions = torch.tensor(
+        [
+            [center - separation / 2, center, center],
+            [center + separation / 2, center, center],
+        ],
+        dtype=dtype,
+        device=device,
+    )
+    charges = torch.tensor([1.0, -1.0], dtype=dtype, device=device)
+    cell = torch.eye(3, dtype=dtype, device=device) * cell_size
+    return positions, charges, cell
+
+
+def calculate_pme_reciprocal_energy_torchpme(
+    positions: torch.Tensor,
+    charges: torch.Tensor,
+    cell: torch.Tensor,
+    mesh_spacing: float,
+    alpha: float,
+    spline_order: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Calculate PME reciprocal-space energy using torchpme as reference."""
+    if not HAS_TORCHPME:
+        pytest.skip("torchpme not available")
+
+    # torchpme uses smearing sigma where Gaussian is exp(-r^2/(2 sigma^2)).
+    smearing = _torchpme_smearing(alpha)
+    potential = CoulombPotential(smearing=smearing).to(device=device, dtype=dtype)
+    charges_pme = charges.unsqueeze(1)
+
+    calculator = PMECalculator(
+        potential=potential,
+        mesh_spacing=mesh_spacing,
+        interpolation_nodes=spline_order,
+        full_neighbor_list=True,
+        prefactor=1.0,
+    ).to(device=device, dtype=dtype)
+
+    # Ensure cell is 2D for torchpme
+    cell_2d = cell.squeeze(0) if cell.dim() == 3 else cell
+
+    reciprocal_potential = calculator._compute_kspace(charges_pme, cell_2d, positions)
+
+    return (reciprocal_potential * charges_pme).flatten()
+
+
+###########################################################################################
+########################### Dtype Tests ####################################################
+###########################################################################################
+
+
+class TestPMEPublicAPI:
+    """Top-level PME public imports."""
+
+    def test_compute_bspline_moduli_1d_top_level_export(self):
+        """Package-level export matches the PME submodule implementation."""
+        assert compute_bspline_moduli_1d is pme_compute_bspline_moduli_1d
+
+        miller = torch.fft.fftfreq(8, d=1.0 / 8.0, dtype=torch.float64)
+        moduli = compute_bspline_moduli_1d(miller, 8, spline_order=4)
+
+        assert moduli.shape == (8,)
+        assert moduli.dtype == torch.float64
+        assert torch.isfinite(moduli).all()
+
+
+class TestDtypeSupport:
+    """Test that PME functions support both float32 and float64 dtypes."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_pme_reciprocal_dtype_returns_correct_type(self, device, dtype):
+        """Test that pme_reciprocal_space returns tensors in input dtype."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device, dtype=dtype)
+        alpha = 0.3
+
+        # Test energy-only
+        energies = pme_reciprocal_space(
+            positions,
+            charges,
+            cell.unsqueeze(0),
+            alpha=alpha,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=4,
+            compute_forces=False,
+        )
+        assert energies.dtype == dtype, f"Expected {dtype}, got {energies.dtype}"
+
+        # Test with forces
+        energies, forces = pme_reciprocal_space(
+            positions,
+            charges,
+            cell.unsqueeze(0),
+            alpha=alpha,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=4,
+            compute_forces=True,
+        )
+        assert energies.dtype == dtype, f"Expected {dtype}, got {energies.dtype}"
+        assert forces.dtype == dtype, f"Expected {dtype}, got {forces.dtype}"
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_pme_batch_dtype_returns_correct_type(self, device, dtype):
+        """Test that batch PME returns tensors in input dtype."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create two systems
+        pos1, chg1, cell1 = create_dipole_system(device, dtype=dtype)
+        pos2, chg2, cell2 = create_dipole_system(device, dtype=dtype, separation=3.0)
+
+        positions = torch.cat([pos1, pos2], dim=0)
+        charges = torch.cat([chg1, chg2], dim=0)
+        cells = torch.stack([cell1, cell2], dim=0)
+        batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+        # Test energy-only
+        energies = pme_reciprocal_space(
+            positions,
+            charges,
+            cells,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=4,
+            batch_idx=batch_idx,
+            compute_forces=False,
+        )
+        assert energies.dtype == dtype, f"Expected {dtype}, got {energies.dtype}"
+
+        # Test with forces
+        energies, forces = pme_reciprocal_space(
+            positions,
+            charges,
+            cells,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=4,
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+        assert energies.dtype == dtype, f"Expected {dtype}, got {energies.dtype}"
+        assert forces.dtype == dtype, f"Expected {dtype}, got {forces.dtype}"
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_float32_vs_float64_consistency(self, device):
+        """Test that float32 and float64 produce consistent results."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create systems in both dtypes
+        pos_f32, chg_f32, cell_f32 = create_dipole_system(device, dtype=torch.float32)
+        pos_f64, chg_f64, cell_f64 = create_dipole_system(device, dtype=torch.float64)
+
+        # Use same values
+        pos_f64 = pos_f32.double()
+        chg_f64 = chg_f32.double()
+        cell_f64 = cell_f32.double()
+
+        e_f32, f_f32 = pme_reciprocal_space(
+            pos_f32,
+            chg_f32,
+            cell_f32.unsqueeze(0),
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=4,
+            compute_forces=True,
+        )
+        e_f64, f_f64 = pme_reciprocal_space(
+            pos_f64,
+            chg_f64,
+            cell_f64.unsqueeze(0),
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=4,
+            compute_forces=True,
+        )
+
+        # Results should be close (within float32 precision)
+        assert torch.allclose(e_f32.double(), e_f64, rtol=1e-4, atol=1e-5), (
+            f"Energy mismatch: f32={e_f32.sum()}, f64={e_f64.sum()}"
+        )
+        assert torch.allclose(f_f32.double(), f_f64, rtol=1e-4, atol=1e-5), (
+            f"Forces mismatch: f32={f_f32}, f64={f_f64}"
+        )
+
+
+###########################################################################################
+########################### Unit Tests: API Shapes and Basic Behavior #####################
+###########################################################################################
+
+
+class TestPMEReciprocalSpaceAPI:
+    """Test basic API functionality for pme_reciprocal_space."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_output_shape_energy_only(self, device):
+        """Test output shape when compute_forces=False."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        result = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        assert result.shape == (5,), f"Energy shape mismatch: {result.shape}"
+        assert result.dtype == positions.dtype
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_output_shape_energy_forces(self, device):
+        """Test output shape when compute_forces=True."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,), f"Energy shape mismatch: {energies.shape}"
+        assert forces.shape == (5, 3), f"Force shape mismatch: {forces.shape}"
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_output_shape(self, device):
+        """Test output shape for batched calculation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Two systems with 3 and 4 atoms
+        positions = torch.rand((7, 3), dtype=torch.float64, device=device) * 8.0
+        charges = torch.randn(7, dtype=torch.float64, device=device)
+        batch_idx = torch.tensor(
+            [0, 0, 0, 1, 1, 1, 1], dtype=torch.int32, device=device
+        )
+        cells = (
+            torch.eye(3, dtype=torch.float64, device=device)
+            .unsqueeze(0)
+            .expand(2, -1, -1)
+            * 10.0
+        )
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cells,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (7,), f"Batch energy shape mismatch: {energies.shape}"
+        assert forces.shape == (7, 3), f"Batch force shape mismatch: {forces.shape}"
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_empty_system(self, device):
+        """Test handling of empty system."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions = torch.zeros((0, 3), dtype=torch.float64, device=device)
+        charges = torch.zeros(0, dtype=torch.float64, device=device)
+        cell = torch.eye(3, dtype=torch.float64, device=device) * 10.0
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        assert energies.shape == (0,)
+        assert forces.shape == (0, 3)
+
+    @pytest.mark.parametrize("spline_order", [2, 3, 4])
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_different_spline_orders(self, spline_order, device):
+        """Test that different spline orders produce valid results."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=spline_order,
+            compute_forces=True,
+        )
+
+        assert torch.all(torch.isfinite(energies)), (
+            f"Non-finite energies for order {spline_order}"
+        )
+        assert torch.all(torch.isfinite(forces)), (
+            f"Non-finite forces for order {spline_order}"
+        )
+
+
+###########################################################################################
+########################### Conservation Law Tests ########################################
+###########################################################################################
+
+
+class TestPMEConservationLaws:
+    """Test momentum conservation and symmetry properties."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_momentum_conservation(self, device):
+        """Test that net force is zero for neutral system.
+
+        Seeded to avoid RNG-state-dependent fragility: with 6 atoms, the
+        PME spline-discretization residual on net force can swing from
+        ~1e-6 to ~5e-4 depending on which positions ``torch.rand`` produces.
+        Without seeding, this test was passing intermittently based on
+        test-collection / module-load ordering.
+        """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        torch.manual_seed(0)
+        positions, charges, cell = create_simple_system(device, num_atoms=6)
+
+        _, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(20, 20, 20),
+            compute_forces=True,
+        )
+
+        net_force = forces.sum(dim=0)
+        assert torch.allclose(
+            net_force, torch.zeros(3, dtype=torch.float64, device=device), atol=1e-4
+        ), f"Momentum not conserved: net force = {net_force}"
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_translation_invariance(self, device):
+        """Test that energy is invariant under translation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        energy1 = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        # Translate all atoms
+        translation = torch.tensor([1.5, 0.5, -0.3], dtype=torch.float64, device=device)
+        positions2 = positions + translation
+
+        energy2 = pme_reciprocal_space(
+            positions=positions2,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        assert torch.allclose(energy1.sum(), energy2.sum(), rtol=1e-4), (
+            f"Energy not translation invariant: {energy1.sum()} vs {energy2.sum()}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_opposite_charges_opposite_forces(self, device):
+        """Test that opposite charges in same field get opposite forces."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        _, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        # For a symmetric dipole, forces should be equal and opposite
+        assert torch.allclose(forces[0], -forces[1], rtol=1e-6), (
+            f"Forces not equal and opposite: {forces[0]} vs {-forces[1]}"
+        )
+
+
+###########################################################################################
+########################### Mesh Size Convergence Tests ###################################
+###########################################################################################
+
+
+class TestPMEConvergence:
+    """Test that results converge with finer mesh."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_mesh_size_convergence(self, device):
+        """Test that energy converges as mesh size increases."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        mesh_sizes = [4, 8, 16, 64]
+        energies = []
+
+        for mesh_size in mesh_sizes:
+            energy = pme_reciprocal_space(
+                positions=positions,
+                charges=charges,
+                cell=cell,
+                alpha=0.3,
+                mesh_dimensions=(mesh_size, mesh_size, mesh_size),
+                compute_forces=False,
+            )
+            energies.append(energy.sum().item())
+
+        # Check convergence: differences should decrease
+        diff_1 = abs(energies[1] - energies[0])
+        diff_2 = abs(energies[2] - energies[1])
+        diff_3 = abs(energies[3] - energies[2])
+
+        assert diff_2 < diff_1, f"Energy not converging: {diff_1} -> {diff_2}"
+        assert diff_3 < diff_2, f"Energy not converging: {diff_2} -> {diff_3}"
+
+
+###########################################################################################
+########################### Correctness Tests: Against TorchPME ###########################
+###########################################################################################
+
+
+@pytest.mark.skipif(not HAS_TORCHPME, reason="torchpme is not installed")
+class TestPMECorrectnessTorchPME:
+    """Validate PME implementation against torchpme reference."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("alpha", [0.3, 0.5, 1.0])
+    @pytest.mark.parametrize("mesh_spacing", [0.3, 0.5])
+    def test_reciprocal_energy_matches_torchpme(self, device, alpha, mesh_spacing):
+        """Test that reciprocal energy matches torchpme."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        positions, charges, cell = create_dipole_system(device, dtype=dtype)
+
+        # Estimate mesh size from spacing
+        cell_lengths = torch.norm(cell, dim=1)
+        mesh_dims = tuple(
+            int(torch.ceil(length / mesh_spacing).item()) for length in cell_lengths
+        )
+
+        # Our implementation
+        our_energy = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            spline_order=4,
+            compute_forces=False,
+        )
+
+        # TorchPME reference
+        torchpme_energy = calculate_pme_reciprocal_energy_torchpme(
+            positions, charges, cell, mesh_spacing, alpha, 4, device, dtype
+        )
+
+        assert torch.allclose(
+            our_energy.sum(), torchpme_energy.sum(), rtol=1e-2, atol=1e-3
+        ), (
+            f"Energy mismatch: ours={our_energy.sum().item():.6f}, "
+            f"torchpme={torchpme_energy.sum().item():.6f}"
+        )
+
+    @pytest.mark.parametrize("size", [1, 2])
+    @pytest.mark.parametrize("system_fn", ["cscl", "wurtzite", "zincblende"])
+    @pytest.mark.parametrize("alpha", [0.3, 0.5])
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_crystal_systems_match_torchpme(self, size, system_fn, alpha, device):
+        """Test PME on crystal systems against torchpme."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        # Get system function
+        system_fns = {
+            "cscl": create_cscl_supercell,
+            "wurtzite": create_wurtzite_system,
+            "zincblende": create_zincblende_system,
+        }
+        system = system_fns[system_fn](size)
+
+        cell = torch.tensor(system.cell, dtype=dtype, device=device)
+        positions = torch.tensor(system.positions, dtype=dtype, device=device)
+        charges = torch.tensor(system.charges, dtype=dtype, device=device)
+
+        mesh_spacing = 0.5
+        cell_lengths = torch.norm(cell, dim=1)
+        mesh_dims = tuple(
+            int(torch.ceil(length / mesh_spacing).item()) for length in cell_lengths
+        )
+
+        # Our implementation
+        our_energy = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            spline_order=4,
+            compute_forces=False,
+        )
+
+        # TorchPME reference
+        torchpme_energy = calculate_pme_reciprocal_energy_torchpme(
+            positions, charges, cell, mesh_spacing, alpha, 4, device, dtype
+        )
+
+        assert torch.allclose(
+            our_energy.sum(), torchpme_energy.sum(), rtol=1e-2, atol=1e-3
+        ), (
+            f"{system_fn} size={size} alpha={alpha}: "
+            f"ours={our_energy.sum().item():.6f}, torchpme={torchpme_energy.sum().item():.6f}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("alpha", [0.3, 0.5, 0.75])
+    @pytest.mark.parametrize("mesh_spacing", [0.3, 0.5])
+    @pytest.mark.parametrize(
+        "system_fn",
+        [create_cscl_supercell, create_wurtzite_system, create_zincblende_system],
+    )
+    def test_reciprocal_energy_positions_grad_matches_torchpme(
+        self, device, alpha, mesh_spacing, system_fn
+    ):
+        """Test that reciprocal energy matches torchpme."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system = system_fn(3)
+        positions = torch.tensor(system.positions, dtype=dtype, device=device)
+        charges = torch.tensor(system.charges, dtype=dtype, device=device)
+        cell = torch.tensor(system.cell, dtype=dtype, device=device)
+
+        # Estimate mesh size from spacing
+        cell_lengths = torch.norm(cell, dim=1)
+        mesh_dims = tuple(
+            int(torch.ceil(length / mesh_spacing).item()) for length in cell_lengths
+        )
+
+        # Our implementation
+        our_positions = positions.clone().requires_grad_(True)
+        our_energy = pme_reciprocal_space(
+            positions=our_positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            spline_order=4,
+            compute_forces=False,
+        )
+        our_energy.sum().backward()
+        our_forces = -our_positions.grad.clone()
+
+        # TorchPME reference
+        positions_torchpme = positions.clone().requires_grad_(True)
+        torchpme_energy = calculate_pme_reciprocal_energy_torchpme(
+            positions_torchpme, charges, cell, mesh_spacing, alpha, 4, device, dtype
+        )
+        torchpme_energy.sum().backward()
+        torchpme_forces = -positions_torchpme.grad.clone()
+
+        # Cross-implementation reference check. Our PME forces are verified against
+        # finite differences of our own energy elsewhere (rtol ~1e-6). torchPME and our
+        # PME use different B-spline mesh conventions that converge to the same forces
+        # only as the mesh refines, so on under-converged meshes (coarser spacing, large
+        # alpha) the absolute difference grows. The symmetric test crystals also have
+        # near-zero reciprocal forces, so an absolute tolerance is used (a relative one
+        # is ill-conditioned). Tight on the converged mesh; loose smoke otherwise.
+        atol = 1e-3 if mesh_spacing <= 0.3 else 1.5e-2
+        assert torch.allclose(our_forces, torchpme_forces, rtol=1e-3, atol=atol), (
+            f"Force mismatch (alpha={alpha}, mesh_spacing={mesh_spacing}): "
+            f"max|delta|={(our_forces - torchpme_forces).abs().max().item():.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("alpha", [0.3, 0.5])
+    @pytest.mark.parametrize("mesh_spacing", [0.1, 0.5, 0.75])
+    @pytest.mark.parametrize(
+        "system_fn",
+        [create_cscl_supercell, create_wurtzite_system, create_zincblende_system],
+    )
+    def test_reciprocal_energy_charges_grad_matches_torchpme(
+        self, device, alpha, mesh_spacing, system_fn
+    ):
+        """Test that reciprocal energy matches torchpme."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system = system_fn(3)
+        positions = torch.tensor(system.positions, dtype=dtype, device=device)
+        charges = torch.tensor(system.charges, dtype=dtype, device=device)
+        cell = torch.tensor(system.cell, dtype=dtype, device=device)
+
+        # Estimate mesh size from spacing
+        cell_lengths = torch.norm(cell, dim=1)
+        mesh_dims = tuple(
+            int(torch.ceil(length / mesh_spacing).item()) for length in cell_lengths
+        )
+
+        # Our implementation
+        our_charges = charges.clone().requires_grad_(True)
+        our_energy = pme_reciprocal_space(
+            positions=positions,
+            charges=our_charges,
+            cell=cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            spline_order=4,
+            compute_forces=False,
+        )
+        our_energy.sum().backward()
+        our_grad = -our_charges.grad.clone()
+
+        # TorchPME reference
+        charges_torchpme = charges.clone().requires_grad_(True)
+        torchpme_energy = calculate_pme_reciprocal_energy_torchpme(
+            positions, charges_torchpme, cell, mesh_spacing, alpha, 4, device, dtype
+        )
+        # Use charges_torchpme (not charges) to get full gradient: d(q*φ)/dq = φ + q*dφ/dq
+        torchpme_energy.sum().backward()
+        torchpme_grad = -charges_torchpme.grad.clone()
+        assert torch.allclose(our_grad, torchpme_grad, rtol=1e-3, atol=1e-3), (
+            f"Grad mismatch: ours={our_grad}, torchpme={torchpme_grad}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("alpha", [0.3, 0.5])
+    @pytest.mark.parametrize("mesh_spacing", [0.3, 0.5, 0.75])
+    @pytest.mark.parametrize(
+        "system_fn",
+        [create_cscl_supercell, create_wurtzite_system, create_zincblende_system],
+    )
+    def test_reciprocal_energy_cell_grad_matches_torchpme(
+        self, device, alpha, mesh_spacing, system_fn
+    ):
+        """Test that reciprocal energy matches torchpme."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system = system_fn(3)
+        positions = torch.tensor(system.positions, dtype=dtype, device=device)
+        charges = torch.tensor(system.charges, dtype=dtype, device=device)
+        cell = torch.tensor(system.cell, dtype=dtype, device=device)
+
+        # Estimate mesh size from spacing
+        cell_lengths = torch.norm(cell, dim=1)
+        mesh_dims = tuple(
+            int(torch.ceil(length / mesh_spacing).item()) for length in cell_lengths
+        )
+
+        # Our implementation
+        our_cell = cell.clone().requires_grad_(True)
+        our_energy = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=our_cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            spline_order=4,
+            compute_forces=False,
+        )
+        our_energy.sum().backward()
+        our_grad = -our_cell.grad.clone()
+
+        # TorchPME reference
+        cell_torchpme = cell.clone().requires_grad_(True)
+        torchpme_energy = calculate_pme_reciprocal_energy_torchpme(
+            positions, charges, cell_torchpme, mesh_spacing, alpha, 4, device, dtype
+        )
+        torchpme_energy.sum().backward()
+        torchpme_grad = -cell_torchpme.grad.clone()
+        assert torch.allclose(our_grad, torchpme_grad, rtol=1e-2, atol=1e-2), (
+            f"Grad mismatch: ours={our_grad}, torchpme={torchpme_grad}"
+        )
+
+
+###########################################################################################
+########################### Batch vs Single-System Consistency ############################
+###########################################################################################
+
+
+class TestPMEBatchConsistency:
+    """Test that batch processing matches single-system processing."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_single_system_matches(self, device):
+        """Test batch with size 1 matches single-system."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        # Single-system
+        energy_single, forces_single = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        # Batch with size 1
+        batch_idx = torch.zeros(positions.shape[0], dtype=torch.int32, device=device)
+        energy_batch, forces_batch = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell.unsqueeze(0),
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert torch.allclose(energy_batch.sum(), energy_single.sum(), rtol=1e-6), (
+            f"Energy mismatch: batch={energy_batch.sum()}, single={energy_single.sum()}"
+        )
+        assert torch.allclose(forces_batch, forces_single, rtol=1e-6), (
+            "Forces mismatch between batch and single-system"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_multiple_systems_vs_sequential(self, device):
+        """Test batch with multiple systems matches sequential single-system calls."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        num_systems = 3
+
+        # Create independent systems
+        systems = []
+        for i in range(num_systems):
+            pos, chg, cell = create_simple_system(
+                device, dtype, num_atoms=4 + i, cell_size=8.0 + i
+            )
+            systems.append((pos, chg, cell))
+
+        # Sequential single-system calls
+        energies_single = []
+        forces_single = []
+        for pos, chg, cell in systems:
+            e, f = pme_reciprocal_space(
+                positions=pos,
+                charges=chg,
+                cell=cell,
+                alpha=0.3,
+                mesh_dimensions=(16, 16, 16),
+                compute_forces=True,
+            )
+            energies_single.append(e)
+            forces_single.append(f)
+
+        # Batch processing
+        positions_batch = torch.cat([s[0] for s in systems], dim=0)
+        charges_batch = torch.cat([s[1] for s in systems], dim=0)
+        cells_batch = torch.stack([s[2] for s in systems], dim=0)
+
+        atoms_per_system = [s[0].shape[0] for s in systems]
+        batch_idx = torch.repeat_interleave(
+            torch.arange(num_systems, device=device),
+            torch.tensor(atoms_per_system, device=device),
+        ).to(torch.int32)
+
+        energies_batch, forces_batch = pme_reciprocal_space(
+            positions=positions_batch,
+            charges=charges_batch,
+            cell=cells_batch,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        # Compare per-system
+        start_idx = 0
+        for sys_idx, n_atoms in enumerate(atoms_per_system):
+            end_idx = start_idx + n_atoms
+
+            e_batch = energies_batch[start_idx:end_idx].sum()
+            e_single = energies_single[sys_idx].sum()
+
+            assert torch.allclose(e_batch, e_single, rtol=1e-4, atol=1e-6), (
+                f"System {sys_idx}: Energy mismatch batch={e_batch} single={e_single}"
+            )
+
+            f_batch = forces_batch[start_idx:end_idx]
+            f_single = forces_single[sys_idx]
+
+            assert torch.allclose(f_batch, f_single, rtol=1e-4, atol=1e-6), (
+                f"System {sys_idx}: Forces mismatch"
+            )
+
+            start_idx = end_idx
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_different_cells(self, device):
+        """Test batch with different cell sizes per system."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        # Two systems with different cell sizes
+        pos1 = torch.tensor(
+            [[2.5, 2.5, 2.5], [3.5, 3.5, 3.5]], dtype=dtype, device=device
+        )
+        chg1 = torch.tensor([1.0, -1.0], dtype=dtype, device=device)
+        cell1 = torch.eye(3, dtype=dtype, device=device) * 6.0
+
+        pos2 = torch.tensor(
+            [[4.0, 4.0, 4.0], [6.0, 6.0, 6.0]], dtype=dtype, device=device
+        )
+        chg2 = torch.tensor([0.5, -0.5], dtype=dtype, device=device)
+        cell2 = torch.eye(3, dtype=dtype, device=device) * 10.0
+
+        # Single-system calculations
+        e1_single, f1_single = pme_reciprocal_space(
+            positions=pos1,
+            charges=chg1,
+            cell=cell1,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+        e2_single, f2_single = pme_reciprocal_space(
+            positions=pos2,
+            charges=chg2,
+            cell=cell2,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        # Batch calculation
+        positions_batch = torch.cat([pos1, pos2], dim=0)
+        charges_batch = torch.cat([chg1, chg2], dim=0)
+        cells_batch = torch.stack([cell1, cell2], dim=0)
+        batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+        e_batch, f_batch = pme_reciprocal_space(
+            positions=positions_batch,
+            charges=charges_batch,
+            cell=cells_batch,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        # Compare
+        assert torch.allclose(e_batch[:2].sum(), e1_single.sum(), rtol=1e-4)
+        assert torch.allclose(e_batch[2:].sum(), e2_single.sum(), rtol=1e-4)
+        assert torch.allclose(f_batch[:2], f1_single, rtol=1e-4)
+        assert torch.allclose(f_batch[2:], f2_single, rtol=1e-4)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_conservation_per_system(self, device):
+        """Test momentum conservation for each system in batch."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        num_systems = 3
+        atoms_per_system = [4, 5, 3]
+
+        # Create neutral systems
+        positions_list = []
+        charges_list = []
+        for n_atoms in atoms_per_system:
+            pos = torch.rand((n_atoms, 3), dtype=torch.float64, device=device) * 8.0
+            chg = torch.randn(n_atoms, dtype=torch.float64, device=device)
+            chg[-1] = -chg[:-1].sum()  # Neutralize
+            positions_list.append(pos)
+            charges_list.append(chg)
+
+        positions = torch.cat(positions_list, dim=0)
+        charges = torch.cat(charges_list, dim=0)
+        cells = (
+            torch.eye(3, dtype=torch.float64, device=device)
+            .unsqueeze(0)
+            .expand(num_systems, -1, -1)
+            * 10.0
+        )
+        batch_idx = torch.repeat_interleave(
+            torch.arange(num_systems, device=device),
+            torch.tensor(atoms_per_system, device=device),
+        ).to(torch.int32)
+
+        _, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cells,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        # Check momentum conservation per system
+        start_idx = 0
+        for sys_idx, n_atoms in enumerate(atoms_per_system):
+            end_idx = start_idx + n_atoms
+            net_force = forces[start_idx:end_idx].sum(dim=0)
+            assert torch.allclose(
+                net_force, torch.zeros(3, dtype=torch.float64, device=device), atol=1e-3
+            ), f"System {sys_idx}: Net force = {net_force}"
+            start_idx = end_idx
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("system_fn", ["cscl", "wurtzite", "zincblende"])
+    def test_batch_autograd_positions_vs_single(self, device, system_fn):
+        """Test batch position gradients match single-system gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system_fns = {
+            "cscl": create_cscl_supercell,
+            "wurtzite": create_wurtzite_system,
+            "zincblende": create_zincblende_system,
+        }
+
+        # Create two systems of the same type with different sizes
+        system1 = system_fns[system_fn](1)
+        system2 = system_fns[system_fn](2)
+
+        pos1 = torch.tensor(system1.positions, dtype=dtype, device=device)
+        chg1 = torch.tensor(system1.charges, dtype=dtype, device=device)
+        cell1 = torch.tensor(system1.cell, dtype=dtype, device=device)
+
+        pos2 = torch.tensor(system2.positions, dtype=dtype, device=device)
+        chg2 = torch.tensor(system2.charges, dtype=dtype, device=device)
+        cell2 = torch.tensor(system2.cell, dtype=dtype, device=device)
+
+        mesh_dims = (16, 16, 16)
+        alpha = 0.3
+
+        # Single-system gradients
+        pos1_single = pos1.clone().requires_grad_(True)
+        e1 = pme_reciprocal_space(
+            positions=pos1_single,
+            charges=chg1,
+            cell=cell1,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=False,
+        )
+        e1.sum().backward()
+        grad1_single = pos1_single.grad.clone()
+
+        pos2_single = pos2.clone().requires_grad_(True)
+        e2 = pme_reciprocal_space(
+            positions=pos2_single,
+            charges=chg2,
+            cell=cell2,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=False,
+        )
+        e2.sum().backward()
+        grad2_single = pos2_single.grad.clone()
+
+        # Batch gradients
+        n1, n2 = pos1.shape[0], pos2.shape[0]
+        positions_batch = torch.cat([pos1, pos2], dim=0).clone().requires_grad_(True)
+        charges_batch = torch.cat([chg1, chg2], dim=0)
+        cells_batch = torch.stack([cell1, cell2], dim=0)
+        batch_idx = torch.tensor([0] * n1 + [1] * n2, dtype=torch.int32, device=device)
+
+        e_batch = pme_reciprocal_space(
+            positions=positions_batch,
+            charges=charges_batch,
+            cell=cells_batch,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            batch_idx=batch_idx,
+            compute_forces=False,
+        )
+        e_batch.sum().backward()
+
+        grad1_batch = positions_batch.grad[:n1]
+        grad2_batch = positions_batch.grad[n1:]
+
+        assert torch.allclose(grad1_batch, grad1_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 1 position gradients mismatch"
+        )
+        assert torch.allclose(grad2_batch, grad2_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 2 position gradients mismatch"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("system_fn", ["cscl", "wurtzite", "zincblende"])
+    def test_batch_autograd_charges_vs_single(self, device, system_fn):
+        """Test batch charge gradients match single-system gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system_fns = {
+            "cscl": create_cscl_supercell,
+            "wurtzite": create_wurtzite_system,
+            "zincblende": create_zincblende_system,
+        }
+
+        # Create two systems
+        system1 = system_fns[system_fn](1)
+        system2 = system_fns[system_fn](2)
+
+        pos1 = torch.tensor(system1.positions, dtype=dtype, device=device)
+        chg1 = torch.tensor(system1.charges, dtype=dtype, device=device)
+        cell1 = torch.tensor(system1.cell, dtype=dtype, device=device)
+
+        pos2 = torch.tensor(system2.positions, dtype=dtype, device=device)
+        chg2 = torch.tensor(system2.charges, dtype=dtype, device=device)
+        cell2 = torch.tensor(system2.cell, dtype=dtype, device=device)
+
+        mesh_dims = (16, 16, 16)
+        alpha = 0.3
+
+        # Single-system gradients
+        chg1_single = chg1.clone().requires_grad_(True)
+        e1 = pme_reciprocal_space(
+            positions=pos1,
+            charges=chg1_single,
+            cell=cell1,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=False,
+        )
+        e1.sum().backward()
+        grad1_single = chg1_single.grad.clone()
+
+        chg2_single = chg2.clone().requires_grad_(True)
+        e2 = pme_reciprocal_space(
+            positions=pos2,
+            charges=chg2_single,
+            cell=cell2,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=False,
+        )
+        e2.sum().backward()
+        grad2_single = chg2_single.grad.clone()
+
+        # Batch gradients
+        n1, n2 = pos1.shape[0], pos2.shape[0]
+        positions_batch = torch.cat([pos1, pos2], dim=0)
+        charges_batch = torch.cat([chg1, chg2], dim=0).clone().requires_grad_(True)
+        cells_batch = torch.stack([cell1, cell2], dim=0)
+        batch_idx = torch.tensor([0] * n1 + [1] * n2, dtype=torch.int32, device=device)
+
+        e_batch = pme_reciprocal_space(
+            positions=positions_batch,
+            charges=charges_batch,
+            cell=cells_batch,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            batch_idx=batch_idx,
+            compute_forces=False,
+        )
+        e_batch.sum().backward()
+
+        grad1_batch = charges_batch.grad[:n1]
+        grad2_batch = charges_batch.grad[n1:]
+
+        assert torch.allclose(grad1_batch, grad1_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 1 charge gradients mismatch"
+        )
+        assert torch.allclose(grad2_batch, grad2_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 2 charge gradients mismatch"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("system_fn", ["cscl", "wurtzite", "zincblende"])
+    def test_batch_autograd_cell_vs_single(self, device, system_fn):
+        """Test batch cell gradients match single-system gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system_fns = {
+            "cscl": create_cscl_supercell,
+            "wurtzite": create_wurtzite_system,
+            "zincblende": create_zincblende_system,
+        }
+
+        # Create two systems
+        system1 = system_fns[system_fn](1)
+        system2 = system_fns[system_fn](2)
+
+        pos1 = torch.tensor(system1.positions, dtype=dtype, device=device)
+        chg1 = torch.tensor(system1.charges, dtype=dtype, device=device)
+        cell1 = torch.tensor(system1.cell, dtype=dtype, device=device)
+
+        pos2 = torch.tensor(system2.positions, dtype=dtype, device=device)
+        chg2 = torch.tensor(system2.charges, dtype=dtype, device=device)
+        cell2 = torch.tensor(system2.cell, dtype=dtype, device=device)
+
+        mesh_dims = (16, 16, 16)
+        alpha = 0.3
+
+        # Single-system gradients
+        cell1_single = cell1.clone().requires_grad_(True)
+        e1 = pme_reciprocal_space(
+            positions=pos1,
+            charges=chg1,
+            cell=cell1_single,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=False,
+        )
+        e1.sum().backward()
+        grad1_single = cell1_single.grad.clone()
+
+        cell2_single = cell2.clone().requires_grad_(True)
+        e2 = pme_reciprocal_space(
+            positions=pos2,
+            charges=chg2,
+            cell=cell2_single,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=False,
+        )
+        e2.sum().backward()
+        grad2_single = cell2_single.grad.clone()
+
+        # Batch gradients
+        n1, n2 = pos1.shape[0], pos2.shape[0]
+        positions_batch = torch.cat([pos1, pos2], dim=0)
+        charges_batch = torch.cat([chg1, chg2], dim=0)
+        cells_batch = torch.stack([cell1, cell2], dim=0).clone().requires_grad_(True)
+        batch_idx = torch.tensor([0] * n1 + [1] * n2, dtype=torch.int32, device=device)
+
+        e_batch = pme_reciprocal_space(
+            positions=positions_batch,
+            charges=charges_batch,
+            cell=cells_batch,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            batch_idx=batch_idx,
+            compute_forces=False,
+        )
+        e_batch.sum().backward()
+
+        grad1_batch = cells_batch.grad[0]
+        grad2_batch = cells_batch.grad[1]
+
+        assert torch.allclose(grad1_batch, grad1_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 1 cell gradients mismatch:\n"
+            f"  Batch: {grad1_batch}\n  Single: {grad1_single}"
+        )
+        assert torch.allclose(grad2_batch, grad2_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 2 cell gradients mismatch:\n"
+            f"  Batch: {grad2_batch}\n  Single: {grad2_single}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("system_fn", ["cscl", "wurtzite", "zincblende"])
+    def test_batch_explicit_forces_vs_single(self, device, system_fn):
+        """Test batch explicit forces match single-system explicit forces."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        dtype = torch.float64
+
+        system_fns = {
+            "cscl": create_cscl_supercell,
+            "wurtzite": create_wurtzite_system,
+            "zincblende": create_zincblende_system,
+        }
+
+        # Create two systems
+        system1 = system_fns[system_fn](1)
+        system2 = system_fns[system_fn](2)
+
+        pos1 = torch.tensor(system1.positions, dtype=dtype, device=device)
+        chg1 = torch.tensor(system1.charges, dtype=dtype, device=device)
+        cell1 = torch.tensor(system1.cell, dtype=dtype, device=device)
+
+        pos2 = torch.tensor(system2.positions, dtype=dtype, device=device)
+        chg2 = torch.tensor(system2.charges, dtype=dtype, device=device)
+        cell2 = torch.tensor(system2.cell, dtype=dtype, device=device)
+
+        mesh_dims = (16, 16, 16)
+        alpha = 0.3
+
+        # Single-system forces
+        _, forces1_single = pme_reciprocal_space(
+            positions=pos1,
+            charges=chg1,
+            cell=cell1,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+        )
+
+        _, forces2_single = pme_reciprocal_space(
+            positions=pos2,
+            charges=chg2,
+            cell=cell2,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+        )
+
+        # Batch forces
+        n1, n2 = pos1.shape[0], pos2.shape[0]
+        positions_batch = torch.cat([pos1, pos2], dim=0)
+        charges_batch = torch.cat([chg1, chg2], dim=0)
+        cells_batch = torch.stack([cell1, cell2], dim=0)
+        batch_idx = torch.tensor([0] * n1 + [1] * n2, dtype=torch.int32, device=device)
+
+        _, forces_batch = pme_reciprocal_space(
+            positions=positions_batch,
+            charges=charges_batch,
+            cell=cells_batch,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        forces1_batch = forces_batch[:n1]
+        forces2_batch = forces_batch[n1:]
+
+        assert torch.allclose(forces1_batch, forces1_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 1 forces mismatch"
+        )
+        assert torch.allclose(forces2_batch, forces2_single, rtol=1e-4, atol=1e-6), (
+            f"{system_fn}: System 2 forces mismatch"
+        )
+
+
+###########################################################################################
+########################### Autograd Tests ################################################
+###########################################################################################
+
+
+class TestPMEAutograd:
+    """Test autograd functionality for PME operations."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_energy_autograd_positions(self, device, dtype):
+        """Test gradients w.r.t. positions in energy calculation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device, dtype=dtype)
+        positions = positions.clone().requires_grad_(True)
+
+        energies = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        loss = energies.sum()
+        loss.backward()
+
+        assert positions.grad is not None, "Position gradients not computed"
+        assert positions.grad.shape == positions.shape
+        assert torch.all(torch.isfinite(positions.grad))
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_energy_autograd_charges(self, device, dtype):
+        """Test gradients w.r.t. charges in energy calculation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device, dtype=dtype)
+        charges = charges.clone().requires_grad_(True)
+
+        energies = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        loss = energies.sum()
+        loss.backward()
+
+        assert charges.grad is not None, "Charge gradients not computed"
+        assert charges.grad.shape == charges.shape
+        assert torch.all(torch.isfinite(charges.grad))
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_forces_match_negative_energy_gradient(self, device):
+        """Test that explicit forces match -dE/dr from autograd."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        positions_ad = positions.clone().requires_grad_(True)
+
+        mesh_spacing = 0.5
+        # Estimate mesh size from spacing
+        cell_lengths = torch.norm(cell, dim=1)
+        mesh_dims = tuple(
+            int(torch.ceil(length / mesh_spacing).item()) for length in cell_lengths
+        )
+
+        # Compute explicit forces
+        _, explicit_forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+        )
+
+        # Compute autograd forces
+        energies_ad = pme_reciprocal_space(
+            positions=positions_ad,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(20, 20, 20),
+            compute_forces=False,
+        )
+
+        total_energy = energies_ad.sum()
+        total_energy.backward()
+        autograd_forces = -positions_ad.grad
+
+        # Compare
+        assert torch.allclose(explicit_forces, autograd_forces, rtol=1e-3, atol=1e-4), (
+            f"Forces mismatch:\n"
+            f"  Explicit: {explicit_forces}\n"
+            f"  Autograd: {autograd_forces}\n"
+            f"  Diff: {(explicit_forces - autograd_forces).abs().max()}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_autograd_positions(self, device):
+        """Test gradients w.r.t. positions in batch calculation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create positions as leaf tensor (don't multiply before requires_grad)
+        positions = (
+            (torch.rand((6, 3), dtype=torch.float64, device=device) * 8.0)
+            .clone()
+            .requires_grad_(True)
+        )
+        charges = torch.randn(6, dtype=torch.float64, device=device)
+        batch_idx = torch.tensor([0, 0, 0, 1, 1, 1], dtype=torch.int32, device=device)
+        cells = (
+            torch.eye(3, dtype=torch.float64, device=device)
+            .unsqueeze(0)
+            .expand(2, -1, -1)
+            .contiguous()
+            * 10.0
+        )
+
+        energies = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cells,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=False,
+        )
+
+        loss = energies.sum()
+        loss.backward()
+
+        assert positions.grad is not None
+        assert torch.all(torch.isfinite(positions.grad))
+
+
+###########################################################################################
+########################### Forces vs Numerical Gradient ##################################
+###########################################################################################
+
+
+class TestPMEForcesNumericalGradient:
+    """Validate forces against numerical gradients."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_forces_vs_finite_differences(self, device):
+        """Test that analytical forces match finite difference gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        # Slightly perturb positions to avoid symmetric configurations
+        positions = positions + torch.randn_like(positions) * 0.1
+
+        # Analytical forces
+        _, analytical_forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.5,
+            mesh_dimensions=(24, 24, 24),
+            compute_forces=True,
+        )
+
+        # Numerical forces via finite differences
+        h = 1e-5
+        numerical_forces = torch.zeros_like(positions)
+
+        for atom_idx in range(positions.shape[0]):
+            for coord_idx in range(3):
+                # Forward
+                pos_plus = positions.clone()
+                pos_plus[atom_idx, coord_idx] += h
+                e_plus = pme_reciprocal_space(
+                    positions=pos_plus,
+                    charges=charges,
+                    cell=cell,
+                    alpha=0.5,
+                    mesh_dimensions=(24, 24, 24),
+                    compute_forces=False,
+                )
+
+                # Backward
+                pos_minus = positions.clone()
+                pos_minus[atom_idx, coord_idx] -= h
+                e_minus = pme_reciprocal_space(
+                    positions=pos_minus,
+                    charges=charges,
+                    cell=cell,
+                    alpha=0.5,
+                    mesh_dimensions=(24, 24, 24),
+                    compute_forces=False,
+                )
+
+                # Central difference: F = -dE/dr
+                numerical_forces[atom_idx, coord_idx] = -(
+                    e_plus.sum() - e_minus.sum()
+                ) / (2 * h)
+
+        assert torch.allclose(
+            analytical_forces, numerical_forces, rtol=1e-2, atol=1e-4
+        ), (
+            f"Forces don't match numerical gradient:\n"
+            f"  Max diff: {(analytical_forces - numerical_forces).abs().max()}\n"
+            f"  Analytical: {analytical_forces}\n"
+            f"  Numerical: {numerical_forces}"
+        )
+
+
+###########################################################################################
+########################### Full PME (Real + Reciprocal) Tests ############################
+###########################################################################################
+
+
+class TestParticleMeshEwald:
+    """Test the combined particle_mesh_ewald function."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_output_shape(self, device):
+        """Test output shape of full PME calculation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        # Create simple neighbor matrix (all pairs)
+        num_atoms = positions.shape[0]
+        neighbor_matrix = torch.zeros(
+            (num_atoms, num_atoms - 1), dtype=torch.int32, device=device
+        )
+        for i in range(num_atoms):
+            neighbors = [j for j in range(num_atoms) if j != i]
+            neighbor_matrix[i] = torch.tensor(
+                neighbors, dtype=torch.int32, device=device
+            )
+        neighbor_matrix_shifts = torch.zeros(
+            (num_atoms, num_atoms - 1, 3), dtype=torch.int32, device=device
+        )
+
+        energies, forces = particle_mesh_ewald(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.all(torch.isfinite(energies))
+        assert torch.all(torch.isfinite(forces))
+
+
+class TestSingleAtomSystem:
+    """Test handling of single atom systems."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_single_atom_pme(self, device):
+        """Test PME with single atom."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions = torch.tensor(
+            [[5.0, 5.0, 5.0]],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor([1.0], dtype=torch.float64, device=device)
+        cell = torch.eye(3, dtype=torch.float64, device=device) * 10.0
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        assert energies.shape == (1,)
+        assert forces.shape == (1, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+
+class TestNonCubicCells:
+    """Test PME with non-cubic simulation cells."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_orthorhombic_cell(self, device):
+        """Test PME with orthorhombic cell."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Orthorhombic cell
+        cell = torch.tensor(
+            [[8.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 12.0]],
+            dtype=torch.float64,
+            device=device,
+        )
+        positions = torch.tensor(
+            [[2.0, 5.0, 6.0], [6.0, 5.0, 6.0]],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor([1.0, -1.0], dtype=torch.float64, device=device)
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 20, 24),
+            compute_forces=True,
+        )
+
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+        # Momentum conservation
+        net_force = forces.sum(dim=0)
+        assert torch.allclose(
+            net_force, torch.zeros(3, dtype=torch.float64, device=device), atol=1e-4
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_triclinic_cell(self, device):
+        """Test PME with triclinic cell."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Triclinic cell
+        cell = torch.tensor(
+            [[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [1.0, 1.0, 10.0]],
+            dtype=torch.float64,
+            device=device,
+        )
+        positions = torch.tensor(
+            [[2.0, 5.0, 5.0], [7.0, 5.0, 5.0]],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor([1.0, -1.0], dtype=torch.float64, device=device)
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+
+class TestPrecomputedKVectors:
+    """Test PME with precomputed k-vectors."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_precomputed_kvectors(self, device):
+        """Test that precomputed k-vectors give same results."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        from nvalchemiops.torch.interactions.electrostatics.k_vectors import (
+            generate_k_vectors_pme,
+        )
+
+        positions, charges, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+        alpha = 0.3
+
+        # Without precomputed k-vectors
+        energies1, forces1 = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+        )
+
+        # With precomputed k-vectors
+        k_vectors, k_squared = generate_k_vectors_pme(cell, mesh_dims)
+        energies2, forces2 = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            k_vectors=k_vectors,
+            k_squared=k_squared,
+        )
+
+        assert torch.allclose(energies1, energies2, rtol=1e-6)
+        assert torch.allclose(forces1, forces2, rtol=1e-6)
+
+
+class TestSplineOrders:
+    """Test different spline interpolation orders."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("spline_order", [2, 3, 4, 5, 6])
+    def test_spline_order_convergence(self, device, spline_order):
+        """Test that higher spline orders give valid results."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(32, 32, 32),
+            spline_order=spline_order,
+            compute_forces=True,
+        )
+
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+        # Momentum conservation
+        net_force = forces.sum(dim=0)
+        assert torch.allclose(
+            net_force, torch.zeros(3, dtype=torch.float64, device=device), atol=1e-3
+        )
+
+
+class TestFullPMENeighborList:
+    """Test full PME with neighbor list format."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_neighbor_list(self, device):
+        """Test full PME with neighbor list format."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+        num_atoms = positions.shape[0]
+        # Create neighbor list (all pairs)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        energies, forces = particle_mesh_ewald(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (num_atoms,)
+        assert forces.shape == (num_atoms, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+
+class TestCellGradients:
+    """Test gradients with respect to cell matrix."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_cell_gradient_finite(self, device):
+        """Test that cell gradients are finite."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        cell = cell.clone().requires_grad_(True)
+
+        energies = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+        energies.sum().backward()
+
+        assert cell.grad is not None
+        assert torch.isfinite(cell.grad).all()
+
+
+class TestAlphaSensitivity:
+    """Test sensitivity to alpha parameter."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_alpha_affects_energy(self, device):
+        """Test that different alpha values affect energy."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+
+        energies_low_alpha = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.2,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        energies_high_alpha = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.5,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        # Different alpha should give different energies
+        assert not torch.allclose(energies_low_alpha, energies_high_alpha)
+
+
+class TestZeroCharges:
+    """Test behavior with zero charges."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_zero_charges_zero_energy(self, device):
+        """Test that zero charges give zero energy."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions = torch.tensor(
+            [[2.0, 5.0, 5.0], [8.0, 5.0, 5.0]],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor([0.0, 0.0], dtype=torch.float64, device=device)
+        cell = torch.eye(3, dtype=torch.float64, device=device) * 10.0
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+        )
+
+        assert torch.allclose(energies, torch.zeros_like(energies), atol=1e-10)
+        assert torch.allclose(forces, torch.zeros_like(forces), atol=1e-10)
+
+
+class TestBatchWithDifferentAlpha:
+    """Test batch calculations with per-system alpha."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_per_system_alpha(self, device):
+        """Test batch with different alpha per system."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create two systems
+        pos1, chg1, cell1 = create_dipole_system(device)
+        pos2, chg2, cell2 = create_dipole_system(device, separation=3.0)
+
+        positions = torch.cat([pos1, pos2], dim=0)
+        charges = torch.cat([chg1, chg2], dim=0)
+        cells = torch.stack([cell1, cell2], dim=0)
+        batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+        # Different alpha per system
+        alphas = torch.tensor([0.2, 0.5], dtype=torch.float64, device=device)
+
+        energies, forces = pme_reciprocal_space(
+            positions=positions,
+            charges=charges,
+            cell=cells,
+            alpha=alphas,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+
+class TestPrepareAlphaPME:
+    """Test _prepare_alpha edge cases in PME for coverage."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_scalar_alpha_tensor_0d(self, device):
+        """Test 0-dimensional alpha tensor expansion (line 189)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        # 0-dimensional tensor (scalar tensor)
+        alpha = torch.tensor(0.3, dtype=torch.float64, device=device)
+
+        energies = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,  # 0-dim tensor
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+        )
+
+        assert torch.isfinite(energies).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_alpha_wrong_size_raises_error(self, device):
+        """Test alpha tensor with wrong number of elements raises ValueError (line 191)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        # Alpha tensor with wrong size (2 values for 1 system)
+        alpha = torch.tensor([0.3, 0.5], dtype=torch.float64, device=device)
+
+        with pytest.raises(ValueError):
+            pme_reciprocal_space(
+                positions,
+                charges,
+                cell,
+                alpha=alpha,  # Wrong size
+                mesh_dimensions=(16, 16, 16),
+                compute_forces=False,
+            )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_alpha_invalid_type_raises_error(self, device):
+        """Test non-float, non-tensor alpha raises TypeError (line 196)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        with pytest.raises(TypeError):
+            pme_reciprocal_space(
+                positions,
+                charges,
+                cell,
+                alpha="invalid",  # String is not valid
+                mesh_dimensions=(16, 16, 16),
+                compute_forces=False,
+            )
+
+
+class TestPMEMeshDimensionErrors:
+    """Test mesh dimension error handling for coverage."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_no_mesh_dimensions_or_spacing_raises_error(self, device):
+        """Test ValueError when neither mesh_dimensions nor mesh_spacing (lines 1277-1280)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        with pytest.raises(
+            ValueError, match="Either mesh_dimensions or mesh_spacing must be provided"
+        ):
+            pme_reciprocal_space(
+                positions,
+                charges,
+                cell,
+                alpha=0.3,
+                mesh_dimensions=None,  # Not provided
+                mesh_spacing=None,  # Not provided
+                compute_forces=False,
+            )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_mesh_spacing_path(self, device):
+        """Test mesh_spacing path for dimension computation (line 1281-1284)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        # Use mesh_spacing instead of mesh_dimensions
+        energies = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_spacing=0.5,  # Use spacing
+            compute_forces=False,
+        )
+
+        assert torch.isfinite(energies).all()
+
+
+class TestParticleMeshEwaldAutoEstimation:
+    """Test particle_mesh_ewald auto-estimation paths for coverage."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_auto_estimate_alpha(self, device):
+        """Test auto-estimation of alpha in particle_mesh_ewald (lines 1463-1466)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+        # Call without alpha - should auto-estimate
+        energies, forces = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=None,  # Auto-estimate
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_mesh_spacing_in_particle_mesh_ewald(self, device):
+        """Test mesh_spacing path in particle_mesh_ewald (lines 1476-1477)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        energies, forces = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_spacing=0.5,  # Use spacing instead of dimensions
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_accuracy_based_mesh_estimation(self, device):
+        """Test accuracy-based mesh dimension estimation (lines 1478-1480)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        # Provide alpha but no mesh_dimensions or mesh_spacing
+        # Should use accuracy-based estimation
+        energies, forces = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=None,
+            mesh_spacing=None,
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=True,
+            accuracy=1e-4,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_default_mask_value_pme(self, device):
+        """Test particle_mesh_ewald with default mask_value (None -> num_atoms)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+
+        # Use neighbor matrix format without explicit mask_value
+        neighbor_matrix = torch.tensor(
+            [[1, -1], [0, 2], [1, 3], [2, 4], [3, -1]], dtype=torch.int32, device=device
+        )
+        neighbor_matrix_shifts = torch.zeros(
+            (5, 2, 3), dtype=torch.int32, device=device
+        )
+
+        energies, forces = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            # mask_value=None -> defaults to num_atoms
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_auto_mesh_from_alpha_estimation(self, device):
+        """Test mesh_dimensions auto-derived from alpha estimation (lines 1465-1467)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        # alpha=None triggers estimate_pme_parameters which sets alpha AND mesh_dimensions
+        # Neither mesh_dimensions nor mesh_spacing provided
+        energies, forces = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=None,  # Triggers auto-estimation
+            mesh_dimensions=None,  # Will be set from params
+            mesh_spacing=None,
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+
+class TestBatchPMEShapePaths:
+    """Test batch PME shape helper code paths."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_reciprocal_space_single_system(self, device):
+        """Test batch reciprocal space with single system (3D k_squared)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+        batch_idx = torch.zeros(5, dtype=torch.int32, device=device)  # All same batch
+
+        energies, forces = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (5,)
+        assert forces.shape == (5, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_reciprocal_space_multi_system(self, device):
+        """Test batch reciprocal space with multiple systems (exercises batch shape helpers)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create two batched systems
+        positions = torch.tensor(
+            [
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+            ],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor(
+            [1.0, -1.0, 0.5, -0.5], dtype=torch.float64, device=device
+        )
+        cell = torch.stack(
+            [
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+            ]
+        )
+        batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+        energies, forces = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=torch.tensor([0.3, 0.3], dtype=torch.float64, device=device),
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+
+
+class TestPMEChargeGradients:
+    """Test explicit charge gradients (compute_charge_gradients=True) for PME."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_reciprocal_charge_grad_matches_autograd(self, device):
+        """Test that explicit charge gradients match autograd for pme_reciprocal_space."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+
+        # Get explicit charge gradients
+        energies, charge_grads = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+            compute_charge_gradients=True,
+        )
+
+        # Get autograd charge gradients
+        charges_ad = charges.clone().requires_grad_(True)
+        energies_ad = pme_reciprocal_space(
+            positions,
+            charges_ad,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=False,
+            compute_charge_gradients=False,
+        )
+        energies_ad.sum().backward()
+        autograd_charge_grad = charges_ad.grad.clone()
+
+        assert torch.allclose(
+            charge_grads, autograd_charge_grad, rtol=1e-4, atol=1e-7
+        ), (
+            f"Charge gradients mismatch: explicit={charge_grads}, "
+            f"autograd={autograd_charge_grad}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_reciprocal_charge_grad_with_forces(self, device):
+        """Test charge gradients when compute_forces=True for pme_reciprocal_space."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+
+        # Get explicit charge gradients with forces
+        energies, forces, charge_grads = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+            compute_charge_gradients=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert charge_grads.shape == (4,)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+        assert torch.isfinite(charge_grads).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_charge_grad_matches_autograd(self, device):
+        """Test that explicit charge gradients match autograd for particle_mesh_ewald."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        # Get explicit charge gradients
+        energies, charge_grads = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=False,
+            compute_charge_gradients=True,
+        )
+
+        # Get autograd charge gradients
+        charges_ad = charges.clone().requires_grad_(True)
+        energies_ad = particle_mesh_ewald(
+            positions,
+            charges_ad,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=False,
+            compute_charge_gradients=False,
+        )
+        energies_ad.sum().backward()
+        autograd_charge_grad = charges_ad.grad.clone()
+
+        assert torch.allclose(
+            charge_grads, autograd_charge_grad, rtol=1e-4, atol=1e-7
+        ), (
+            f"Charge gradients mismatch: explicit={charge_grads}, "
+            f"autograd={autograd_charge_grad}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_charge_grad_with_forces(self, device):
+        """Test charge gradients when compute_forces=True for particle_mesh_ewald."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+
+        # Get explicit charge gradients with forces
+        energies, forces, charge_grads = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            compute_forces=True,
+            compute_charge_gradients=True,
+        )
+
+        assert energies.shape == (4,)
+        assert forces.shape == (4, 3)
+        assert charge_grads.shape == (4,)
+        assert torch.isfinite(energies).all()
+        assert torch.isfinite(forces).all()
+        assert torch.isfinite(charge_grads).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_reciprocal_charge_grad(self, device):
+        """Test charge gradients for batch pme_reciprocal_space."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create batched system
+        positions = torch.tensor(
+            [
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+            ],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor(
+            [1.0, -1.0, 0.5, -0.5], dtype=torch.float64, device=device
+        )
+        cell = torch.stack(
+            [
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+            ]
+        )
+        batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+
+        # Get explicit charge gradients
+        energies, charge_grads = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=torch.tensor([0.3, 0.3], dtype=torch.float64, device=device),
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=False,
+            compute_charge_gradients=True,
+        )
+
+        # Get autograd charge gradients
+        charges_ad = charges.clone().requires_grad_(True)
+        energies_ad = pme_reciprocal_space(
+            positions,
+            charges_ad,
+            cell,
+            alpha=torch.tensor([0.3, 0.3], dtype=torch.float64, device=device),
+            mesh_dimensions=(16, 16, 16),
+            batch_idx=batch_idx,
+            compute_forces=False,
+            compute_charge_gradients=False,
+        )
+        energies_ad.sum().backward()
+        autograd_charge_grad = charges_ad.grad.clone()
+
+        assert torch.allclose(
+            charge_grads, autograd_charge_grad, rtol=1e-4, atol=1e-7
+        ), (
+            f"Batch charge gradients mismatch: explicit={charge_grads}, "
+            f"autograd={autograd_charge_grad}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_full_pme_charge_grad(self, device):
+        """Test charge gradients for batch particle_mesh_ewald."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        # Create batched system
+        positions = torch.tensor(
+            [
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+            ],
+            dtype=torch.float64,
+            device=device,
+        )
+        charges = torch.tensor(
+            [1.0, -1.0, 0.5, -0.5], dtype=torch.float64, device=device
+        )
+        cell = torch.stack(
+            [
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+                torch.eye(3, dtype=torch.float64, device=device) * 10.0,
+            ]
+        )
+        batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+        pbc = torch.tensor(
+            [[True, True, True], [True, True, True]], dtype=torch.bool, device=device
+        )
+
+        neighbor_list, neighbor_ptr, neighbor_shifts = batch_cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=pbc,
+            batch_idx=batch_idx,
+            return_neighbor_list=True,
+        )
+
+        # Get explicit charge gradients with forces
+        energies, forces, charge_grads = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=torch.tensor([0.3, 0.3], dtype=torch.float64, device=device),
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            batch_idx=batch_idx,
+            compute_forces=True,
+            compute_charge_gradients=True,
+        )
+
+        # Get autograd charge gradients
+        charges_ad = charges.clone().requires_grad_(True)
+        energies_ad = particle_mesh_ewald(
+            positions,
+            charges_ad,
+            cell,
+            alpha=torch.tensor([0.3, 0.3], dtype=torch.float64, device=device),
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+            batch_idx=batch_idx,
+            compute_forces=False,
+            compute_charge_gradients=False,
+        )
+        energies_ad.sum().backward()
+        autograd_charge_grad = charges_ad.grad.clone()
+
+        assert torch.allclose(
+            charge_grads, autograd_charge_grad, rtol=1e-4, atol=1e-7
+        ), (
+            f"Batch charge gradients mismatch: explicit={charge_grads}, "
+            f"autograd={autograd_charge_grad}"
+        )
+
+
+###########################################################################################
+########################### Virial Tests ##################################################
+###########################################################################################
+
+
+class TestPMEReciprocalVirial:
+    """Test PME reciprocal-space virial against FD and basic properties."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_pme_reciprocal_virial_shape(self, device):
+        """PME reciprocal virial has shape (1, 3, 3)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (1, 3, 3)
+        assert virial.dtype == VIRIAL_DTYPE
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_pme_reciprocal_virial_fd(self, device):
+        """PME reciprocal virial matches FD strain derivative."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (16, 16, 16)
+
+        def energy_fn(pos, c):
+            return pme_reciprocal_space(
+                pos,
+                charges,
+                c,
+                alpha,
+                mesh_dimensions=mesh_dims,
+                compute_forces=False,
+            ).sum()
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        explicit_virial = result[2].squeeze(0)
+        fd_virial = fd_virial_full(energy_fn, positions, cell, device)
+
+        torch.testing.assert_close(
+            explicit_virial,
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="PME reciprocal virial does not match FD",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_pme_reciprocal_virial_symmetry(self, device):
+        """PME reciprocal virial is symmetric for cubic system."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2].squeeze(0)
+        torch.testing.assert_close(
+            virial,
+            virial.T,
+            atol=1e-6,
+            rtol=1e-6,
+            msg="PME reciprocal virial is not symmetric",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_pme_reciprocal_virial_dtype(self, device, dtype):
+        """PME reciprocal virial dtype matches input."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(
+            1, dtype=dtype, device=device
+        )
+        alpha = torch.tensor([0.3], dtype=dtype, device=device)
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(8, 8, 8),
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.dtype == dtype
+
+
+class TestPMEReciprocalVirialMeshConvergence:
+    """PME virial converges with increasing mesh density."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_virial_mesh_convergence(self, device):
+        """PME virial converges as mesh_dimensions increase."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+
+        ref_result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(32, 32, 32),
+            compute_forces=True,
+            compute_virial=True,
+        )
+        ref_virial = ref_result[2].squeeze(0)
+
+        prev_err = float("inf")
+        for mesh_size in [8, 16, 32]:
+            result = pme_reciprocal_space(
+                positions,
+                charges,
+                cell,
+                alpha,
+                mesh_dimensions=(mesh_size, mesh_size, mesh_size),
+                compute_forces=True,
+                compute_virial=True,
+            )
+            virial = result[2].squeeze(0)
+            err = (virial - ref_virial).abs().max().item()
+            assert err <= prev_err + 1e-10, (
+                f"Virial did not converge: mesh={mesh_size}, err={err}, prev_err={prev_err}"
+            )
+            prev_err = err
+
+
+class TestPMEReciprocalVirialSplineOrders:
+    """PME virial with different spline orders."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("spline_order", [3, 4, 5, 6])
+    def test_virial_spline_orders(self, device, spline_order):
+        """PME virial is finite and well-behaved for various spline orders."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(16, 16, 16),
+            spline_order=spline_order,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (1, 3, 3)
+        assert torch.isfinite(virial).all(), (
+            f"Non-finite virial for spline_order={spline_order}"
+        )
+
+
+class TestPMEReciprocalVirialBatch:
+    """Batch PME virial matches single-system PME virial."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_pme_reciprocal_virial_shape(self, device):
+        """Batch PME reciprocal virial has shape (B, 3, 3)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, alpha, batch_idx, _, _, _, _, _ = (
+            make_virial_batch_cscl_system(1, device=device)
+        )
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(8, 8, 8),
+            batch_idx=batch_idx,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (2, 3, 3)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_pme_reciprocal_virial_shape_single_system(self, device):
+        """Batch PME reciprocal virial has shape (1, 3, 3) when B=1."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        batch_idx = torch.zeros(positions.shape[0], dtype=torch.int32, device=device)
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(8, 8, 8),
+            batch_idx=batch_idx,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (1, 3, 3)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_pme_reciprocal_virial_fd(self, device):
+        """Batch PME reciprocal virial per-system matches single-system FD."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, alpha, batch_idx, pos_s, q_s, cell_s, alpha_s, _ = (
+            make_virial_batch_cscl_system(1, device=device)
+        )
+        mesh_dims = (8, 8, 8)
+
+        def energy_fn(pos, c):
+            return pme_reciprocal_space(
+                pos,
+                q_s,
+                c,
+                alpha_s,
+                mesh_dimensions=mesh_dims,
+                compute_forces=False,
+            ).sum()
+
+        fd_virial = fd_virial_full(energy_fn, pos_s, cell_s, device)
+
+        batch_result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            batch_idx=batch_idx,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        batch_virial = batch_result[2]
+
+        torch.testing.assert_close(
+            batch_virial[0],
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="Batch PME virial[0] does not match single-system FD",
+        )
+        torch.testing.assert_close(
+            batch_virial[1],
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="Batch PME virial[1] does not match single-system FD",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_batch_pme_reciprocal_virial_matches_single(self, device):
+        """Batch PME reciprocal virial[i] matches single-system virial."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, alpha, batch_idx, pos_s, q_s, cell_s, alpha_s, _ = (
+            make_virial_batch_cscl_system(1, device=device)
+        )
+
+        single_result = pme_reciprocal_space(
+            pos_s,
+            q_s,
+            cell_s,
+            alpha_s,
+            mesh_dimensions=(8, 8, 8),
+            compute_forces=True,
+            compute_virial=True,
+        )
+        single_virial = single_result[2]
+
+        batch_result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(8, 8, 8),
+            batch_idx=batch_idx,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        batch_virial = batch_result[2]
+
+        torch.testing.assert_close(
+            batch_virial[0:1],
+            single_virial,
+            atol=1e-5,
+            rtol=1e-5,
+            msg="Batch PME virial[0] != single virial",
+        )
+        torch.testing.assert_close(
+            batch_virial[1:2],
+            single_virial,
+            atol=1e-5,
+            rtol=1e-5,
+            msg="Batch PME virial[1] != single virial",
+        )
+
+    def test_single_system_reciprocal_cell_grad_compile(self):
+        """Regression: single-system (3D k_squared / 4D mesh_fft) cell gradient
+        of the PME reciprocal energy under torch.compile.
+
+        The compiled convolve backward previously asserted because
+        ``grad_k_squared`` was returned 4D for a 3D input while the fake reported
+        3D (torch.compile trusts the fake to size buffers). Eager masks this via
+        autograd ``sum_to_size``; only the compiled path trips.
+        """
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA required for torch.compile of the PME warp op")
+        device = torch.device("cuda")
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        batch_idx = torch.zeros(positions.shape[0], dtype=torch.int32, device=device)
+        mesh_dims = (8, 8, 8)
+
+        def cell_energy(cell_):
+            return pme_reciprocal_space(
+                positions,
+                charges,
+                cell_,
+                alpha,
+                mesh_dimensions=mesh_dims,
+                batch_idx=batch_idx,
+                compute_forces=False,
+            ).sum()
+
+        cell_e = cell.detach().clone().requires_grad_(True)
+        (grad_eager,) = torch.autograd.grad(cell_energy(cell_e), cell_e)
+
+        compiled = torch.compile(cell_energy)
+        cell_c = cell.detach().clone().requires_grad_(True)
+        # Must not raise assert_size_stride on the compiled convolve backward.
+        (grad_compiled,) = torch.autograd.grad(compiled(cell_c), cell_c)
+
+        assert grad_compiled.shape == cell.shape
+        torch.testing.assert_close(grad_compiled, grad_eager, atol=1e-6, rtol=1e-5)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_convolve_backward_grad_k_squared_rank(self, device):
+        """Regression: the fused-convolve backward and double-backward must return
+        ``grad_k_squared`` with the same rank as the (3D) input for a single
+        system whose ``mesh_fft`` is 4D.
+
+        This is the exact rank the fake reports and torch.compile allocates from;
+        eager masks a wrong rank via ``sum_to_size``, so it is checked directly on
+        the internal functions.
+        """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        from nvalchemiops.torch.interactions.electrostatics.k_vectors import (
+            generate_k_vectors_pme,
+        )
+        from nvalchemiops.torch.interactions.electrostatics.pme import (
+            _pme_convolve_backward,
+            _pme_convolve_double_backward,
+            compute_bspline_moduli_1d,
+        )
+
+        nx, ny, nz = 8, 8, 8
+        nzf = nz // 2 + 1
+        dtype = torch.float64
+        spline_order = 4
+        cell = torch.eye(3, dtype=dtype, device=device) * 5.0
+
+        # Single system: k_squared is 3D (batch dim squeezed).
+        _, k_squared = generate_k_vectors_pme(cell, (nx, ny, nz))
+        if k_squared.dim() == 4:
+            k_squared = k_squared.squeeze(0)
+        assert k_squared.shape == (nx, ny, nzf)
+
+        miller_x = torch.fft.fftfreq(nx, d=1.0 / nx, device=device, dtype=dtype)
+        miller_y = torch.fft.fftfreq(ny, d=1.0 / ny, device=device, dtype=dtype)
+        miller_z = torch.fft.rfftfreq(nz, d=1.0 / nz, device=device, dtype=dtype)
+        mx = compute_bspline_moduli_1d(miller_x, nx, spline_order)
+        my = compute_bspline_moduli_1d(miller_y, ny, spline_order)
+        mz = compute_bspline_moduli_1d(miller_z, nz, spline_order)
+
+        # mesh_fft keeps the batch dim (rfftn output) -> 4D for a single system.
+        mesh = torch.randn(1, nx, ny, nz, dtype=dtype, device=device)
+        mesh_fft = torch.fft.rfftn(mesh, dim=(1, 2, 3))
+        assert mesh_fft.shape == (1, nx, ny, nzf)
+        grad_convolved = torch.randn_like(mesh_fft)
+        alpha = torch.tensor([0.3], dtype=dtype, device=device)
+        volume = torch.tensor([125.0], dtype=dtype, device=device)
+
+        grad_mesh, _, _, grad_k_squared = _pme_convolve_backward(
+            mesh_fft, grad_convolved, k_squared, mx, my, mz, alpha, volume, True
+        )
+        assert grad_k_squared.shape == k_squared.shape  # 3D, not 4D
+        assert grad_mesh.shape == mesh_fft.shape  # mesh rank preserved (4D)
+
+        # Double backward (create_graph / second-order path) — same rank contract.
+        h_grad_mesh = torch.randn_like(mesh_fft)
+        h_grad_alpha = torch.zeros(1, dtype=dtype, device=device)
+        h_grad_volume = torch.zeros(1, dtype=dtype, device=device)
+        h_grad_ksq = torch.randn_like(k_squared)
+        (
+            grad_mesh_out,
+            grad_grad_conv,
+            grad_k_squared_out,
+            _,
+            _,
+        ) = _pme_convolve_double_backward(
+            k_squared,
+            h_grad_mesh,
+            h_grad_alpha,
+            h_grad_volume,
+            h_grad_ksq,
+            mesh_fft,
+            grad_convolved,
+            mx,
+            my,
+            mz,
+            alpha,
+            volume,
+            True,
+        )
+        assert grad_k_squared_out.shape == k_squared.shape  # 3D, not 4D
+        assert grad_mesh_out.shape == mesh_fft.shape
+        assert grad_grad_conv.shape == grad_convolved.shape
+
+
+class TestFullPMEVirial:
+    """Test full particle_mesh_ewald (real + reciprocal) virial."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_virial_shape(self, device):
+        """Full PME virial has shape (1, 3, 3)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cutoff = 6.0
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff)
+
+        result = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (1, 3, 3)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_virial_fd(self, device):
+        """Full PME virial matches FD strain derivative."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cutoff = 6.0
+        mesh_dims = (16, 16, 16)
+        pbc = torch.tensor([True, True, True], dtype=torch.bool, device=device)
+
+        def energy_fn(pos, c):
+            nl_new, np_new, us_new = cell_list(
+                pos,
+                cutoff,
+                c.squeeze(0),
+                pbc,
+                return_neighbor_list=True,
+            )
+            return particle_mesh_ewald(
+                pos,
+                charges,
+                c,
+                alpha=alpha,
+                mesh_dimensions=mesh_dims,
+                neighbor_list=nl_new,
+                neighbor_ptr=np_new,
+                neighbor_shifts=us_new,
+                compute_forces=False,
+            ).sum()
+
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff)
+        result = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        explicit_virial = result[2].squeeze(0)
+        fd_virial = fd_virial_full(energy_fn, positions, cell, device)
+
+        torch.testing.assert_close(
+            explicit_virial,
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="Full PME virial does not match FD",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_virial_sum_of_components(self, device):
+        """Full PME virial = real-space virial + reciprocal virial."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cutoff = 6.0
+        mesh_dims = (16, 16, 16)
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff)
+
+        rs_result = ewald_real_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        real_virial = rs_result[2]
+
+        rec_result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        recip_virial = rec_result[2]
+
+        total_result = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        total_virial = total_result[2]
+
+        torch.testing.assert_close(
+            total_virial,
+            real_virial + recip_virial,
+            atol=1e-6,
+            rtol=1e-6,
+            msg="Full PME virial != real + reciprocal virial",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_virial_without_forces(self, device):
+        """particle_mesh_ewald with compute_forces=False + compute_virial=True."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cutoff = 6.0
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff)
+
+        result = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=False,
+            compute_virial=True,
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        energies, virial = result
+        assert virial.shape == (1, 3, 3)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_virial_with_charge_gradients(self, device):
+        """particle_mesh_ewald with forces + charge_grads + virial returns 4-tuple."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cutoff = 6.0
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff)
+
+        result = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_charge_gradients=True,
+            compute_virial=True,
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 4
+        energies, forces, charge_grads, virial = result
+        assert virial.shape == (1, 3, 3)
+        assert charge_grads.shape == (positions.shape[0],)
+
+
+class TestPMEVirialNonCubicCells:
+    """PME virial with non-cubic simulation cells, validated against FD."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_orthorhombic_cell_pme_virial_fd(self, device):
+        """PME reciprocal virial matches FD on orthorhombic cell."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        cell = torch.tensor(
+            [[[8.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 12.0]]],
+            dtype=VIRIAL_DTYPE,
+            device=device,
+        )
+        positions = torch.tensor(
+            [[2.0, 5.0, 6.0], [6.0, 5.0, 6.0]],
+            dtype=VIRIAL_DTYPE,
+            device=device,
+        )
+        charges = torch.tensor([1.0, -1.0], dtype=VIRIAL_DTYPE, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (8, 10, 12)
+
+        def energy_fn(pos, c):
+            return pme_reciprocal_space(
+                pos,
+                charges,
+                c,
+                alpha,
+                mesh_dimensions=mesh_dims,
+                compute_forces=False,
+            ).sum()
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (1, 3, 3)
+        assert torch.isfinite(virial).all()
+
+        explicit_virial = virial.squeeze(0)
+        fd_virial = fd_virial_full(energy_fn, positions, cell, device)
+        torch.testing.assert_close(
+            explicit_virial,
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="Orthorhombic PME reciprocal virial does not match FD",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_triclinic_cell_pme_virial_fd(self, device):
+        """PME reciprocal virial matches FD on triclinic cell."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        cell = torch.tensor(
+            [[[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [1.0, 1.0, 10.0]]],
+            dtype=VIRIAL_DTYPE,
+            device=device,
+        )
+        positions = torch.tensor(
+            [[2.0, 5.0, 5.0], [7.0, 5.0, 5.0]],
+            dtype=VIRIAL_DTYPE,
+            device=device,
+        )
+        charges = torch.tensor([1.0, -1.0], dtype=VIRIAL_DTYPE, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (10, 10, 10)
+
+        def energy_fn(pos, c):
+            return pme_reciprocal_space(
+                pos,
+                charges,
+                c,
+                alpha,
+                mesh_dimensions=mesh_dims,
+                compute_forces=False,
+            ).sum()
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial = result[2]
+        assert virial.shape == (1, 3, 3)
+        assert torch.isfinite(virial).all()
+
+        explicit_virial = virial.squeeze(0)
+        fd_virial = fd_virial_full(energy_fn, positions, cell, device)
+        torch.testing.assert_close(
+            explicit_virial,
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="Triclinic PME reciprocal virial does not match FD",
+        )
+
+
+class TestPMEVirialPrecomputedKVectors:
+    """Verify precomputed k_vectors/k_squared produce identical virial."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_precomputed_kvectors_virial_matches(self, device):
+        """PME virial with precomputed k-vectors matches auto-generated."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (16, 16, 16)
+
+        result_auto = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial_auto = result_auto[2]
+
+        k_vectors, k_squared = generate_k_vectors_pme(cell, mesh_dims)
+        result_pre = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            k_vectors=k_vectors,
+            k_squared=k_squared,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        virial_pre = result_pre[2]
+
+        torch.testing.assert_close(
+            virial_auto,
+            virial_pre,
+            atol=1e-6,
+            rtol=1e-6,
+            msg="PME virial with precomputed k-vectors != auto-generated",
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_precomputed_kvectors_volume_virial_loss_gradients(self, device):
+        """Precomputed reciprocal metadata is detached from public autograd."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        positions = positions.clone().requires_grad_(True)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (8, 8, 8)
+        k_vectors, k_squared = generate_k_vectors_pme(cell, mesh_dims)
+        k_vectors = k_vectors.detach().clone().requires_grad_(True)
+        k_squared = k_squared.detach().clone().requires_grad_(True)
+        volume = torch.abs(torch.linalg.det(cell)).detach().clone().requires_grad_(True)
+
+        energy = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            k_vectors=k_vectors,
+            k_squared=k_squared,
+            volume=volume,
+            compute_forces=False,
+        )
+        grad_positions, grad_k_vectors, grad_k_squared, grad_volume = (
+            torch.autograd.grad(
+                energy.sum(),
+                (positions, k_vectors, k_squared, volume),
+                allow_unused=True,
+            )
+        )
+
+        assert grad_positions is not None
+        assert torch.isfinite(grad_positions).all()
+        assert grad_k_vectors is None
+        assert grad_k_squared is None
+        assert grad_volume is None
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_precomputed_cell_inv_t_virial_loss_gradient(self, device):
+        """Precomputed spline cell metadata is detached from public autograd."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        positions = positions.clone().requires_grad_(True)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cell_inv_t = (
+            torch.linalg.inv(cell)
+            .transpose(-1, -2)
+            .contiguous()
+            .detach()
+            .clone()
+            .requires_grad_(True)
+        )
+
+        energy = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=(8, 8, 8),
+            cell_inv_t=cell_inv_t,
+            compute_forces=False,
+        )
+        grad_positions, grad_cell_inv_t = torch.autograd.grad(
+            energy.sum(),
+            (positions, cell_inv_t),
+            allow_unused=True,
+        )
+
+        assert grad_positions is not None
+        assert torch.isfinite(grad_positions).all()
+        assert grad_cell_inv_t is None
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_precomputed_moduli_virial_loss_treats_luts_as_constants(self, device):
+        """Supplied B-spline modulus LUTs remain cache constants."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        positions = positions.clone().requires_grad_(True)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (8, 8, 8)
+        mesh_nx, mesh_ny, mesh_nz = mesh_dims
+        k_vectors, k_squared = generate_k_vectors_pme(cell, mesh_dims)
+        moduli_x = (
+            compute_bspline_moduli_1d(
+                torch.fft.fftfreq(
+                    mesh_nx, d=1.0 / mesh_nx, device=device, dtype=VIRIAL_DTYPE
+                ),
+                mesh_nx,
+                spline_order=4,
+            )
+            .detach()
+            .clone()
+            .requires_grad_(True)
+        )
+        moduli_y = (
+            compute_bspline_moduli_1d(
+                torch.fft.fftfreq(
+                    mesh_ny, d=1.0 / mesh_ny, device=device, dtype=VIRIAL_DTYPE
+                ),
+                mesh_ny,
+                spline_order=4,
+            )
+            .detach()
+            .clone()
+            .requires_grad_(True)
+        )
+        moduli_z = (
+            compute_bspline_moduli_1d(
+                torch.fft.rfftfreq(
+                    mesh_nz, d=1.0 / mesh_nz, device=device, dtype=VIRIAL_DTYPE
+                ),
+                mesh_nz,
+                spline_order=4,
+            )
+            .detach()
+            .clone()
+            .requires_grad_(True)
+        )
+
+        energy = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            k_vectors=k_vectors,
+            k_squared=k_squared,
+            moduli_x=moduli_x,
+            moduli_y=moduli_y,
+            moduli_z=moduli_z,
+            compute_forces=False,
+        )
+        grad_positions, *grads = torch.autograd.grad(
+            energy.sum(),
+            (positions, moduli_x, moduli_y, moduli_z),
+            allow_unused=True,
+        )
+
+        assert grad_positions is not None
+        assert torch.isfinite(grad_positions).all()
+        assert tuple(grads) == (None, None, None)
+
+
+class TestPMEVirialCrystalSystems:
+    """PME virial FD tests over multiple crystal structures."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize(
+        "crystal_factory",
+        [
+            pytest.param(lambda: create_cscl_supercell(1), id="cscl"),
+            pytest.param(lambda: create_wurtzite_system(1), id="wurtzite"),
+            pytest.param(lambda: create_zincblende_system(1), id="zincblende"),
+        ],
+    )
+    def test_full_pme_virial_fd_crystals(self, device, crystal_factory):
+        """Full PME virial matches FD for various crystal systems."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        crystal = crystal_factory()
+        positions = torch.tensor(crystal.positions, dtype=VIRIAL_DTYPE, device=device)
+        charges = torch.tensor(crystal.charges, dtype=VIRIAL_DTYPE, device=device)
+        cell = torch.tensor(crystal.cell, dtype=VIRIAL_DTYPE, device=device).unsqueeze(
+            0
+        )
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        cutoff = 6.0
+        mesh_dims = (16, 16, 16)
+        pbc = torch.tensor([True, True, True], dtype=torch.bool, device=device)
+
+        def energy_fn(pos, c):
+            nl, nptr, us = cell_list(
+                pos,
+                cutoff,
+                c.squeeze(0),
+                pbc,
+                return_neighbor_list=True,
+            )
+            return particle_mesh_ewald(
+                pos,
+                charges,
+                c,
+                alpha=alpha,
+                mesh_dimensions=mesh_dims,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=us,
+                compute_forces=False,
+            ).sum()
+
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff)
+        result = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=mesh_dims,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        explicit_virial = result[2].squeeze(0)
+        fd_virial = fd_virial_full(energy_fn, positions, cell, device)
+
+        torch.testing.assert_close(
+            explicit_virial,
+            fd_virial,
+            atol=1e-2,
+            rtol=1e-2,
+            msg="Full PME virial does not match FD",
+        )
+
+
+class TestPMENonNeutralVirial:
+    """Virial FD tests for non-neutral (Q != 0) systems."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_pme_reciprocal_virial_fd_non_neutral(self, device):
+        """PME reciprocal virial matches FD for a non-neutral system."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_non_neutral_system(device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        mesh_dims = (16, 16, 16)
+
+        def energy_fn(pos, c):
+            return pme_reciprocal_space(
+                pos,
+                charges,
+                c,
+                alpha,
+                mesh_dimensions=mesh_dims,
+                compute_forces=False,
+            ).sum()
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        explicit_virial = result[2].squeeze(0)
+        fd_virial = fd_virial_full(energy_fn, positions, cell, device)
+
+        torch.testing.assert_close(
+            explicit_virial,
+            fd_virial,
+            atol=1e-4,
+            rtol=1e-4,
+            msg="PME reciprocal virial does not match FD for non-neutral system",
+        )
+
+
+class TestPMEDifferentiableVirial:
+    """Stress-loss gradients through PME virial path."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_pme_stress_loss_backprop_enabled(self, device, dtype):
+        """PME stress loss contributes gradients when compute_virial=True."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(
+            1, dtype=dtype, device=device
+        )
+        charges = charges.clone().requires_grad_(True)
+        alpha = torch.tensor([0.3], dtype=dtype, device=device)
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff=6.0)
+
+        _, _, virial = _particle_mesh_ewald_without_direct_output_deprecation(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=us,
+            compute_forces=True,
+            compute_virial=True,
+        )
+
+        stress_loss = virial.pow(2).sum()
+        stress_loss.backward()
+
+        assert charges.grad is not None
+        assert torch.isfinite(charges.grad).all()
+        assert charges.grad.abs().sum() > 0
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_pme_virial_fd_charges(self, device):
+        """PME virial backward gives FD-correct charge gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(1, device=device)
+        alpha = torch.tensor([0.3], dtype=VIRIAL_DTYPE, device=device)
+        nl, nptr, us = get_virial_neighbor_data(positions, cell, cutoff=6.0)
+
+        def virial_sum(chg):
+            _, _, v = particle_mesh_ewald(
+                positions,
+                chg,
+                cell,
+                alpha=alpha,
+                mesh_dimensions=(16, 16, 16),
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=us,
+                compute_forces=True,
+                compute_virial=True,
+            )
+            return v.sum()
+
+        chg = charges.clone().requires_grad_(True)
+        loss = virial_sum(chg)
+        loss.backward()
+        ad_grad = chg.grad.clone()
+
+        h = 1e-5
+        for i in range(min(4, len(charges))):
+            cp = charges.clone()
+            cp[i] += h
+            cm = charges.clone()
+            cm[i] -= h
+            fd = (virial_sum(cp).item() - virial_sum(cm).item()) / (2 * h)
+            rel = abs(ad_grad[i].item() - fd) / (abs(fd) + 1e-30)
+            assert rel < 0.02, (
+                f"atom {i}: AD={ad_grad[i].item():.8e}, FD={fd:.8e}, rel={rel:.2e}"
+            )
+
+
+def _torchpme_pme_energy(positions, charges, cell, alpha, mesh_spacing, device):
+    """Compute PME reciprocal energy via torchpme PMECalculator."""
+    smearing = _torchpme_smearing(alpha)
+    potential = CoulombPotential(smearing=smearing).to(
+        device=device, dtype=VIRIAL_DTYPE
+    )
+    calculator = PMECalculator(
+        potential=potential,
+        mesh_spacing=mesh_spacing,
+        interpolation_nodes=4,
+        full_neighbor_list=True,
+        prefactor=1.0,
+    ).to(device=device, dtype=VIRIAL_DTYPE)
+    charges_col = charges.unsqueeze(1)
+    cell_2d = cell.squeeze(0) if cell.dim() == 3 else cell
+    potentials = calculator._compute_kspace(charges_col, cell_2d, positions)
+    return (charges_col * potentials).flatten().sum()
+
+
+@pytest.mark.skipif(not HAS_TORCHPME, reason="torchpme not installed")
+class TestPMEVirialTorchPMEParity:
+    """Cross-validate PME virial against torchpme via FD on torchpme energies."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_pme_reciprocal_virial_vs_torchpme_fd(self, device):
+        """PME reciprocal virial matches FD of torchpme PME reciprocal energy."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = make_virial_cscl_system(2, device=device)
+        alpha_val = 0.3
+        alpha = torch.tensor([alpha_val], dtype=VIRIAL_DTYPE, device=device)
+        mesh_spacing = 1.0
+
+        def torchpme_energy_fn(pos, c):
+            return _torchpme_pme_energy(
+                pos,
+                charges,
+                c,
+                alpha_val,
+                mesh_spacing,
+                device,
+            )
+
+        fd_virial = fd_virial_full(torchpme_energy_fn, positions, cell, device, h=1e-5)
+
+        result = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha,
+            mesh_spacing=mesh_spacing,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        our_virial = result[2].squeeze(0)
+
+        torch.testing.assert_close(
+            our_virial,
+            fd_virial,
+            atol=5e-2,
+            rtol=5e-2,
+            msg="PME reciprocal virial does not match torchpme FD virial",
+        )
+
+
+###########################################################################################
+########################### torch.compile Regression Tests ################################
+###########################################################################################
+
+
+class TestPMETorchCompile:
+    """Verify that PME functions work correctly under torch.compile."""
+
+    @pytest.mark.parametrize("dtype", [torch.complex64, torch.complex128])
+    def test_convolve_backward_args_materializes_only_compiled_cotangent(self, dtype):
+        """Eager routing preserves its cotangent while compiled routing clones it."""
+        cotangent = torch.arange(24, dtype=torch.float64).reshape(2, 3, 4).to(dtype)
+        forward_inputs = tuple(
+            torch.full((1,), index, dtype=torch.float64) for index in range(8)
+        )
+
+        eager_args = _pme_convolve_backward_args(
+            (cotangent,),
+            (*forward_inputs, False),
+        )
+        compiled_args = _pme_convolve_backward_args(
+            (cotangent,),
+            (*forward_inputs, True),
+        )
+
+        assert len(eager_args) == len(compiled_args) == 9
+        assert eager_args[0] is compiled_args[0] is forward_inputs[0]
+        for index, forward_input in enumerate(forward_inputs[1:], start=2):
+            assert eager_args[index] is compiled_args[index] is forward_input
+
+        assert eager_args[1] is cotangent
+        assert compiled_args[1] is not cotangent
+        torch.testing.assert_close(compiled_args[1], cotangent, rtol=0.0, atol=0.0)
+        assert (
+            compiled_args[1].untyped_storage().data_ptr()
+            != cotangent.untyped_storage().data_ptr()
+        )
+
+    @pytest.mark.parametrize(
+        "device",
+        ["cpu", pytest.param("cuda", marks=pytest.mark.slow)],
+    )
+    def test_reciprocal_compile_specializations_preserve_rfft_cotangent(self, device):
+        """Mesh-8 then mesh-32 compiled reciprocal gradients match eager PME."""
+        if device == "cuda" and (
+            not torch.cuda.is_available() or not wp.is_cuda_available()
+        ):
+            pytest.skip("CUDA or Warp CUDA support unavailable")
+
+        torch._dynamo.reset()
+        torch_device = torch.device(device)
+        one_positions, one_charges, one_cell, one_batch_idx, one_pme_common = (
+            _compile_pme_setup(
+                torch_device,
+                full_pme=False,
+                num_atoms=1,
+            )
+        )
+        two_positions, two_charges, two_cell, two_batch_idx, two_pme_common = (
+            _compile_pme_setup(
+                torch_device,
+                full_pme=False,
+                num_atoms=2,
+            )
+        )
+        two_pme_common["mesh_dimensions"] = (32, 32, 32)
+
+        def loss_fn(
+            pos: torch.Tensor,
+            q: torch.Tensor,
+            box: torch.Tensor,
+            alpha: torch.Tensor,
+            batch_idx: torch.Tensor | None,
+            mesh_dimensions: tuple[int, int, int],
+        ) -> torch.Tensor:
+            return pme_reciprocal_space(
+                pos,
+                q,
+                box,
+                alpha=alpha,
+                mesh_dimensions=mesh_dimensions,
+                spline_order=4,
+                batch_idx=batch_idx,
+            ).sum()
+
+        def make_loss_fn(
+            pme_common: dict[str, object],
+            batch_idx: torch.Tensor | None,
+            evaluator=loss_fn,
+        ):
+            def bound_loss_fn(
+                pos: torch.Tensor,
+                q: torch.Tensor,
+                box: torch.Tensor,
+            ) -> torch.Tensor:
+                return evaluator(
+                    pos,
+                    q,
+                    box,
+                    pme_common["alpha"],
+                    batch_idx,
+                    pme_common["mesh_dimensions"],
+                )
+
+            return bound_loss_fn
+
+        eager_explicit = _pme_energy_and_grads(
+            make_loss_fn(two_pme_common, two_batch_idx),
+            two_positions,
+            two_charges,
+            two_cell,
+        )
+        eager_unbatched = _pme_energy_and_grads(
+            make_loss_fn(two_pme_common, None),
+            two_positions,
+            two_charges,
+            two_cell,
+        )
+
+        try:
+            compiled_loss_fn = torch.compile(loss_fn, dynamic=True)
+            compiled_one = make_loss_fn(
+                one_pme_common,
+                one_batch_idx,
+                compiled_loss_fn,
+            )
+            _pme_energy_and_grads(
+                compiled_one,
+                one_positions,
+                one_charges,
+                one_cell,
+            )
+            compiled_two = make_loss_fn(
+                two_pme_common,
+                two_batch_idx,
+                compiled_loss_fn,
+            )
+            compiled_explicit = _pme_energy_and_grads(
+                compiled_two,
+                two_positions,
+                two_charges,
+                two_cell,
+            )
+        finally:
+            torch._dynamo.reset()
+
+        for compiled_grad, eager_grad, unbatched_grad in zip(
+            compiled_explicit[1],
+            eager_explicit[1],
+            eager_unbatched[1],
+            strict=True,
+        ):
+            torch.testing.assert_close(
+                compiled_grad,
+                eager_grad,
+                rtol=1e-7,
+                atol=1e-9,
+            )
+            torch.testing.assert_close(
+                compiled_grad,
+                unbatched_grad,
+                rtol=1e-7,
+                atol=1e-9,
+            )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    def test_single_system_batch_idx_conservative_forces_compile(self, device):
+        """Explicit B=1 PME forces compile and match eager and unbatched references."""
+        if device == "cuda" and (
+            not torch.cuda.is_available() or not wp.is_cuda_available()
+        ):
+            pytest.skip("CUDA or Warp CUDA support unavailable")
+
+        torch._dynamo.reset()
+        torch_device = torch.device(device)
+        dtype = torch.float64
+        positions = torch.tensor(
+            [[2.0, 5.0, 5.0], [8.0, 5.0, 5.0]],
+            dtype=dtype,
+            device=torch_device,
+        )
+        charges = torch.tensor([1.0, -1.0], dtype=dtype, device=torch_device)
+        cell = torch.eye(3, dtype=dtype, device=torch_device).unsqueeze(0) * 10.0
+        num_atoms = positions.shape[0]
+        batch_idx = torch.zeros(num_atoms, dtype=torch.int32, device=torch_device)
+
+        with torch.no_grad():
+            params = estimate_pme_parameters(
+                positions,
+                cell,
+                batch_idx=batch_idx,
+                accuracy=1e-6,
+            )
+            neighbor_matrix, max_neighbors, neighbor_shifts = neighbor_list(
+                positions=positions,
+                cell=cell,
+                pbc=torch.tensor(
+                    [[True, True, True]],
+                    dtype=torch.bool,
+                    device=torch_device,
+                ),
+                cutoff=params.real_space_cutoff.max().item(),
+                batch_idx=batch_idx,
+                fill_value=num_atoms,
+            )
+
+        max_neighbors = max(int(max_neighbors.max()), 1)
+        pme_common = dict(
+            cell=cell,
+            alpha=params.alpha,
+            mesh_dimensions=tuple(params.mesh_dimensions),
+            spline_order=4,
+            neighbor_matrix=neighbor_matrix[:, :max_neighbors].to(torch.int32),
+            neighbor_matrix_shifts=neighbor_shifts[:, :max_neighbors].to(torch.int32),
+            mask_value=num_atoms,
+            accuracy=1e-6,
+        )
+
+        def forces(pos: torch.Tensor, bidx: torch.Tensor | None) -> torch.Tensor:
+            energy = particle_mesh_ewald(
+                positions=pos,
+                charges=charges,
+                batch_idx=bidx,
+                **pme_common,
+            ).sum()
+            (grad_pos,) = torch.autograd.grad(energy, pos, create_graph=False)
+            return -grad_pos
+
+        eager_batched = forces(positions.clone().requires_grad_(True), batch_idx)
+        eager_unbatched = forces(positions.clone().requires_grad_(True), None)
+        # Eager/direct float64 real-space currently uses a float32-grade wp_erfc
+        # approximation; atol=1e-8 covers its measured ~8.01e-9 error.
+        torch.testing.assert_close(
+            eager_batched,
+            eager_unbatched,
+            rtol=1e-7,
+            atol=1e-8,
+        )
+
+        try:
+            compiled_batched = torch.compile(forces, dynamic=True)(
+                positions.clone().requires_grad_(True),
+                batch_idx,
+            )
+        finally:
+            torch._dynamo.reset()
+        try:
+            compiled_unbatched = torch.compile(forces, dynamic=True)(
+                positions.clone().requires_grad_(True),
+                None,
+            )
+        finally:
+            torch._dynamo.reset()
+        torch.testing.assert_close(
+            compiled_batched,
+            eager_batched,
+            rtol=1e-7,
+            atol=1e-8,
+        )
+        torch.testing.assert_close(
+            compiled_batched,
+            compiled_unbatched,
+            rtol=1e-7,
+            atol=1e-8,
+        )
+
+    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    @pytest.mark.parametrize("num_atoms", [1, 2])
+    def test_reciprocal_explicit_batch_single_system_loss_compile_gradients(
+        self, device, num_atoms
+    ):
+        """Compiled explicit-B=1 reciprocal PME matches eager energy gradients."""
+        if device == "cuda" and (
+            not torch.cuda.is_available() or not wp.is_cuda_available()
+        ):
+            pytest.skip("CUDA or Warp CUDA support unavailable")
+
+        torch_device = torch.device(device)
+        positions, charges, cell, batch_idx, pme_common = _compile_pme_setup(
+            torch_device,
+            full_pme=False,
+            num_atoms=num_atoms,
+        )
+
+        def make_loss_fn(bidx: torch.Tensor | None):
+            def loss_fn(pos: torch.Tensor, q: torch.Tensor, box: torch.Tensor):
+                return pme_reciprocal_space(
+                    pos,
+                    q,
+                    box,
+                    batch_idx=bidx,
+                    **pme_common,
+                ).sum()
+
+            return loss_fn
+
+        eager_explicit = _pme_energy_and_grads(
+            make_loss_fn(batch_idx),
+            positions,
+            charges,
+            cell,
+        )
+        eager_unbatched = _pme_energy_and_grads(
+            make_loss_fn(None),
+            positions,
+            charges,
+            cell,
+        )
+
+        torch._dynamo.reset()
+        try:
+            compiled_loss_fn = torch.compile(make_loss_fn(batch_idx), dynamic=True)
+            compiled_explicit = _pme_energy_and_grads(
+                compiled_loss_fn,
+                positions,
+                charges,
+                cell,
+            )
+        finally:
+            torch._dynamo.reset()
+
+        for compiled, eager, unbatched in zip(
+            compiled_explicit,
+            eager_explicit,
+            eager_unbatched,
+            strict=True,
+        ):
+            if isinstance(compiled, tuple):
+                for compiled_grad, eager_grad, unbatched_grad in zip(
+                    compiled,
+                    eager,
+                    unbatched,
+                    strict=True,
+                ):
+                    torch.testing.assert_close(
+                        compiled_grad,
+                        eager_grad,
+                        rtol=1e-7,
+                        atol=1e-9,
+                    )
+                    torch.testing.assert_close(
+                        compiled_grad,
+                        unbatched_grad,
+                        rtol=1e-7,
+                        atol=1e-9,
+                    )
+            else:
+                torch.testing.assert_close(
+                    compiled,
+                    eager,
+                    rtol=1e-7,
+                    atol=1e-9,
+                )
+                torch.testing.assert_close(
+                    compiled,
+                    unbatched,
+                    rtol=1e-7,
+                    atol=1e-9,
+                )
+
+    @pytest.mark.parametrize(
+        "device",
+        ["cpu", pytest.param("cuda", marks=pytest.mark.slow)],
+    )
+    def test_full_pme_explicit_batch_single_system_loss_compile_gradients(self, device):
+        """Compiled explicit-B=1 full PME matches eager energy gradients."""
+        if device == "cuda" and (
+            not torch.cuda.is_available() or not wp.is_cuda_available()
+        ):
+            pytest.skip("CUDA or Warp CUDA support unavailable")
+
+        torch_device = torch.device(device)
+        positions, charges, cell, batch_idx, pme_common = _compile_pme_setup(
+            torch_device,
+            full_pme=True,
+        )
+
+        def make_loss_fn(bidx: torch.Tensor | None):
+            def loss_fn(pos: torch.Tensor, q: torch.Tensor, box: torch.Tensor):
+                return particle_mesh_ewald(
+                    pos,
+                    q,
+                    box,
+                    batch_idx=bidx,
+                    **pme_common,
+                ).sum()
+
+            return loss_fn
+
+        eager_explicit = _pme_energy_and_grads(
+            make_loss_fn(batch_idx),
+            positions,
+            charges,
+            cell,
+        )
+        eager_unbatched = _pme_energy_and_grads(
+            make_loss_fn(None),
+            positions,
+            charges,
+            cell,
+        )
+
+        torch._dynamo.reset()
+        try:
+            compiled_loss_fn = torch.compile(make_loss_fn(batch_idx), dynamic=True)
+            compiled_explicit = _pme_energy_and_grads(
+                compiled_loss_fn,
+                positions,
+                charges,
+                cell,
+            )
+        finally:
+            torch._dynamo.reset()
+
+        for compiled, eager, unbatched in zip(
+            compiled_explicit,
+            eager_explicit,
+            eager_unbatched,
+            strict=True,
+        ):
+            if isinstance(compiled, tuple):
+                for compiled_grad, eager_grad, unbatched_grad in zip(
+                    compiled,
+                    eager,
+                    unbatched,
+                    strict=True,
+                ):
+                    torch.testing.assert_close(
+                        compiled_grad,
+                        eager_grad,
+                        rtol=1e-7,
+                        atol=1e-9,
+                    )
+                    torch.testing.assert_close(
+                        compiled_grad,
+                        unbatched_grad,
+                        rtol=1e-7,
+                        atol=1e-9,
+                    )
+            else:
+                torch.testing.assert_close(
+                    compiled,
+                    eager,
+                    rtol=1e-7,
+                    atol=1e-9,
+                )
+                torch.testing.assert_close(
+                    compiled,
+                    unbatched,
+                    rtol=1e-7,
+                    atol=1e-9,
+                )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    def test_full_pme_explicit_batch_direct_outputs_compile(self, device):
+        """Compiled explicit-B=1 full PME direct outputs match eager references."""
+        if device == "cuda" and (
+            not torch.cuda.is_available() or not wp.is_cuda_available()
+        ):
+            pytest.skip("CUDA or Warp CUDA support unavailable")
+
+        torch_device = torch.device(device)
+        positions, charges, cell, batch_idx, pme_common = _compile_pme_setup(
+            torch_device,
+            full_pme=True,
+        )
+
+        def direct_outputs(
+            pos: torch.Tensor,
+            q: torch.Tensor,
+            box: torch.Tensor,
+            bidx: torch.Tensor | None,
+        ) -> tuple[torch.Tensor, ...]:
+            return particle_mesh_ewald(
+                pos,
+                q,
+                box,
+                batch_idx=bidx,
+                compute_forces=True,
+                compute_charge_gradients=True,
+                compute_virial=True,
+                **pme_common,
+            )
+
+        eager_explicit = _particle_mesh_ewald_without_direct_output_deprecation(
+            positions,
+            charges,
+            cell,
+            batch_idx=batch_idx,
+            compute_forces=True,
+            compute_charge_gradients=True,
+            compute_virial=True,
+            **pme_common,
+        )
+        eager_unbatched = _particle_mesh_ewald_without_direct_output_deprecation(
+            positions,
+            charges,
+            cell,
+            batch_idx=None,
+            compute_forces=True,
+            compute_charge_gradients=True,
+            compute_virial=True,
+            **pme_common,
+        )
+
+        torch._dynamo.reset()
+        try:
+            compiled_explicit = torch.compile(direct_outputs, dynamic=True)(
+                positions,
+                charges,
+                cell,
+                batch_idx,
+            )
+        finally:
+            torch._dynamo.reset()
+
+        for compiled, eager, unbatched in zip(
+            compiled_explicit,
+            eager_explicit,
+            eager_unbatched,
+            strict=True,
+        ):
+            torch.testing.assert_close(compiled, eager, rtol=1e-7, atol=1e-9)
+            torch.testing.assert_close(compiled, unbatched, rtol=1e-7, atol=1e-9)
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="CUDA required for torch.compile"
+    )
+    def test_pme_energy_corrections_compile(self):
+        """PME correction custom-op chains should compile and backpropagate."""
+        device = torch.device("cuda")
+        dtype = torch.float64
+        raw = torch.tensor([0.25, -0.5, 0.125], dtype=dtype, device=device)
+        charges = torch.tensor([1.0, -0.25, 0.5], dtype=dtype, device=device)
+        cell = (torch.eye(3, dtype=dtype, device=device) * 8.0).unsqueeze(0)
+        alpha = torch.tensor([0.35], dtype=dtype, device=device)
+
+        def correction_loss(raw_energies, atom_charges, box, ewald_alpha):
+            corrected = pme_energy_corrections(
+                raw_energies,
+                atom_charges,
+                box,
+                ewald_alpha,
+            )
+            return corrected.sum()
+
+        raw_eager = raw.clone().requires_grad_(True)
+        charges_eager = charges.clone().requires_grad_(True)
+        alpha_eager = alpha.clone().requires_grad_(True)
+        loss_eager = correction_loss(raw_eager, charges_eager, cell, alpha_eager)
+        grads_eager = torch.autograd.grad(
+            loss_eager, (raw_eager, charges_eager, alpha_eager)
+        )
+
+        raw_compiled = raw.clone().requires_grad_(True)
+        charges_compiled = charges.clone().requires_grad_(True)
+        alpha_compiled = alpha.clone().requires_grad_(True)
+        compiled_loss = torch.compile(correction_loss)
+        loss_compiled = compiled_loss(
+            raw_compiled, charges_compiled, cell, alpha_compiled
+        )
+        grads_compiled = torch.autograd.grad(
+            loss_compiled,
+            (raw_compiled, charges_compiled, alpha_compiled),
+        )
+
+        torch.testing.assert_close(loss_compiled, loss_eager, atol=1e-12, rtol=0.0)
+        for grad_compiled, grad_eager in zip(grads_compiled, grads_eager, strict=True):
+            torch.testing.assert_close(grad_compiled, grad_eager, atol=1e-12, rtol=0.0)
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="CUDA required for torch.compile"
+    )
+    def test_pme_energy_corrections_with_charge_grad_compile(self):
+        """Fused PME corrections + analytical charge-gradient op should compile."""
+        device = torch.device("cuda")
+        dtype = torch.float64
+        raw = torch.tensor([0.25, -0.5, 0.125], dtype=dtype, device=device)
+        charges = torch.tensor([1.0, -0.25, 0.5], dtype=dtype, device=device)
+        cell = (torch.eye(3, dtype=dtype, device=device) * 8.0).unsqueeze(0)
+        alpha = torch.tensor([0.35], dtype=dtype, device=device)
+
+        def correction_with_charge_grad(raw_energies, atom_charges, box, ewald_alpha):
+            return pme_energy_corrections_with_charge_grad(
+                raw_energies,
+                atom_charges,
+                box,
+                ewald_alpha,
+            )
+
+        eager = correction_with_charge_grad(raw, charges, cell, alpha)
+        compiled = torch.compile(correction_with_charge_grad)(raw, charges, cell, alpha)
+
+        torch.testing.assert_close(compiled[0], eager[0], atol=1e-12, rtol=0.0)
+        torch.testing.assert_close(compiled[1], eager[1], atol=1e-12, rtol=0.0)
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="CUDA required for torch.compile"
+    )
+    def test_pme_compiled_parity_explicit_params(self):
+        """Compiled PME with explicit alpha/mesh_dimensions matches eager."""
+        device = torch.device("cuda")
+        dtype = torch.float32
+        n_atoms = 10
+        torch.manual_seed(42)
+
+        from nvalchemiops.torch.interactions.electrostatics import (
+            estimate_pme_parameters,
+        )
+
+        positions_base = torch.randn(n_atoms, 3, device=device, dtype=dtype)
+        cell = (torch.eye(3, device=device, dtype=dtype) * 10.0).unsqueeze(0)
+        neighbor_matrix = torch.zeros(n_atoms, 1, dtype=torch.int32, device=device)
+        neighbor_shifts = torch.zeros(n_atoms, 1, 3, dtype=torch.int32, device=device)
+
+        with torch.no_grad():
+            params = estimate_pme_parameters(
+                positions_base, cell, batch_idx=None, accuracy=1e-6
+            )
+            alpha = params.alpha
+            mesh_dimensions = tuple(params.mesh_dimensions)
+
+        linear = torch.nn.Linear(n_atoms * 3, n_atoms, device=device)
+
+        def pme_wrapper(positions, charges, cell):
+            e, f, cg = particle_mesh_ewald(
+                positions=positions.detach(),
+                charges=charges.detach(),
+                cell=cell.detach(),
+                alpha=alpha,
+                mesh_dimensions=mesh_dimensions,
+                spline_order=4,
+                neighbor_matrix=neighbor_matrix,
+                neighbor_matrix_shifts=neighbor_shifts,
+                mask_value=n_atoms,
+                compute_forces=True,
+                compute_charge_gradients=True,
+            )
+            energy = e.sum()
+            q_delta = charges - charges.detach()
+            return energy + (cg * q_delta).sum(), f
+
+        positions = positions_base.clone().requires_grad_(True)
+        charges = linear(positions.reshape(-1))
+        charges.retain_grad()
+        energy_eager, forces_eager = pme_wrapper(positions, charges, cell)
+        grad_eager = torch.autograd.grad(
+            energy_eager, positions, torch.ones_like(energy_eager)
+        )[0]
+        dq_eager = charges.grad.clone()
+
+        positions2 = positions_base.clone().requires_grad_(True)
+        charges2 = linear(positions2.reshape(-1))
+        charges2.retain_grad()
+        compiled_fn = torch.compile(pme_wrapper, dynamic=True)
+        energy_compiled, forces_compiled = compiled_fn(positions2, charges2, cell)
+        grad_compiled = torch.autograd.grad(
+            energy_compiled, positions2, torch.ones_like(energy_compiled)
+        )[0]
+        dq_compiled = charges2.grad
+
+        assert torch.isfinite(energy_compiled).all()
+        assert torch.isfinite(forces_compiled).all()
+        torch.testing.assert_close(energy_compiled, energy_eager, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(forces_compiled, forces_eager, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(grad_compiled, grad_eager, rtol=1e-3, atol=1e-3)
+        torch.testing.assert_close(dq_compiled, dq_eager, rtol=1e-3, atol=1e-3)
+
+    # The standalone pme_green_structure_factor wrapper is covered by direct
+    # low-level kernel tests; full PME paths above exercise it through convolve.
+
+
+###########################################################################################
+########################### Hybrid Forces Tests ###########################################
+###########################################################################################
+
+
+class TestPMEHybridForces:
+    """Test hybrid_forces mode for PME.
+
+    hybrid_forces=True detaches positions/cell from the autograd graph and
+    attaches charge gradients via the straight-through trick.  Forces and
+    virial are forward-only.
+    """
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_energy_matches_standard(self, device):
+        """Forward energy values must be identical to standard mode."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        e_std = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+        )
+        e_hyb = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            hybrid_forces=True,
+        )
+
+        torch.testing.assert_close(e_std, e_hyb, rtol=1e-12, atol=1e-14)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_forces_match_standard(self, device):
+        """Explicit forces must match non-hybrid mode."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        _, f_std = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+        )
+        _, f_hyb = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+
+        torch.testing.assert_close(f_std, f_hyb, rtol=1e-12, atol=1e-14)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_positions_no_grad(self, device):
+        """Positions must not receive gradients in hybrid mode."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        positions = positions.clone().requires_grad_(True)
+        charges = charges.clone().requires_grad_(True)
+
+        energies = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            hybrid_forces=True,
+        )
+        energies.sum().backward()
+
+        assert positions.grad is None or torch.all(positions.grad == 0)
+        assert charges.grad is not None
+        assert torch.isfinite(charges.grad).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_cell_no_grad(self, device):
+        """Cell must not receive gradients in hybrid mode."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        positions = positions.clone().requires_grad_(True)
+        cell = cell.clone().requires_grad_(True)
+        charges = charges.clone().requires_grad_(True)
+
+        energies = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            hybrid_forces=True,
+        )
+        energies.sum().backward()
+
+        assert positions.grad is None or torch.all(positions.grad == 0)
+        assert cell.grad is None or torch.all(cell.grad == 0)
+        assert charges.grad is not None
+        assert torch.isfinite(charges.grad).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_charge_grad_matches_autograd(self, device):
+        """Charge gradients from straight-through must match standard autograd."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges_ref, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        # Standard autograd path
+        charges_ad = charges_ref.clone().requires_grad_(True)
+        e_ad = pme_reciprocal_space(
+            positions,
+            charges_ad,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+        )
+        grad_std = torch.autograd.grad(e_ad.sum(), charges_ad)[0]
+
+        # Hybrid path
+        charges_hyb = charges_ref.clone().requires_grad_(True)
+        e_hyb = pme_reciprocal_space(
+            positions,
+            charges_hyb,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            hybrid_forces=True,
+        )
+        grad_hyb = torch.autograd.grad(e_hyb.sum(), charges_hyb)[0]
+
+        torch.testing.assert_close(grad_std, grad_hyb, rtol=1e-4, atol=1e-6)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_virial_forward_only(self, device):
+        """Virial values must match standard mode and have no grad_fn."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        _, _, v_std = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        _, _, v_hyb = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            compute_virial=True,
+            hybrid_forces=True,
+        )
+
+        torch.testing.assert_close(v_std, v_hyb, rtol=1e-12, atol=1e-14)
+        assert v_hyb.grad_fn is None
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_virial_detached_with_grad_charges(self, device):
+        """Virial must have no grad_fn even when charges require grad."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, _, cell = create_dipole_system(device)
+
+        charge_model = torch.nn.Linear(3, 1, bias=False).to(
+            device=device, dtype=positions.dtype
+        )
+        charge_model.train()
+        charges = charge_model(positions).squeeze(-1)
+
+        e_std, _, v_std = pme_reciprocal_space(
+            positions,
+            charges.detach(),
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+            compute_virial=True,
+        )
+        e_hyb, _, v_hyb = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            compute_forces=True,
+            compute_virial=True,
+            hybrid_forces=True,
+        )
+
+        assert charges.requires_grad is True
+        torch.testing.assert_close(v_std, v_hyb, rtol=1e-12, atol=1e-14)
+        assert v_hyb.grad_fn is None
+        assert e_hyb.sum().requires_grad is True
+        torch.autograd.grad(e_hyb.sum(), charges, retain_graph=True)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_full_pme(self, device):
+        """Test hybrid_forces on particle_mesh_ewald end-to-end."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_simple_system(device, num_atoms=5)
+        num_atoms = positions.shape[0]
+        neighbor_matrix = torch.zeros(
+            (num_atoms, num_atoms - 1), dtype=torch.int32, device=device
+        )
+        for i in range(num_atoms):
+            neighbors = [j for j in range(num_atoms) if j != i]
+            neighbor_matrix[i] = torch.tensor(
+                neighbors, dtype=torch.int32, device=device
+            )
+        neighbor_matrix_shifts = torch.zeros(
+            (num_atoms, num_atoms - 1, 3), dtype=torch.int32, device=device
+        )
+
+        e_std, f_std = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+        )
+        e_hyb, f_hyb = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=(16, 16, 16),
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+
+        torch.testing.assert_close(e_std, e_hyb, rtol=1e-12, atol=1e-14)
+        torch.testing.assert_close(f_std, f_hyb, rtol=1e-12, atol=1e-14)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_geometry_dependent_charges_pme(self, device):
+        """End-to-end: q = f(R) with PME, total force = explicit + charge-chain-rule."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions_ref, charges_base, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        weight = torch.tensor(
+            [[0.1, -0.05, 0.02], [-0.1, 0.05, -0.02]],
+            dtype=torch.float64,
+            device=device,
+        )
+        positions = positions_ref.clone().requires_grad_(True)
+
+        q = charges_base + (positions * weight).sum(dim=1)
+        q = q - q.mean()
+
+        energies, forces = pme_reciprocal_space(
+            positions,
+            q,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+
+        charge_force = -torch.autograd.grad(
+            energies.sum(), positions, retain_graph=True
+        )[0]
+        total_force = forces + charge_force
+
+        assert torch.isfinite(total_force).all()
+
+        # Verify against finite differences
+        h = 1e-5
+        for atom in range(2):
+            for dim in range(3):
+                pos_p = positions.detach().clone()
+                pos_p[atom, dim] += h
+                q_p = charges_base + (pos_p * weight).sum(dim=1)
+                q_p = q_p - q_p.mean()
+                e_p = (
+                    pme_reciprocal_space(
+                        pos_p,
+                        q_p,
+                        cell,
+                        alpha=0.3,
+                        mesh_dimensions=mesh_dims,
+                    )
+                    .sum()
+                    .item()
+                )
+
+                pos_m = positions.detach().clone()
+                pos_m[atom, dim] -= h
+                q_m = charges_base + (pos_m * weight).sum(dim=1)
+                q_m = q_m - q_m.mean()
+                e_m = (
+                    pme_reciprocal_space(
+                        pos_m,
+                        q_m,
+                        cell,
+                        alpha=0.3,
+                        mesh_dimensions=mesh_dims,
+                    )
+                    .sum()
+                    .item()
+                )
+
+                fd_force = -(e_p - e_m) / (2 * h)
+                rel_err = abs(total_force[atom, dim].item() - fd_force) / (
+                    abs(fd_force) + 1e-30
+                )
+                assert rel_err < 0.02, (
+                    f"atom {atom}, dim {dim}: "
+                    f"hybrid={total_force[atom, dim].item():.8e}, "
+                    f"FD={fd_force:.8e}, rel={rel_err:.2e}"
+                )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_geometry_dependent_charges_pme_reciprocal_weighted_grad(
+        self, device
+    ):
+        """Hybrid PME reciprocal q(R) supports per-atom weighted energy gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions_base, charges_base, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+        weight = torch.tensor(
+            [[0.1, -0.05, 0.02], [-0.1, 0.05, -0.02]],
+            dtype=torch.float64,
+            device=device,
+        )
+
+        positions = positions_base.clone().requires_grad_(True)
+        charges = charges_base + (positions * weight).sum(dim=1)
+        charges = charges - charges.mean()
+        energies, _forces = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+        energy_weights = torch.linspace(
+            1.0,
+            2.0,
+            energies.numel(),
+            dtype=energies.dtype,
+            device=device,
+        )
+        (weighted_grad,) = torch.autograd.grad(
+            energies,
+            positions,
+            grad_outputs=energy_weights,
+        )
+
+        positions_ref = positions_base.clone().requires_grad_(True)
+        charges_ref = charges_base + (positions_ref * weight).sum(dim=1)
+        charges_ref = charges_ref - charges_ref.mean()
+        energies_ref = pme_reciprocal_space(
+            positions_ref,
+            charges_ref,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+        )
+        (weighted_grad_ref,) = torch.autograd.grad(
+            energies_ref,
+            positions_ref,
+            grad_outputs=energy_weights,
+        )
+
+        assert torch.isfinite(weighted_grad).all()
+        torch.testing.assert_close(
+            weighted_grad, weighted_grad_ref, rtol=1e-5, atol=1e-7
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_geometry_dependent_charges_particle_mesh_ewald(self, device):
+        """Full PME hybrid q(R) force includes the charge chain-rule term once."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions_ref, charges_base, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+        neighbor_matrix = torch.tensor([[1], [0]], dtype=torch.int32, device=device)
+        neighbor_matrix_shifts = torch.zeros(
+            (2, 1, 3), dtype=torch.int32, device=device
+        )
+        weight = torch.tensor(
+            [[0.1, -0.05, 0.02], [-0.1, 0.05, -0.02]],
+            dtype=torch.float64,
+            device=device,
+        )
+        positions = positions_ref.clone().requires_grad_(True)
+        q = charges_base + (positions * weight).sum(dim=1)
+        q = q - q.mean()
+
+        energies, forces = particle_mesh_ewald(
+            positions,
+            q,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+        energy_weights = torch.linspace(
+            1.0,
+            2.0,
+            energies.numel(),
+            dtype=energies.dtype,
+            device=device,
+        )
+        (weighted_grad,) = torch.autograd.grad(
+            energies,
+            positions,
+            grad_outputs=energy_weights,
+            retain_graph=True,
+        )
+
+        positions_energy_ref = positions_ref.clone().requires_grad_(True)
+        q_energy_ref = charges_base + (positions_energy_ref * weight).sum(dim=1)
+        q_energy_ref = q_energy_ref - q_energy_ref.mean()
+        energies_ref = particle_mesh_ewald(
+            positions_energy_ref,
+            q_energy_ref,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            neighbor_matrix=neighbor_matrix,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
+        )
+        (weighted_grad_ref,) = torch.autograd.grad(
+            energies_ref,
+            positions_energy_ref,
+            grad_outputs=energy_weights,
+        )
+
+        assert torch.isfinite(weighted_grad).all()
+        torch.testing.assert_close(
+            weighted_grad, weighted_grad_ref, rtol=1e-5, atol=1e-7
+        )
+
+        charge_force = -torch.autograd.grad(
+            energies.sum(), positions, retain_graph=True
+        )[0]
+        total_force = forces + charge_force
+
+        h = 1e-5
+        for atom in range(2):
+            for dim in range(3):
+                pos_p = positions.detach().clone()
+                pos_p[atom, dim] += h
+                q_p = charges_base + (pos_p * weight).sum(dim=1)
+                q_p = q_p - q_p.mean()
+                e_p = (
+                    particle_mesh_ewald(
+                        pos_p,
+                        q_p,
+                        cell,
+                        alpha=0.3,
+                        mesh_dimensions=mesh_dims,
+                        neighbor_matrix=neighbor_matrix,
+                        neighbor_matrix_shifts=neighbor_matrix_shifts,
+                    )
+                    .sum()
+                    .item()
+                )
+
+                pos_m = positions.detach().clone()
+                pos_m[atom, dim] -= h
+                q_m = charges_base + (pos_m * weight).sum(dim=1)
+                q_m = q_m - q_m.mean()
+                e_m = (
+                    particle_mesh_ewald(
+                        pos_m,
+                        q_m,
+                        cell,
+                        alpha=0.3,
+                        mesh_dimensions=mesh_dims,
+                        neighbor_matrix=neighbor_matrix,
+                        neighbor_matrix_shifts=neighbor_matrix_shifts,
+                    )
+                    .sum()
+                    .item()
+                )
+
+                fd_force = -(e_p - e_m) / (2 * h)
+                rel_err = abs(total_force[atom, dim].item() - fd_force) / (
+                    abs(fd_force) + 1e-30
+                )
+                assert rel_err < 0.02, (
+                    f"atom {atom}, dim {dim}: "
+                    f"hybrid={total_force[atom, dim].item():.8e}, "
+                    f"FD={fd_force:.8e}, rel={rel_err:.2e}"
+                )
+
+
+###########################################################################################
+########################### torch.compile Tests ###########################################
+###########################################################################################
+
+
+class TestTorchCompile:
+    """Smoke tests for torch.compile compatibility with hybrid_forces mode."""
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_compile_hybrid_energy_forces(self, device):
+        """torch.compile with hybrid_forces produces same energy and forces."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        e_eager, f_eager = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+
+        pme_compiled = torch.compile(pme_reciprocal_space)
+        e_compiled, f_compiled = pme_compiled(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+
+        torch.testing.assert_close(e_compiled, e_eager, atol=1e-10, rtol=0.0)
+        torch.testing.assert_close(f_compiled, f_eager, atol=1e-10, rtol=0.0)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_compile_hybrid_charge_grad(self, device):
+        """torch.compile with hybrid_forces produces correct charge gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        positions, charges_base, cell = create_dipole_system(device)
+        mesh_dims = (16, 16, 16)
+
+        charges_eager = charges_base.clone().requires_grad_(True)
+        e_eager, f_eager = pme_reciprocal_space(
+            positions,
+            charges_eager,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+        e_eager.sum().backward()
+        cg_eager = charges_eager.grad.clone()
+
+        charges_compiled = charges_base.clone().requires_grad_(True)
+        pme_compiled = torch.compile(pme_reciprocal_space)
+        e_compiled, f_compiled = pme_compiled(
+            positions,
+            charges_compiled,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=mesh_dims,
+            compute_forces=True,
+            hybrid_forces=True,
+        )
+        e_compiled.sum().backward()
+        cg_compiled = charges_compiled.grad.clone()
+
+        torch.testing.assert_close(e_compiled, e_eager, atol=1e-10, rtol=0.0)
+        torch.testing.assert_close(f_compiled, f_eager, atol=1e-10, rtol=0.0)
+        torch.testing.assert_close(cg_compiled, cg_eager, atol=1e-10, rtol=0.0)
+
+
+###########################################################################################
+########################### Energy-Derivative Contract ####################################
+###########################################################################################
+#
+# Permanent contract tests for the energy-autograd refactor, mirroring
+# the Ewald contract tests. PME reciprocal is mesh-based (no neighbor list/matrix), so the
+# neighbor-MATRIX axis applies only to the short-range (Ewald-real) part inside
+# ``particle_mesh_ewald`` and is covered by the Ewald NM tests. The closures pin ``alpha``
+# and ``mesh_dimensions`` (a dimension count, not geometry) so the cell -> mesh/volume ->
+# reciprocal-energy path regenerates from the deformed cell. The recip-only cell
+# gradgradcheck covers the spline cell second-order path.
+
+_MESH = (16, 16, 16)
+PC_FORCE_RTOL, PC_FORCE_ATOL = 1e-5, 1e-7
+PC_CHARGE_RTOL, PC_CHARGE_ATOL = 1e-5, 1e-7
+PC_VIRIAL_RTOL, PC_VIRIAL_ATOL = 1e-5, 1e-6
+PC_FORCE_RTOL_F32, PC_FORCE_ATOL_F32 = 1e-2, 1e-3
+
+
+def _pme_contract_dipole(device, dtype=torch.float64, sep=2.3):
+    """A 2-atom DISPLACED dipole; cell shape (1, 3, 3)."""
+    cs = 10.0
+    c = cs / 2.0
+    positions = torch.tensor(
+        [
+            [c - sep / 2.0, c + 0.4, c - 0.2],
+            [c + sep / 2.0, c - 0.3, c + 0.1],
+        ],
+        dtype=dtype,
+        device=device,
+    )
+    charges = torch.tensor([1.0, -1.0], dtype=dtype, device=device)
+    cell = (torch.eye(3, dtype=dtype, device=device) * cs).unsqueeze(0)
+    return positions, charges, cell
+
+
+def _pme_contract_batch(device, dtype=torch.float64):
+    """Two displaced 2-atom dipoles in one batch."""
+    cs = 10.0
+    c = cs / 2.0
+    positions = torch.tensor(
+        [
+            [c - 1.0, c + 0.3, c - 0.2],
+            [c + 1.0, c - 0.3, c + 0.1],
+            [c - 1.2, c + 0.2, c + 0.1],
+            [c + 1.2, c - 0.1, c - 0.2],
+        ],
+        dtype=dtype,
+        device=device,
+    )
+    charges = torch.tensor([1.0, -1.0, 0.8, -0.8], dtype=dtype, device=device)
+    cell = (
+        (torch.eye(3, dtype=dtype, device=device) * cs)
+        .unsqueeze(0)
+        .expand(2, -1, -1)
+        .contiguous()
+    )
+    batch_idx = torch.tensor([0, 0, 1, 1], dtype=torch.int32, device=device)
+    return positions, charges, cell, batch_idx
+
+
+def _pme_partial_empty_batch(device, dtype=torch.float64):
+    """Two atoms in system zero and an empty system one."""
+    cell_size = 10.0
+    positions = torch.tensor(
+        [[4.0, 5.0, 5.0], [6.0, 5.5, 5.0]],
+        dtype=dtype,
+        device=device,
+    )
+    charges = torch.tensor([0.8, -0.8], dtype=dtype, device=device)
+    cell = torch.eye(3, dtype=dtype, device=device).repeat(2, 1, 1) * cell_size
+    batch_idx = torch.tensor([0, 0], dtype=torch.int32, device=device)
+    return positions, charges, cell, batch_idx
+
+
+def _pme_full_neighbors(positions, cell, device, batch_idx=None, cutoff=5.0):
+    if batch_idx is None:
+        pbc = torch.tensor([[True, True, True]], device=device)
+        return cell_list(positions, cutoff, cell, pbc, return_neighbor_list=True)
+    pbc = torch.tensor([[True, True, True]] * cell.shape[0], device=device)
+    return batch_cell_list(
+        positions, cutoff, cell, pbc, batch_idx=batch_idx, return_neighbor_list=True
+    )
+
+
+class TestPMECachedEvalFastPath:
+    """Cached first-order eval gradients preserve eager training semantics."""
+
+    def _eager_reciprocal_energy(self, positions, charges, cell, batch_idx=None):
+        """PME reciprocal energy without the cached-eval wrapper."""
+        alpha = _prepare_alpha(0.3, cell.shape[0], positions.dtype, positions.device)
+        energies, _, _, _ = _pme_reciprocal_space_impl(
+            positions,
+            charges,
+            cell,
+            alpha,
+            _MESH,
+            4,
+            batch_idx,
+            compute_forces=False,
+            compute_charge_gradients=False,
+            compute_virial=False,
+        )
+        return energies
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("leaf", ["positions", "charges", "cell"])
+    def test_uniform_cotangent_grad_matches_eager(self, device, leaf):
+        """Uniform energy cotangents match eager with or without cache routing."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+
+        positions_eval = positions.clone().requires_grad_(leaf == "positions")
+        charges_eval = charges.clone().requires_grad_(leaf == "charges")
+        cell_eval = cell.clone().requires_grad_(leaf == "cell")
+        energy_eval = pme_reciprocal_space(
+            positions_eval,
+            charges_eval,
+            cell_eval,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            compute_forces=False,
+        )
+        (grad_eval,) = torch.autograd.grad(
+            energy_eval.sum(),
+            {"positions": positions_eval, "charges": charges_eval, "cell": cell_eval}[
+                leaf
+            ],
+        )
+
+        positions_ref = positions.clone().requires_grad_(leaf == "positions")
+        charges_ref = charges.clone().requires_grad_(leaf == "charges")
+        cell_ref = cell.clone().requires_grad_(leaf == "cell")
+        energy_ref = self._eager_reciprocal_energy(positions_ref, charges_ref, cell_ref)
+        (grad_ref,) = torch.autograd.grad(
+            energy_ref.sum(),
+            {"positions": positions_ref, "charges": charges_ref, "cell": cell_ref}[
+                leaf
+            ],
+        )
+
+        torch.testing.assert_close(grad_eval, grad_ref, rtol=1e-5, atol=1e-7)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("leaf", ["positions", "charges"])
+    @pytest.mark.parametrize(
+        ("weights", "expected_calls"),
+        [
+            ([1.0, 2.0], 2),
+            ([1.0, 1.0], 1),
+        ],
+    )
+    def test_partial_empty_batch_atom_cotangent_routing(
+        self,
+        device,
+        leaf,
+        weights,
+        expected_calls,
+        monkeypatch,
+    ):
+        """Partial-empty batches preserve atom weights and cache uniform ones."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        dev = torch.device(device)
+        positions, charges, cell, batch_idx = _pme_partial_empty_batch(dev)
+        weight_tensor = torch.tensor(weights, dtype=positions.dtype, device=dev)
+
+        ref_positions = positions.clone().requires_grad_(leaf == "positions")
+        ref_charges = charges.clone().requires_grad_(leaf == "charges")
+        reference = self._eager_reciprocal_energy(
+            ref_positions,
+            ref_charges,
+            cell,
+            batch_idx,
+        )
+        (expected,) = torch.autograd.grad(
+            reference,
+            {"positions": ref_positions, "charges": ref_charges}[leaf],
+            grad_outputs=weight_tensor,
+        )
+
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        call_count = 0
+        original_impl = pme_module._pme_reciprocal_space_impl
+
+        def _counting_impl(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_impl(*args, **kwargs)
+
+        monkeypatch.setattr(pme_module, "_pme_reciprocal_space_impl", _counting_impl)
+        test_positions = positions.clone().requires_grad_(leaf == "positions")
+        test_charges = charges.clone().requires_grad_(leaf == "charges")
+        energy = pme_reciprocal_space(
+            test_positions,
+            test_charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            batch_idx=batch_idx,
+        )
+        (actual,) = torch.autograd.grad(
+            energy,
+            {"positions": test_positions, "charges": test_charges}[leaf],
+            grad_outputs=weight_tensor,
+        )
+
+        assert call_count == expected_calls
+        torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-7)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_partial_empty_batch_system_energy_and_gradients(self, device):
+        """System layout emits an empty-system zero and matches atom gradients."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        dev = torch.device(device)
+        positions, charges, cell, batch_idx = _pme_partial_empty_batch(dev)
+        weights = torch.tensor([1.7, -0.4], dtype=positions.dtype, device=dev)
+
+        atom_positions = positions.clone().requires_grad_(True)
+        atom_charges = charges.clone().requires_grad_(True)
+        atom_energy = pme_reciprocal_space(
+            atom_positions,
+            atom_charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            batch_idx=batch_idx,
+        )
+        atom_gradients = torch.autograd.grad(
+            atom_energy,
+            (atom_positions, atom_charges),
+            grad_outputs=weights.index_select(0, batch_idx.long()),
+        )
+
+        system_positions = positions.clone().requires_grad_(True)
+        system_charges = charges.clone().requires_grad_(True)
+        system_energy = pme_reciprocal_space(
+            system_positions,
+            system_charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            batch_idx=batch_idx,
+            energy_reduction="system",
+        )
+        expected_energy = torch.zeros(2, dtype=atom_energy.dtype, device=dev).index_add(
+            0,
+            batch_idx.long(),
+            atom_energy.detach(),
+        )
+        system_gradients = torch.autograd.grad(
+            system_energy,
+            (system_positions, system_charges),
+            grad_outputs=weights,
+        )
+
+        assert system_energy.shape == (2,)
+        assert system_energy[1].item() == 0.0
+        torch.testing.assert_close(system_energy, expected_energy)
+        torch.testing.assert_close(system_gradients[0], atom_gradients[0])
+        torch.testing.assert_close(system_gradients[1], atom_gradients[1])
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_uniform_sum_uses_cached_first_grad(self, device, monkeypatch):
+        """Uniform ``energy.sum()`` cotangents consume cached first derivatives."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        call_count = 0
+        original_impl = pme_module._pme_reciprocal_space_impl
+
+        def _counting_impl(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_impl(*args, **kwargs)
+
+        monkeypatch.setattr(pme_module, "_pme_reciprocal_space_impl", _counting_impl)
+        positions, charges, cell = _pme_contract_dipole(device)
+        positions = positions.clone().requires_grad_(True)
+
+        energy = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            compute_forces=False,
+        )
+        torch.autograd.grad(energy.sum(), positions)
+
+        assert call_count == 1
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_pme_releases_explicit_fallback_state_after_weighted_backward(
+        self, device
+    ):
+        """Full PME releases saved neighbor state after weighted fallback backward."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, _charges, cell = _pme_contract_dipole(device)
+        neighbor_list, neighbor_ptr, neighbor_shifts = _pme_full_neighbors(
+            positions,
+            cell,
+            device,
+        )
+        neighbor_refs = tuple(
+            weakref.ref(tensor)
+            for tensor in (neighbor_list, neighbor_ptr, neighbor_shifts)
+        )
+        positions = positions.detach().clone().requires_grad_(True)
+        energies = particle_mesh_ewald(
+            positions,
+            toy_charge_model(positions),
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+        )
+        del neighbor_list, neighbor_ptr, neighbor_shifts
+        gc.collect()
+
+        assert all(reference() is not None for reference in neighbor_refs)
+
+        torch.autograd.grad(
+            energies,
+            positions,
+            grad_outputs=torch.tensor([1.0, 2.0], dtype=positions.dtype, device=device),
+        )
+        gc.collect()
+
+        assert all(reference() is None for reference in neighbor_refs)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_reciprocal_qR_uses_cached_first_grad_without_nested_recompute(
+        self, device, monkeypatch
+    ):
+        """Direct reciprocal q(R) uses cached first gradients and matches FD."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        cached_first_calls = 0
+        original_apply = pme_module._PMEReciprocalCachedFirstGrad.apply
+
+        def _counting_apply(*args, **kwargs):
+            nonlocal cached_first_calls
+            cached_first_calls += 1
+            return original_apply(*args, **kwargs)
+
+        monkeypatch.setattr(
+            pme_module._PMEReciprocalCachedFirstGrad,
+            "apply",
+            _counting_apply,
+        )
+        positions, _charges, cell = _pme_contract_dipole(device)
+        base = positions.detach().clone().requires_grad_(True)
+
+        def energy_of_base(base_positions):
+            return pme_reciprocal_space(
+                base_positions * 1.0,
+                toy_charge_model(base_positions),
+                cell,
+                alpha=0.3,
+                mesh_dimensions=_MESH,
+            ).sum()
+
+        (gradient,) = torch.autograd.grad(
+            energy_of_base(base),
+            base,
+            create_graph=True,
+        )
+        (hvp,) = torch.autograd.grad(gradient.square().sum(), base)
+        gradient_fd = finite_difference_jacobian(
+            energy_of_base,
+            base.detach(),
+            eps=1e-6,
+        )
+
+        assert cached_first_calls == 1
+        assert torch.isfinite(hvp).all()
+        torch.testing.assert_close(gradient.detach(), gradient_fd, rtol=2e-3, atol=1e-5)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_qR_create_graph_fallback_avoids_nested_cached_first(
+        self, device, monkeypatch
+    ):
+        """Full PME lazy q(R) recomputation must not re-enter reciprocal caching."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        cached_first_calls = 0
+        original_apply = pme_module._PMEReciprocalCachedFirstGrad.apply
+
+        def _counting_apply(*args, **kwargs):
+            nonlocal cached_first_calls
+            cached_first_calls += 1
+            return original_apply(*args, **kwargs)
+
+        monkeypatch.setattr(
+            pme_module._PMEReciprocalCachedFirstGrad,
+            "apply",
+            _counting_apply,
+        )
+        positions, _charges, cell = _pme_contract_dipole(device)
+        neighbor_list, neighbor_ptr, neighbor_shifts = _pme_full_neighbors(
+            positions,
+            cell,
+            device,
+        )
+        base = positions.detach().clone().requires_grad_(True)
+        energy = particle_mesh_ewald(
+            base * 1.0,
+            toy_charge_model(base),
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+        )
+        (grad,) = torch.autograd.grad(energy.sum(), base, create_graph=True)
+        (second_grad,) = torch.autograd.grad(grad.square().sum(), base)
+
+        assert torch.isfinite(second_grad).all()
+        assert cached_first_calls == 0
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_hybrid_full_qR_fallback_avoids_nested_cached_first(
+        self, device, monkeypatch
+    ):
+        """Hybrid full-PME q(R) fallback does not nest reciprocal caching."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        cached_first_calls = 0
+        original_apply = pme_module._PMEReciprocalCachedFirstGrad.apply
+
+        def _counting_apply(*args, **kwargs):
+            nonlocal cached_first_calls
+            cached_first_calls += 1
+            return original_apply(*args, **kwargs)
+
+        monkeypatch.setattr(
+            pme_module._PMEReciprocalCachedFirstGrad,
+            "apply",
+            _counting_apply,
+        )
+        positions, _charges, cell = _pme_contract_dipole(device)
+        neighbor_list, neighbor_ptr, neighbor_shifts = _pme_full_neighbors(
+            positions,
+            cell,
+            device,
+        )
+        base = positions.detach().clone().requires_grad_(True)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The direct-output flag\(s\).*",
+                category=DeprecationWarning,
+            )
+            energy = particle_mesh_ewald(
+                base * 1.0,
+                toy_charge_model(base),
+                cell,
+                alpha=0.3,
+                mesh_dimensions=_MESH,
+                neighbor_list=neighbor_list,
+                neighbor_ptr=neighbor_ptr,
+                neighbor_shifts=neighbor_shifts,
+                hybrid_forces=True,
+            )
+        (gradient,) = torch.autograd.grad(energy.sum(), base, create_graph=True)
+        (second_grad,) = torch.autograd.grad(gradient.square().sum(), base)
+
+        assert torch.isfinite(second_grad).all()
+        assert cached_first_calls == 0
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_qR_fallback_preserves_reciprocal_alpha_precision(
+        self, device, monkeypatch
+    ):
+        """Full PME fallback retains public reciprocal float64 alpha setup."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        fallback_alpha_dtypes = []
+        original_impl = pme_module._pme_reciprocal_space_impl
+
+        def _recording_impl(*args, **kwargs):
+            if args[0].requires_grad:
+                fallback_alpha_dtypes.append(args[3].dtype)
+            return original_impl(*args, **kwargs)
+
+        monkeypatch.setattr(pme_module, "_pme_reciprocal_space_impl", _recording_impl)
+        positions, _charges, cell = _pme_contract_dipole(device, dtype=torch.float32)
+        neighbor_list, neighbor_ptr, neighbor_shifts = _pme_full_neighbors(
+            positions,
+            cell,
+            device,
+        )
+        base = positions.detach().clone().requires_grad_(True)
+        energy = particle_mesh_ewald(
+            base * 1.0,
+            toy_charge_model(base),
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            neighbor_list=neighbor_list,
+            neighbor_ptr=neighbor_ptr,
+            neighbor_shifts=neighbor_shifts,
+        )
+        torch.autograd.grad(energy.sum(), base, create_graph=True)
+
+        assert fallback_alpha_dtypes == [torch.float64]
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_nonuniform_cotangent_uses_eager_path(self, device):
+        """Non-uniform per-atom cotangents bypass cached direct derivatives."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        weights = torch.tensor([0.25, 1.75], dtype=positions.dtype, device=device)
+
+        positions_eval = positions.clone().requires_grad_(True)
+        energy_eval = pme_reciprocal_space(
+            positions_eval,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            compute_forces=False,
+        )
+        (grad_eval,) = torch.autograd.grad(
+            energy_eval,
+            positions_eval,
+            grad_outputs=weights,
+        )
+
+        positions_ref = positions.clone().requires_grad_(True)
+        energy_ref = self._eager_reciprocal_energy(positions_ref, charges, cell)
+        (grad_ref,) = torch.autograd.grad(
+            energy_ref,
+            positions_ref,
+            grad_outputs=weights,
+        )
+
+        torch.testing.assert_close(grad_eval, grad_ref, rtol=1e-5, atol=1e-7)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_precomputed_metadata_requires_grad_uses_cached_path(
+        self, device, monkeypatch
+    ):
+        """Grad-bearing PME metadata is detached before cached first-gradient routing."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        pme_module = import_module("nvalchemiops.torch.interactions.electrostatics.pme")
+        call_count = 0
+        original_cached = pme_module._pme_reciprocal_cached_first_grad
+
+        def _counting_cached(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original_cached(*args, **kwargs)
+
+        monkeypatch.setattr(
+            pme_module,
+            "_pme_reciprocal_cached_first_grad",
+            _counting_cached,
+        )
+        positions, charges, cell = _pme_contract_dipole(device)
+        k_vectors, k_squared = generate_k_vectors_pme(cell, _MESH)
+        k_squared = k_squared.detach().clone().requires_grad_(True)
+        positions = positions.clone().requires_grad_(True)
+
+        energy = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            k_vectors=k_vectors.detach(),
+            k_squared=k_squared,
+            compute_forces=False,
+        )
+        grad_positions, grad_k_squared = torch.autograd.grad(
+            energy.sum(),
+            (positions, k_squared),
+            allow_unused=True,
+        )
+
+        assert call_count == 1
+        assert torch.isfinite(grad_positions).all()
+        assert grad_k_squared is None
+
+
+class TestPMEEnergyDerivativeContract:
+    """First-order energy-derivative contract via the F3 harness (recip + full PME)."""
+
+    def _energy_fn(self, which, positions, cell, device, alpha, batch_idx=None):
+        """Build a pinned (alpha + mesh) PME energy_fn for recip-only or full PME."""
+        if which == "recip":
+
+            def energy_fn(p, q, c):
+                return pme_reciprocal_space(
+                    p,
+                    q,
+                    c,
+                    alpha=alpha,
+                    mesh_dimensions=_MESH,
+                    batch_idx=batch_idx,
+                    compute_forces=False,
+                )
+
+            return energy_fn
+        nl, nptr, ns = _pme_full_neighbors(positions, cell, device, batch_idx)
+
+        def energy_fn(p, q, c):
+            return particle_mesh_ewald(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=ns,
+                batch_idx=batch_idx,
+                compute_forces=False,
+            )
+
+        return energy_fn
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_fixed_charge_forces_fd(self, device, dtype, which):
+        """-grad(E.sum(), positions) == FD forces (fixed charges)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device, dtype=dtype)
+        alpha = torch.tensor([0.3], dtype=dtype, device=device)
+        energy_fn = self._energy_fn(which, positions, cell, device, alpha)
+        ad = autograd_forces(energy_fn, positions, charges, cell)
+        if dtype == torch.float32:
+            pos64, cell64 = positions.double(), cell.double()
+            energy_fn64 = self._energy_fn(which, pos64, cell64, device, alpha.double())
+            fd = fd_forces(energy_fn64, pos64, charges.double(), cell64)
+            rtol, atol = PC_FORCE_RTOL_F32, PC_FORCE_ATOL_F32
+        else:
+            fd = fd_forces(energy_fn, positions, charges, cell)
+            rtol, atol = PC_FORCE_RTOL, PC_FORCE_ATOL
+        max_abs, max_rel = max_abs_rel(fd, ad)
+        assert torch.allclose(fd.to(ad.dtype), ad, rtol=rtol, atol=atol), (
+            f"{which} forces FD vs autograd: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_fixed_charge_forces_fd_matrix(self, device):
+        """Full PME via the neighbor-MATRIX short-range path: forces FD-match.
+
+        Fills the {single, matrix, PME} coverage cell (PME reciprocal is mesh-based;
+        the matrix axis applies to the Ewald-real short-range part of full PME).
+        """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        nl, _, ns = _pme_full_neighbors(positions, cell, device)
+        num_atoms = positions.shape[0]
+        max_neighbors = 20
+        mask = num_atoms
+        nm = torch.full(
+            (num_atoms, max_neighbors), mask, dtype=torch.int32, device=device
+        )
+        nms = torch.zeros(
+            (num_atoms, max_neighbors, 3), dtype=torch.int32, device=device
+        )
+        counts = torch.zeros(num_atoms, dtype=torch.int32, device=device)
+        for k in range(nl.shape[1]):
+            i = nl[0, k].item()
+            c = counts[i].item()
+            nm[i, c] = nl[1, k]
+            nms[i, c] = ns[k]
+            counts[i] += 1
+
+        def energy_fn(p, q, cl):
+            return particle_mesh_ewald(
+                p,
+                q,
+                cl,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                neighbor_matrix=nm,
+                neighbor_matrix_shifts=nms,
+                mask_value=mask,
+                compute_forces=False,
+            )
+
+        fd = fd_forces(energy_fn, positions, charges, cell)
+        ad = autograd_forces(energy_fn, positions, charges, cell)
+        max_abs, max_rel = max_abs_rel(fd, ad)
+        assert torch.allclose(fd, ad, rtol=PC_FORCE_RTOL, atol=PC_FORCE_ATOL), (
+            f"matrix forces FD vs autograd: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_fixed_charge_charge_grad_fd(self, device, which):
+        """grad(E.sum(), charges) == FD dE/dq."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        energy_fn = self._energy_fn(which, positions, cell, device, alpha)
+        fd = fd_charge_grad(energy_fn, positions, charges, cell)
+        ad = autograd_charge_grad(energy_fn, positions, charges, cell)
+        max_abs, max_rel = max_abs_rel(fd, ad)
+        assert torch.allclose(fd, ad, rtol=PC_CHARGE_RTOL, atol=PC_CHARGE_ATOL), (
+            f"{which} dE/dq FD vs autograd: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_fixed_charge_strain_virial_fd(self, device, which):
+        """Row-vector displacement virial matches FD with regenerated k/volume."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        if which == "full":
+            # full PME closure must rebuild neighbors from the deformed cell.
+            cutoff = 5.0
+            pbc = torch.tensor([[True, True, True]], device=device)
+
+            def energy_fn(p, q, c):
+                nl, nptr, ns = cell_list(p, cutoff, c, pbc, return_neighbor_list=True)
+                return particle_mesh_ewald(
+                    p,
+                    q,
+                    c,
+                    alpha=alpha,
+                    mesh_dimensions=_MESH,
+                    neighbor_list=nl,
+                    neighbor_ptr=nptr,
+                    neighbor_shifts=ns,
+                    compute_forces=False,
+                )
+        else:
+            energy_fn = self._energy_fn(which, positions, cell, device, alpha)
+        fd = fd_strain_virial(energy_fn, positions, charges, cell, batch_idx=None)
+        ad = autograd_strain_virial(energy_fn, positions, charges, cell, batch_idx=None)
+        max_abs, max_rel = max_abs_rel(fd, ad)
+        assert torch.allclose(fd, ad, rtol=PC_VIRIAL_RTOL, atol=PC_VIRIAL_ATOL), (
+            f"{which} strain-virial FD vs autograd: "
+            f"max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_direct_virial_equals_strain_virial(self, device):
+        """Full-PME direct compute_virial output == autograd strain-virial."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        cutoff = 5.0
+        pbc = torch.tensor([[True, True, True]], device=device)
+        nl, nptr, ns = cell_list(
+            positions, cutoff, cell, pbc, return_neighbor_list=True
+        )
+
+        def energy_fn(p, q, c):
+            nl2, np2, ns2 = cell_list(p, cutoff, c, pbc, return_neighbor_list=True)
+            return particle_mesh_ewald(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                neighbor_list=nl2,
+                neighbor_ptr=np2,
+                neighbor_shifts=ns2,
+                compute_forces=False,
+            )
+
+        _, _, virial = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+            compute_forces=True,
+            compute_virial=True,
+        )
+        ad = autograd_strain_virial(energy_fn, positions, charges, cell, batch_idx=None)
+        max_abs, max_rel = max_abs_rel(virial.squeeze(0), ad.squeeze(0))
+        assert torch.allclose(virial.squeeze(0), ad.squeeze(0), rtol=1e-3, atol=1e-4), (
+            f"direct virial vs strain-virial: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_virial_over_volume_convention(self, device):
+        """Documented convention: stress = dE/d(displacement) / volume."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        nl, nptr, ns = _pme_full_neighbors(positions, cell, device)
+        _, _, virial = particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+            compute_forces=True,
+            compute_virial=True,
+        )
+
+        positions_s = positions.clone().requires_grad_(True)
+        strain = torch.zeros(
+            1,
+            3,
+            3,
+            dtype=positions.dtype,
+            device=device,
+            requires_grad=True,
+        )
+        deform = (
+            torch.eye(3, dtype=positions.dtype, device=device).unsqueeze(0) + strain
+        )
+        batch_idx = torch.zeros(positions_s.shape[0], dtype=torch.int32, device=device)
+        positions_def = torch.einsum("ni,nij->nj", positions_s, deform[batch_idx])
+        cell_def = torch.einsum("bij,bjk->bik", cell, deform)
+        energy = particle_mesh_ewald(
+            positions_def,
+            charges,
+            cell_def,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+        )
+        grad_strain = torch.autograd.grad(energy.sum(), strain)[0]
+        volume = torch.abs(torch.linalg.det(cell_def.detach()))
+        stress = grad_strain / volume[:, None, None]
+        assert stress.shape == virial.shape
+        torch.testing.assert_close(-grad_strain, virial)
+        torch.testing.assert_close(-stress * volume[:, None, None], virial)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_qR_full_force_fd(self, device):
+        """q(R): full -grad(E.sum(), positions) == FD of E(R, q(R)) (chain rule)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, _, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        nl, nptr, ns = _pme_full_neighbors(positions, cell, device)
+
+        def energy_fn(p, q, c):
+            q_of_r = toy_charge_model(p)
+            return particle_mesh_ewald(
+                p,
+                q_of_r,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=ns,
+                compute_forces=False,
+            )
+
+        q_placeholder = toy_charge_model(positions).detach()
+        fd = fd_forces(energy_fn, positions, q_placeholder, cell)
+        ad = autograd_forces(energy_fn, positions, q_placeholder, cell)
+        max_abs, max_rel = max_abs_rel(fd, ad)
+        assert torch.allclose(fd, ad, rtol=PC_FORCE_RTOL, atol=PC_FORCE_ATOL), (
+            f"q(R) full force FD vs autograd: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_qR_direct_output_equals_fixed_partial(self, device):
+        """Direct force equals the fixed-charge partial; full q(R) force includes dE/dq.dq/dR."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, _, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        nl, nptr, ns = _pme_full_neighbors(positions, cell, device)
+        q_fixed = toy_charge_model(positions).detach()
+
+        _, direct_force = particle_mesh_ewald(
+            positions,
+            q_fixed,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+            compute_forces=True,
+        )
+
+        p = positions.clone().requires_grad_(True)
+        e_partial = particle_mesh_ewald(
+            p,
+            q_fixed,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+            compute_forces=False,
+        )
+        (gp,) = torch.autograd.grad(e_partial.sum(), p)
+        partial_force = -gp
+
+        torch.testing.assert_close(
+            direct_force,
+            partial_force,
+            rtol=1e-4,
+            atol=1e-6,
+            msg="direct-output force must equal the fixed-charge partial",
+        )
+
+        p2 = positions.clone().requires_grad_(True)
+        e_full = particle_mesh_ewald(
+            p2,
+            toy_charge_model(p2),
+            cell,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+            compute_forces=False,
+        )
+        (gp2,) = torch.autograd.grad(e_full.sum(), p2)
+        full_force = -gp2
+        assert (full_force - partial_force).abs().max() > 1e-6, (
+            "full q(R) force must include dE/dq.dq/dR (differ from the partial)"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_batch_forces_fd(self, device, which):
+        """Batched: -grad(E.sum(), positions) == FD forces (2 systems)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, batch_idx = _pme_contract_batch(device)
+        alpha = torch.tensor([0.3, 0.3], dtype=torch.float64, device=device)
+        energy_fn = self._energy_fn(
+            which, positions, cell, device, alpha, batch_idx=batch_idx
+        )
+        fd = fd_forces(energy_fn, positions, charges, cell)
+        ad = autograd_forces(energy_fn, positions, charges, cell)
+        max_abs, max_rel = max_abs_rel(fd, ad)
+        assert torch.allclose(fd, ad, rtol=PC_FORCE_RTOL, atol=PC_FORCE_ATOL), (
+            f"{which} batch forces FD vs autograd: "
+            f"max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+
+class TestPMEQRGeometryFallback:
+    """q(R) manual-chain and HVP guards for CUDA non-uniform cotangent fallback."""
+
+    _QR_MESH = (10, 10, 10)
+
+    def _recip_energy_fn(self, positions, cell, device, alpha):
+        def energy_fn(p, q, c):
+            return pme_reciprocal_space(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=self._QR_MESH,
+                compute_forces=False,
+            )
+
+        return energy_fn
+
+    def _full_energy_fn(self, positions, cell, device, alpha):
+        nl, nptr, ns = _pme_full_neighbors(positions, cell, device)
+
+        def energy_fn(p, q, c):
+            return particle_mesh_ewald(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=self._QR_MESH,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=ns,
+                compute_forces=False,
+            )
+
+        return energy_fn
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_qR_manual_chain_weighted_loss(self, device, which):
+        """Weighted q(R) loss: full autograd == manual chain (CUDA fallback path)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, _, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        if which == "recip":
+            energy_fn = self._recip_energy_fn(positions, cell, device, alpha)
+        else:
+            energy_fn = self._full_energy_fn(positions, cell, device, alpha)
+        weights = torch.tensor([1.2, 0.8], dtype=torch.float64, device=device)
+        full, manual = qr_manual_chain_gradient(
+            energy_fn,
+            positions,
+            cell,
+            per_atom_weights=weights,
+        )
+        max_abs, max_rel = max_abs_rel(full, manual)
+        rtol = 3e-3 if which == "full" else 2e-3
+        assert torch.allclose(full, manual, rtol=rtol, atol=1e-6), (
+            f"{which} q(R) manual chain weighted: max_abs={max_abs:.3e} "
+            f"max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_qR_hvp_weighted_loss(self, device, which):
+        """q(R) HVP along random direction matches FD of manual first gradient."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, _, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        if which == "recip":
+            energy_fn = self._recip_energy_fn(positions, cell, device, alpha)
+        else:
+            energy_fn = self._full_energy_fn(positions, cell, device, alpha)
+        weights = torch.tensor([1.2, 0.8], dtype=torch.float64, device=device)
+        gen = torch.Generator(device=device)
+        gen.manual_seed(115)
+        direction = torch.randn_like(positions, generator=gen)
+        direction = direction / direction.norm()
+        hvp_ad, hvp_fd = qr_hvp_positions(
+            energy_fn,
+            positions,
+            cell,
+            direction,
+            per_atom_weights=weights,
+        )
+        max_abs, max_rel = max_abs_rel(hvp_ad, hvp_fd)
+        rtol = 3e-3 if which == "full" else 2e-3
+        assert torch.allclose(hvp_ad, hvp_fd, rtol=rtol, atol=1e-5), (
+            f"{which} q(R) HVP weighted: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+
+class TestPMEDoubleBackward:
+    """Second-order contract: create_graph losses + gradgradcheck (recip + full)."""
+
+    def _build(self, which, device, triclinic=False, explicit_batch=False):
+        positions, charges, cell = _pme_contract_dipole(device)
+        if triclinic:
+            # Non-cubic cell: exercises the mixed d2E/dpos.dcell second order that a
+            # diagonal cell can leave at zero.
+            cell = torch.tensor(
+                [[[10.0, 0.0, 0.0], [1.5, 10.0, 0.0], [0.8, 1.2, 10.0]]],
+                dtype=torch.float64,
+                device=device,
+            )
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        batch_idx = (
+            torch.zeros(positions.shape[0], dtype=torch.int32, device=device)
+            if explicit_batch
+            else None
+        )
+        batch_kwargs = {"batch_idx": batch_idx} if explicit_batch else {}
+        if which == "recip":
+
+            def energy_fn(p, q, c):
+                return pme_reciprocal_space(
+                    p,
+                    q,
+                    c,
+                    alpha=alpha,
+                    mesh_dimensions=_MESH,
+                    compute_forces=False,
+                    **batch_kwargs,
+                )
+        else:
+            nl, nptr, ns = _pme_full_neighbors(
+                positions,
+                cell,
+                device,
+                batch_idx=batch_idx,
+            )
+
+            def energy_fn(p, q, c):
+                return particle_mesh_ewald(
+                    p,
+                    q,
+                    c,
+                    alpha=alpha,
+                    mesh_dimensions=_MESH,
+                    neighbor_list=nl,
+                    neighbor_ptr=nptr,
+                    neighbor_shifts=ns,
+                    compute_forces=False,
+                    **batch_kwargs,
+                )
+
+        return energy_fn, positions, charges, cell
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_force_loss_double_backward(self, device, which):
+        """Force-loss .backward(create_graph=True): grad to charges FD-matches."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(which, device)
+
+        def loss_of_charge(q):
+            p = positions.clone().requires_grad_(True)
+            e = energy_fn(p, q, cell)
+            (f,) = torch.autograd.grad(e.sum(), p, create_graph=True)
+            return f.pow(2).sum()
+
+        q = charges.clone().requires_grad_(True)
+        loss_of_charge(q).backward()
+        ad = q.grad.clone()
+        assert torch.isfinite(ad).all() and ad.abs().sum() > 0
+        fd = finite_difference_jacobian(
+            lambda qq: loss_of_charge(qq), charges.detach(), eps=1e-6
+        )
+        max_abs, max_rel = max_abs_rel(ad, fd)
+        assert torch.allclose(ad, fd, rtol=1e-3, atol=1e-5), (
+            f"{which} force-loss dbwd grad: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_qR_force_loss_double_backward_batch(self, device, which):
+        """Batched q(R) force-loss double-backward FD-matches positions.grad."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, _charges, cell, batch_idx = _pme_contract_batch(device)
+        alpha = torch.tensor([0.3, 0.3], dtype=torch.float64, device=device)
+        nl, nptr, ns = _pme_full_neighbors(positions, cell, device, batch_idx=batch_idx)
+
+        def energy_fn(p, q, c):
+            if which == "recip":
+                return pme_reciprocal_space(
+                    p,
+                    q,
+                    c,
+                    alpha=alpha,
+                    mesh_dimensions=_MESH,
+                    batch_idx=batch_idx,
+                )
+            return particle_mesh_ewald(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=ns,
+                batch_idx=batch_idx,
+            )
+
+        def loss_of_positions(p_in):
+            p = p_in.clone().requires_grad_(True)
+            q = toy_charge_model(p, batch_idx=batch_idx)
+            e = energy_fn(p, q, cell)
+            (f,) = torch.autograd.grad(e.sum(), p, create_graph=True)
+            return f.pow(2).sum()
+
+        p_leaf = positions.detach().clone().requires_grad_(True)
+        loss_of_positions(p_leaf).backward()
+        ad = p_leaf.grad.clone()
+        assert torch.isfinite(ad).all() and ad.abs().sum() > 0
+        fd = finite_difference_jacobian(loss_of_positions, positions.detach(), eps=1e-6)
+        max_abs, max_rel = max_abs_rel(ad, fd)
+        assert torch.allclose(ad, fd, rtol=3e-3, atol=1e-5), (
+            f"{which} batched q(R) force-loss dbwd: "
+            f"max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    @pytest.mark.parametrize("create_graph", [False, True])
+    def test_qR_sibling_positions_force_matches_fd(self, device, which, create_graph):
+        """Sibling position and charge graphs preserve the full q(R) force."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, _charges, cell = self._build(which, device)
+        positions = positions.detach().clone().requires_grad_(True)
+
+        def energy_of_base(base):
+            return energy_fn(base * 1.0, toy_charge_model(base), cell).sum()
+
+        energy = energy_of_base(positions)
+        (grad_positions,) = torch.autograd.grad(
+            energy,
+            positions,
+            create_graph=create_graph,
+        )
+        fd_grad = finite_difference_jacobian(
+            energy_of_base,
+            positions.detach(),
+            eps=1e-6,
+        )
+        max_abs, max_rel = max_abs_rel(grad_positions, fd_grad)
+        assert torch.allclose(
+            grad_positions,
+            fd_grad,
+            rtol=PC_FORCE_RTOL,
+            atol=PC_FORCE_ATOL,
+        ), f"{which} sibling q(R) force: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+
+        if create_graph:
+            generator = torch.Generator(device=positions.device).manual_seed(115)
+            direction = torch.randn(
+                positions.shape,
+                dtype=positions.dtype,
+                device=positions.device,
+                generator=generator,
+            )
+            direction = direction / direction.norm()
+            (hvp,) = torch.autograd.grad(
+                (grad_positions * direction).sum(),
+                positions,
+            )
+
+            def grad_dot(base):
+                base = base.detach().clone().requires_grad_(True)
+                (grad_base,) = torch.autograd.grad(
+                    energy_of_base(base),
+                    base,
+                )
+                return (grad_base * direction).sum()
+
+            hvp_fd = finite_difference_jacobian(
+                grad_dot,
+                positions.detach(),
+                eps=1e-6,
+            )
+            torch.testing.assert_close(hvp, hvp_fd, rtol=3e-3, atol=1e-5)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    @pytest.mark.parametrize("topology", ["shared", "sibling"])
+    def test_qcell_gradient_and_hvp_match_fd(self, device, which, topology):
+        """q(cell) gradients and HVPs preserve direct and charge-chain terms."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, _charges, cell = self._build(
+            which, device, triclinic=True
+        )
+        positions = positions.detach()
+
+        def charges_of_cell(cell_base):
+            scalar = (
+                cell_base[0, 0, 0]
+                + 0.25 * cell_base[0, 1, 2]
+                - 0.1 * cell_base[0, 2, 1]
+            )
+            return torch.stack((scalar, -scalar))
+
+        def gradient_of_cell(cell_base, create_graph):
+            cell_for_pme = cell_base if topology == "shared" else cell_base * 1.0
+            energy = energy_fn(
+                positions,
+                charges_of_cell(cell_base),
+                cell_for_pme,
+            ).sum()
+            return torch.autograd.grad(energy, cell_base, create_graph=create_graph)[0]
+
+        cell_base = cell.detach().clone().requires_grad_(True)
+        grad = gradient_of_cell(cell_base, create_graph=True)
+        grad_fd = finite_difference_jacobian(
+            lambda value: energy_fn(
+                positions,
+                charges_of_cell(value),
+                value if topology == "shared" else value * 1.0,
+            ).sum(),
+            cell_base.detach().clone(),
+            eps=1e-6,
+        )
+        torch.testing.assert_close(grad, grad_fd, rtol=3e-3, atol=1e-5)
+
+        generator = torch.Generator(device=device).manual_seed(115)
+        direction = torch.randn(
+            cell_base.shape,
+            dtype=cell_base.dtype,
+            device=device,
+            generator=generator,
+        )
+        direction = direction / direction.norm()
+        (hvp,) = torch.autograd.grad((grad * direction).sum(), cell_base)
+        hvp_fd = finite_difference_jacobian(
+            lambda value: (
+                gradient_of_cell(value.detach().clone().requires_grad_(True), False)
+                * direction
+            ).sum(),
+            cell_base.detach().clone(),
+            eps=1e-6,
+        )
+        torch.testing.assert_close(hvp, hvp_fd, rtol=5e-3, atol=1e-5)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_qR_positions_derived_from_cell_gradient_matches_fd(self, device, which):
+        """q(R) must not apply position-to-cell paths twice."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, _charges, cell = self._build(
+            which, device, triclinic=True
+        )
+
+        def energy_of_cell(cell_base):
+            positions_for_pme = positions + 0.01 * cell_base[0, : positions.shape[0]]
+            return energy_fn(
+                positions_for_pme,
+                toy_charge_model(positions_for_pme),
+                cell_base,
+            ).sum()
+
+        cell_base = cell.detach().clone().requires_grad_(True)
+        (grad,) = torch.autograd.grad(
+            energy_of_cell(cell_base),
+            cell_base,
+            create_graph=True,
+        )
+        grad_fd = finite_difference_jacobian(
+            energy_of_cell,
+            cell_base.detach().clone(),
+            eps=1e-6,
+        )
+        torch.testing.assert_close(grad, grad_fd, rtol=3e-3, atol=1e-5)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    @pytest.mark.parametrize("charge_mode", ["modeled", "fixed"])
+    def test_qR_cell_dependency_matches_eager_oracle(
+        self,
+        device,
+        which,
+        charge_mode,
+    ):
+        """Cell-derived q(R) gradients and HVPs match independent eager graphs."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        _energy_fn, positions, fixed_charges, cell = self._build(
+            which,
+            device,
+            triclinic=True,
+        )
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        fractional = positions @ torch.linalg.inv(cell[0])
+        if which == "full":
+            neighbor_list, neighbor_ptr, neighbor_shifts = _pme_full_neighbors(
+                positions,
+                cell,
+                device,
+            )
+
+        def public_energy(p, q, c):
+            if which == "recip":
+                return pme_reciprocal_space(
+                    p,
+                    q,
+                    c,
+                    alpha=alpha,
+                    mesh_dimensions=_MESH,
+                )
+            return particle_mesh_ewald(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                neighbor_list=neighbor_list,
+                neighbor_ptr=neighbor_ptr,
+                neighbor_shifts=neighbor_shifts,
+            )
+
+        def eager_energy(p, q, c):
+            reciprocal, _, _, _ = _pme_reciprocal_space_impl(
+                p,
+                q,
+                c,
+                alpha,
+                _MESH,
+                4,
+                None,
+            )
+            if which == "recip":
+                return reciprocal
+            real = ewald_real_space(
+                p,
+                q,
+                c,
+                alpha,
+                neighbor_list=neighbor_list,
+                neighbor_ptr=neighbor_ptr,
+                neighbor_shifts=neighbor_shifts,
+            )
+            return real + reciprocal
+
+        def graph(energy_fn, create_graph):
+            cell_base = cell.detach().clone().requires_grad_(True)
+            positions_for_pme = fractional @ cell_base[0]
+            if charge_mode == "modeled":
+                charges_for_pme = toy_charge_model(
+                    positions_for_pme,
+                    scale=3.0,
+                    length=2.0,
+                )
+            else:
+                charges_for_pme = fixed_charges.detach().clone()
+            energy = energy_fn(positions_for_pme, charges_for_pme, cell_base)
+            gradient = torch.autograd.grad(
+                energy.sum(),
+                cell_base,
+                create_graph=create_graph,
+            )[0]
+            return cell_base, energy, gradient
+
+        _, _, public_grad = graph(public_energy, create_graph=True)
+        _, _, eager_grad = graph(eager_energy, create_graph=True)
+        torch.testing.assert_close(public_grad, eager_grad, rtol=1e-5, atol=1e-7)
+
+        generator = torch.Generator(device=device).manual_seed(115)
+        direction = torch.randn(
+            cell.shape,
+            dtype=cell.dtype,
+            device=device,
+            generator=generator,
+        )
+        direction = direction / direction.norm()
+        public_cell, _, public_grad = graph(public_energy, create_graph=True)
+        eager_cell, _, eager_grad = graph(eager_energy, create_graph=True)
+        public_hvp = torch.autograd.grad(
+            (public_grad * direction).sum(),
+            public_cell,
+        )[0]
+        eager_hvp = torch.autograd.grad(
+            (eager_grad * direction).sum(),
+            eager_cell,
+        )[0]
+        torch.testing.assert_close(public_hvp, eager_hvp, rtol=1e-5, atol=1e-7)
+
+        weights = torch.tensor([1.2, 0.8], dtype=cell.dtype, device=device)
+
+        def energy_graph(energy_fn):
+            cell_base = cell.detach().clone().requires_grad_(True)
+            positions_for_pme = fractional @ cell_base[0]
+            charges_for_pme = toy_charge_model(
+                positions_for_pme,
+                scale=3.0,
+                length=2.0,
+            )
+            return (
+                cell_base,
+                energy_fn(positions_for_pme, charges_for_pme, cell_base),
+            )
+
+        public_cell, public_energy_value = energy_graph(public_energy)
+        eager_cell, eager_energy_value = energy_graph(eager_energy)
+        public_weighted = torch.autograd.grad(
+            public_energy_value,
+            public_cell,
+            grad_outputs=weights,
+        )[0]
+        eager_weighted = torch.autograd.grad(
+            eager_energy_value,
+            eager_cell,
+            grad_outputs=weights,
+        )[0]
+        torch.testing.assert_close(
+            public_weighted,
+            eager_weighted,
+            rtol=1e-5,
+            atol=1e-7,
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_virial_loss_double_backward(self, device, which):
+        """Virial(stress)-loss .backward(create_graph=True): grad to charges FD-matches."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(which, device)
+
+        def loss_of_charge(q):
+            strain = torch.zeros(
+                1, 3, 3, dtype=torch.float64, device=device, requires_grad=True
+            )
+            eye = torch.eye(3, dtype=torch.float64, device=device).unsqueeze(0)
+            deform = eye + strain
+            atom_sys = torch.zeros(positions.shape[0], dtype=torch.int32, device=device)
+            pos_s = torch.einsum("ni,nij->nj", positions, deform[atom_sys])
+            cell_s = torch.einsum("bij,bjk->bik", cell, deform)
+            e = energy_fn(pos_s, q, cell_s)
+            (v,) = torch.autograd.grad(e.sum(), strain, create_graph=True)
+            return v.pow(2).sum()
+
+        q = charges.clone().requires_grad_(True)
+        loss_of_charge(q).backward()
+        ad = q.grad.clone()
+        assert torch.isfinite(ad).all() and ad.abs().sum() > 0
+        fd = finite_difference_jacobian(
+            lambda qq: loss_of_charge(qq), charges.detach(), eps=1e-6
+        )
+        max_abs, max_rel = max_abs_rel(ad, fd)
+        assert torch.allclose(ad, fd, rtol=1e-3, atol=1e-5), (
+            f"{which} virial-loss dbwd grad: max_abs={max_abs:.3e} max_rel={max_rel:.3e}"
+        )
+
+    @pytest.mark.parametrize("device", ["cuda"])
+    @pytest.mark.parametrize(
+        ("which", "wrt"),
+        [
+            ("recip", ("positions",)),
+            ("recip", ("charges",)),
+            ("recip", ("cell",)),
+            ("recip", ("positions", "cell")),
+            ("full", ("positions", "cell")),
+        ],
+    )
+    def test_gradgradcheck_focused_canary(self, device, which, wrt):
+        """Non-slow second-order canary for key PME derivative paths."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(which, device)
+        assert gradgradcheck_energy(energy_fn, positions, charges, cell, wrt=wrt)
+
+    @pytest.mark.parametrize("device", ["cuda"])
+    def test_gradgradcheck_triclinic_mixed_cuda_canary(self, device):
+        """Non-slow CUDA canary for triclinic PME mixed position-cell terms."""
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(
+            "full",
+            device,
+            triclinic=True,
+        )
+        assert gradgradcheck_energy(
+            energy_fn,
+            positions,
+            charges,
+            cell,
+            wrt=("positions", "cell"),
+        )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize(
+        ("which", "wrt", "triclinic"),
+        [
+            ("recip", ("positions",), False),
+            ("recip", ("cell",), False),
+            ("full", ("charges",), False),
+            ("full", ("positions", "cell"), True),
+        ],
+    )
+    def test_gradgradcheck_explicit_single_batch(self, device, which, wrt, triclinic):
+        """Explicit-B=1 public APIs retain focused float64 second derivatives."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(
+            which,
+            device,
+            triclinic=triclinic,
+            explicit_batch=True,
+        )
+        if wrt == ("positions", "cell"):
+            positions_leaf = positions.clone().requires_grad_(True)
+            cell_leaf = cell.clone().requires_grad_(True)
+            (grad_positions,) = torch.autograd.grad(
+                energy_fn(positions_leaf, charges, cell_leaf).sum(),
+                positions_leaf,
+                create_graph=True,
+            )
+            (mixed_grad,) = torch.autograd.grad(grad_positions.sum(), cell_leaf)
+            assert mixed_grad.abs().max() > 1e-8
+        assert gradgradcheck_energy(energy_fn, positions, charges, cell, wrt=wrt)
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    @pytest.mark.parametrize(
+        "wrt",
+        [("positions",), ("charges",), ("cell",), ("positions", "cell")],
+    )
+    def test_gradgradcheck(self, device, which, wrt):
+        """gradgradcheck (f64) wrt positions / charges / cell / mixed pos-cell.
+
+        recip-only ``cell`` covers spline cell second order; full PME would mask
+        a recip error via real-space. ``("positions", "cell")`` covers the
+        mixed d2E/dpos.dcell term used by stress-training losses.
+        """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(which, device)
+        assert gradgradcheck_energy(energy_fn, positions, charges, cell, wrt=wrt)
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("which", ["recip", "full"])
+    def test_gradgradcheck_triclinic_mixed(self, device, which):
+        """Mixed (positions, cell) gradgradcheck on a TRICLINIC cell.
+
+        The cubic ``_pme_contract_dipole`` cell leaves the mixed d2E/dpos.dcell second
+        order near zero; a non-cubic cell makes it non-trivial for stress-loss
+        double-backward on general cells.
+        """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        energy_fn, positions, charges, cell = self._build(which, device, triclinic=True)
+        assert gradgradcheck_energy(
+            energy_fn, positions, charges, cell, wrt=("positions", "cell")
+        )
+
+    @pytest.mark.parametrize("device", ["cuda"])
+    def test_gradgradcheck_batch_cuda_canary(self, device):
+        """Non-slow CUDA canary for batched PME reciprocal second order."""
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, batch_idx = _pme_contract_batch(device)
+        alpha = torch.tensor([0.3, 0.3], dtype=torch.float64, device=device)
+
+        def energy_fn(p, q, c):
+            return pme_reciprocal_space(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                batch_idx=batch_idx,
+                compute_forces=False,
+            )
+
+        assert gradgradcheck_energy(
+            energy_fn,
+            positions,
+            charges,
+            cell,
+            wrt=("positions", "cell"),
+        )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize("wrt", [("positions",), ("charges",), ("cell",)])
+    def test_gradgradcheck_batch(self, device, wrt):
+        """Batched recip gradgradcheck wrt positions / charges / cell."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, batch_idx = _pme_contract_batch(device)
+        alpha = torch.tensor([0.3, 0.3], dtype=torch.float64, device=device)
+
+        def energy_fn(p, q, c):
+            return pme_reciprocal_space(
+                p,
+                q,
+                c,
+                alpha=alpha,
+                mesh_dimensions=_MESH,
+                batch_idx=batch_idx,
+                compute_forces=False,
+            )
+
+        assert gradgradcheck_energy(energy_fn, positions, charges, cell, wrt=wrt)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_forward_only_energy_no_grad(self, device):
+        """No input requires grad => energy has grad_fn=None (inference path)."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = _pme_contract_dipole(device)
+        alpha = torch.tensor([0.3], dtype=torch.float64, device=device)
+        energy = pme_reciprocal_space(
+            positions,
+            charges,
+            cell,
+            alpha=alpha,
+            mesh_dimensions=_MESH,
+            compute_forces=False,
+        )
+        assert energy.grad_fn is None
+
+
+###########################################################################################
+########################### D1: Direct-Output Deprecations ################################
+###########################################################################################
+
+
+class TestDirectOutputDeprecation:
+    """Direct-output warnings on the full PME API.
+
+    Direct-output flags emit a ``DeprecationWarning`` pointing to the
+    energy-autograd replacement. Component APIs remain the no-warning
+    MD/inference escape hatch.
+    """
+
+    def _system(self, device):
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+        neighbor_list, neighbor_ptr, neighbor_shifts = cell_list(
+            positions,
+            cutoff=5.0,
+            cell=cell,
+            pbc=torch.tensor([True, True, True], dtype=torch.bool, device=device),
+            return_neighbor_list=True,
+        )
+        return positions, charges, cell, neighbor_list, neighbor_ptr, neighbor_shifts
+
+    def _full_call(self, device, **flags):
+        positions, charges, cell, nl, nptr, ns = self._system(device)
+        return particle_mesh_ewald(
+            positions,
+            charges,
+            cell,
+            alpha=0.3,
+            mesh_dimensions=_MESH,
+            neighbor_list=nl,
+            neighbor_ptr=nptr,
+            neighbor_shifts=ns,
+            **flags,
+        )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "compute_forces",
+            "compute_virial",
+            "compute_charge_gradients",
+            "hybrid_forces",
+        ],
+    )
+    def test_full_api_flag_warns(self, device, flag):
+        """Differentiable-use direct outputs emit a DeprecationWarning."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+
+        with pytest.warns(DeprecationWarning) as record:
+            result = self._full_call(device, **{flag: True})
+
+        # Exactly one warning per FULL-API call (no double-warn from the internal
+        # component calls, which are silent).
+        dep = [w for w in record if issubclass(w.category, DeprecationWarning)]
+        assert len(dep) == 1
+        messages = "\n".join(str(w.message) for w in dep)
+        assert "torch.autograd.grad" in messages
+        assert "particle_mesh_ewald" in messages
+        assert dep[0].filename.endswith("test_pme.py")
+        energy = result[0] if isinstance(result, tuple) else result
+        assert torch.isfinite(energy).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_full_api_no_flag_does_not_warn(self, device):
+        """particle_mesh_ewald with no deprecated flag must NOT warn."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            energy = self._full_call(device)
+        assert torch.isfinite(energy).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_energy_value_unchanged_with_deprecated_flag(self, device):
+        """Energy value is essentially identical with or without direct forces.
+
+        The no-flag path runs the energy-autograd kernels; the direct path runs the
+        forward-only kernels. They agree to float64 round-off.
+        """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, nl, nptr, ns = self._system(device)
+
+        def call(**flags):
+            return particle_mesh_ewald(
+                positions,
+                charges,
+                cell,
+                alpha=0.3,
+                mesh_dimensions=_MESH,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=ns,
+                **flags,
+            )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            e_no_flag = call()
+
+        with pytest.warns(DeprecationWarning):
+            e_flag, _forces = call(compute_forces=True)
+
+        torch.testing.assert_close(e_flag, e_no_flag, rtol=1e-6, atol=1e-8)
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_direct_output_tuple_ordering_unchanged(self, device):
+        """Deprecated direct outputs keep their documented (E, F, dQ, virial) ordering."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell, nl, nptr, ns = self._system(device)
+        num_atoms = positions.shape[0]
+
+        with pytest.warns(DeprecationWarning):
+            out = particle_mesh_ewald(
+                positions,
+                charges,
+                cell,
+                alpha=0.3,
+                mesh_dimensions=_MESH,
+                neighbor_list=nl,
+                neighbor_ptr=nptr,
+                neighbor_shifts=ns,
+                compute_forces=True,
+                compute_charge_gradients=True,
+                compute_virial=True,
+            )
+        assert isinstance(out, tuple) and len(out) == 4
+        energies, forces, charge_grads, virial = out
+        assert energies.shape == (num_atoms,)
+        assert forces.shape == (num_atoms, 3)
+        assert charge_grads.shape == (num_atoms,)
+        assert virial.shape == (1, 3, 3)
+        for t in out:
+            assert torch.isfinite(t).all()
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    def test_components_do_not_warn(self, device):
+        """ESCAPE HATCH: pme_reciprocal_space keeps compute_forces=True, no deprecation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            pme_reciprocal_space(
+                positions,
+                charges,
+                cell,
+                alpha=0.3,
+                mesh_dimensions=_MESH,
+                compute_forces=True,
+            )
+
+    @pytest.mark.parametrize("device", ["cuda", "cpu"])
+    @pytest.mark.parametrize(
+        "flag", ["compute_charge_gradients", "compute_virial", "hybrid_forces"]
+    )
+    def test_component_training_style_outputs_warn(self, device, flag):
+        """Component charge/virial/hybrid direct outputs warn during deprecation."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        device = torch.device(device)
+        positions, charges, cell = create_simple_system(device, num_atoms=4)
+
+        with pytest.warns(DeprecationWarning, match="pme_reciprocal_space"):
+            result = pme_reciprocal_space(
+                positions,
+                charges,
+                cell,
+                alpha=0.3,
+                mesh_dimensions=_MESH,
+                **{flag: True},
+            )
+
+        energy = result[0] if isinstance(result, tuple) else result
+        assert torch.isfinite(energy).all()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

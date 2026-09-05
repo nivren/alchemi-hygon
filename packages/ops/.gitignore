@@ -1,0 +1,136 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.tmp/
+nosetests.xml
+coverage.xml
+nvalchemiops.coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Environments
+.env
+.venv
+.venv-*
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyCharm
+.idea/
+
+# VsCode
+.vscode/
+
+# VIM
+*.swp
+*~
+
+# nvalchemiops specific
+*.xyz
+*.npy
+*.npz
+*.tar.gz
+*.png
+docs/benchmarks/_static/nl-*.svg
+*.csv
+!docs/benchmarks/benchmark_results/nl-*.csv
+!docs/benchmarks/benchmark_results/d3-*.csv
+!docs/benchmarks/benchmark_results/el-*.csv
+*.log
+*.cif
+benchmarks/nh3/ammonia_pbc_*.inp
+benchmarks/nh3/ammonia_pbc_*.pdb
+
+# GPU profiling
+nsight-systems*
+*.nvprof
+*.qdrep
+
+# Examples output
+outputs/
+results/
+checkpoints/
+
+# Sphinx documentation
+_build
+docs/_build
+docs/_build*/
+docs/modules/generated
+docs/modules/backreferences
+docs/examples
+docs/sg_execution_times.rst
+
+# Lightning and training logs
+lightning_logs/
+mlruns/
+wandb/
+
+# Slurm logs
+slurm-*.out
+
+# Exclude version file from VCS
+nvalchemiops/_version.py
+
+# Warp kernel cache (CI persists this via actions/cache at $GITHUB_WORKSPACE/.warp-cache)
+.warp-cache/
+
+# Per-test coverage databases and the duration table behind `make
+# minimal-suite-report`. Regenerate rather than commit; they are large and
+# machine-specific.
+.covctx/
+ci_durations.json
+
+# Slow-test verification logs (see tools/verify_slow_tests.sh)
+.slowcheck/

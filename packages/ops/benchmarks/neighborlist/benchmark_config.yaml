@@ -1,0 +1,82 @@
+# Neighbor List Benchmark Configuration
+# =====================================
+# Per-module config following upstream pattern.
+# Two systems (CsCl, NH3) × three scaling modes.
+#
+# Usage (run from the repository root):
+#   RESULT_DIR="$BENCHMARK_SCRATCH/results/manual-nl-run"
+#   python -m benchmarks.neighborlist.benchmark_neighborlist \
+#       --config benchmarks/neighborlist/benchmark_config.yaml \
+#       --output-dir "$RESULT_DIR"
+
+# -----------------------------------------------------------------------------
+# Global Parameters
+# -----------------------------------------------------------------------------
+parameters:
+  cutoffs: [6.0, 15.0, 25.0]       # Angstroms
+  warmup_runs: 3
+  timing_runs: 10
+
+# -----------------------------------------------------------------------------
+# Systems
+# -----------------------------------------------------------------------------
+systems:
+  cscl:
+    enabled: true
+    atom_counts: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
+    constant_atoms_sizes: [250, 8192]   # CsCl valid: 2*5^3=250, 2*16^3=8192
+
+  nh3:
+    enabled: true
+    pdb_dir: ../nh3
+    atom_counts: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
+    constant_atoms_sizes: [256, 8192]   # Must match available PDB sizes
+
+# -----------------------------------------------------------------------------
+# Scaling Modes
+# -----------------------------------------------------------------------------
+scaling:
+  # Mode 1: System Size Scaling (batch=1, vary N)
+  system_size:
+    enabled: true
+    batch_size: 1
+
+  # Mode 2: Constant Workload (fix total ~128k atoms, vary how they're split)
+  constant_workload:
+    enabled: true
+    target_atoms: 131072
+
+  # Mode 3: Batch Scaling (fix N per system, grow batch count up to 128k total)
+  batch_scaling:
+    enabled: true
+    max_total_atoms: 131072
+
+# -----------------------------------------------------------------------------
+# Methods
+# -----------------------------------------------------------------------------
+methods:
+  - name: naive_scalar
+    enabled: true
+    description: "Brute-force O(N²) scalar path"
+
+  - name: naive_tile
+    enabled: true
+    description: "Brute-force O(N²) tile-cooperative CUDA path"
+
+  - name: cell_list_atom_centric
+    enabled: true
+    description: "Cell list O(N) atom-centric query path"
+
+  - name: cell_list_pair_centric
+    enabled: true
+    description: "Cell list O(N) pair-centric sorted query path"
+
+  - name: cluster_tile
+    enabled: true
+    description: "Cluster-pair tile list - Morton-sorted CUDA tile algorithm for large fully periodic float32 systems"
+
+# -----------------------------------------------------------------------------
+# Output
+# -----------------------------------------------------------------------------
+output:
+  base_dir: ../benchmark-results   # Relative to benchmarks/ directory
