@@ -69,6 +69,8 @@ PYTHONPATH=packages/framework:packages/ops \
 
 结果：`4 passed`，退出码 `0`。测试使用独立 FP64 LJ 公式检查距离 `1.1`/`1.2` 的能量和力，比较 full/half 邻居约定，并验证 energy gradient 与返回 force 的符号关系。单卡 HCU wrapper 运行尚未在本轮新增；此前 ops dispatcher 和 framework `compute_neighbors` 已有 HCU 证据。
 
+这也固定了本阶段的验证顺序：优先复用上游 framework/ops 测试作为回归基线，仅为 DCU 后端边界和上游未覆盖的约束补充测试；数值方面先以独立 FP64 解析式和 Torch CPU reference 建立基线，再用 HCU 复核，ASE 保留为可选的独立交叉检查工具。组件当前显式接受的 backend 字符串是阶段性能力边界，后续将统一到中央 registry。
+
 当前 reference wrapper 的前向测试使用预先写入的 neighbor matrix；`BaseModelMixin.make_neighbor_hooks()` 现在会传播模型的 backend，但该方法仍属于 dynamics/Warp 导入边界，自动构造 reference Hook 的完整无 Warp 动态路径留待下一步单独处理。
 
 ## 后续最小纵向实现

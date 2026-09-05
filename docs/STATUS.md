@@ -142,4 +142,5 @@
 - reference wrapper 明确拒绝 PBC、非零 `switch_width`、virial/stress 和 domain decomposition；LJ 模块导入本身不再强制 Warp。当前前向路径要求 Batch 已有 MATRIX 邻居数据，自动动态 Hook 接线尚未完成。
 - 新增 `packages/framework/test/models/test_lj_torch_reference.py`：探索环境 `4 passed`。验证独立 FP64 LJ 公式、full/half 数值一致、总力守恒、energy gradient 与 force 关系，以及 unsupported 条件显式失败。本轮未新增 HCU wrapper 运行证据。
 - `BaseModelMixin.make_neighbor_hooks()` 现在会把模型 backend 传给 Hook；默认模型仍使用 Warp。后端字符串集合目前是组件级显式能力边界，用来拒绝未知请求和避免静默回退；后续应收敛到中央 backend registry，避免各组件重复维护选择规则。由于该方法仍导入 Warp-backed dynamics stage，reference 模型的完整无 Warp 动态构造尚未完成。
+- 验证策略已明确记录：上游 framework/ops 测试作为主回归来源，新增测试只补 DCU backend 选择、无 Warp 导入边界和上游未覆盖的适配约束；数值校验先用独立 FP64 解析结果与 Torch CPU reference，再在 HCU 上复核，ASE 只作为可选的独立交叉检查。当前 LJ 测试已覆盖独立公式、full/half、一阶梯度和总力守恒。
 - 下一小步：隔离 `make_neighbor_hooks()` 所需的 dynamics stage 导入，再跑完整单卡邻居→LJ wrapper 链。
