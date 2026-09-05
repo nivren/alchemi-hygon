@@ -1,0 +1,3185 @@
+{
+  "schema_version": 1,
+  "upstream_lock": "docs/UPSTREAM_LOCK.yaml",
+  "features": [
+    {
+      "id": "data.atomic",
+      "category": "A",
+      "status": "planned",
+      "scenario": "异构原子数据，原子/体系字段、单位、晶胞和设备语义",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/data/atomic_data.py"
+        ],
+        "symbols": {
+          "nvalchemi/data/atomic_data.py": [
+            "_tensor_serialization",
+            "AtomicNumberTable",
+            "_default_mass_table",
+            "AtomicData",
+            "to_one_hot",
+            "voigt_to_matrix",
+            "atomic_numbers_to_indices"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "异构原子数据，原子/体系字段、单位、晶胞和设备语义",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "ase",
+        "collections.abc",
+        "hashlib",
+        "numbers",
+        "numpy",
+        "nvalchemi",
+        "periodictable",
+        "pydantic",
+        "pymatgen.core",
+        "torch",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "continuous_fields_first_and_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/data/__init__.py",
+          "test/data/test_atomic_data.py",
+          "test/data/test_batch.py",
+          "test/data/test_buffer_kernels.py",
+          "test/data/test_data_mixin.py",
+          "test/data/test_dataloader_transforms.py",
+          "test/data/test_dataset_transforms.py",
+          "test/data/test_io_test.py",
+          "test/data/test_level_storage.py",
+          "test/data/test_multidataset_samplers.py",
+          "test/data/test_reader_base.py",
+          "test/data/test_transforms_compose.py",
+          "test/data/test_zarr_datapipe.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G1"
+    },
+    {
+      "id": "data.batch",
+      "category": "A",
+      "status": "planned",
+      "scenario": "异构 batch/unbatch、索引偏移、体系 ID、空输入和容量；不丢失 mutation/alias 约定",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/data/batch.py"
+        ],
+        "symbols": {
+          "nvalchemi/data/batch.py": [
+            "_build_batch_storage",
+            "set_transient",
+            "Batch",
+            "_BatchSendHandle",
+            "_BatchRecvHandle"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "异构 batch/unbatch、索引偏移、体系 ID、空输入和容量；不丢失 mutation/alias 约定",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections",
+        "collections.abc",
+        "numpy",
+        "tensordict",
+        "torch",
+        "torch.distributed",
+        "typing"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "continuous_fields_first_and_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/data/test_batch.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G1"
+    },
+    {
+      "id": "dynamics.fused_stage",
+      "category": "A",
+      "status": "planned",
+      "scenario": "逐体系阶段迁移、阶段预算、不同收敛速度、共享模型和 Hooks 时序",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/dynamics/base.py"
+        ],
+        "symbols": {
+          "nvalchemi/dynamics/base.py": [
+            "BufferConfig",
+            "DynamicsStage",
+            "_ConvergenceCriterion",
+            "_CommunicationMixin",
+            "BaseDynamics",
+            "ConvergenceHook",
+            "FusedStage",
+            "DistributedPipeline"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "逐体系阶段迁移、阶段预算、不同收敛速度、共享模型和 Hooks 时序",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections",
+        "collections.abc",
+        "enum",
+        "jaxtyping",
+        "loguru",
+        "pydantic",
+        "sys",
+        "torch",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "default_md_forward_only",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/dynamics/test_pipeline_stage.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "dynamics.inflight",
+      "category": "A",
+      "status": "planned",
+      "scenario": "完成只写一次、补位状态重置、容量限制、采样耗尽和稳定 ID",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/dynamics/base.py",
+          "nvalchemi/dynamics/sampler.py"
+        ],
+        "symbols": {
+          "nvalchemi/dynamics/base.py": [
+            "BufferConfig",
+            "DynamicsStage",
+            "_ConvergenceCriterion",
+            "_CommunicationMixin",
+            "BaseDynamics",
+            "ConvergenceHook",
+            "FusedStage",
+            "DistributedPipeline"
+          ],
+          "nvalchemi/dynamics/sampler.py": [
+            "SizeAwareSampler"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "完成只写一次、补位状态重置、容量限制、采样耗尽和稳定 ID",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections",
+        "collections.abc",
+        "enum",
+        "jaxtyping",
+        "loguru",
+        "pydantic",
+        "random",
+        "sys",
+        "torch",
+        "torch.utils.data",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "default_md_forward_only",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/dynamics/test_inflight.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "hooks.lifecycle",
+      "category": "A",
+      "status": "planned",
+      "scenario": "调用阶段/频率、异常传播、邻居重建与 profiling 生命周期",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/hooks/_protocol.py",
+          "nvalchemi/hooks/_registry.py",
+          "nvalchemi/hooks/physicsnemo_profiling.py"
+        ],
+        "symbols": {
+          "nvalchemi/hooks/_protocol.py": [
+            "Hook",
+            "CheckpointableHook"
+          ],
+          "nvalchemi/hooks/_registry.py": [
+            "HookRegistryMixin"
+          ],
+          "nvalchemi/hooks/physicsnemo_profiling.py": [
+            "_parse_activity",
+            "TorchProfilerHook"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "调用阶段/频率、异常传播、邻居重建与 profiling 生命周期",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "enum",
+        "pathlib",
+        "physicsnemo.utils.profiling",
+        "pydantic",
+        "torch.profiler",
+        "typing"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "not_applicable",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/hooks/__init__.py",
+          "test/hooks/test_context.py",
+          "test/hooks/test_neighbor_list_hook.py",
+          "test/hooks/test_neighbor_list_nve_conservation.py",
+          "test/hooks/test_physicsnemo_profiler_hook.py",
+          "test/hooks/test_protocol.py",
+          "test/hooks/test_registry.py",
+          "test/hooks/test_reporting.py",
+          "test/hooks/test_reporting_rich.py",
+          "test/hooks/test_reporting_scalars.py",
+          "test/hooks/test_reporting_tensorboard.py",
+          "test/hooks/test_shared_hooks.py",
+          "test/hooks/test_stage_timing_hook.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "models.composition",
+      "category": "A",
+      "status": "planned",
+      "scenario": "能量力应力字段、单位/符号、cutoff、邻居格式和能力协商",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/models/base.py",
+          "nvalchemi/models/pipeline.py"
+        ],
+        "symbols": {
+          "nvalchemi/models/base.py": [
+            "NeighborListFormat",
+            "NeighborConfig",
+            "ModelConfig",
+            "BaseModelMixin"
+          ],
+          "nvalchemi/models/pipeline.py": [
+            "_AutogradStrainState",
+            "_NeighborSource",
+            "_StepNeighborPlan",
+            "_NeighborSourceData",
+            "_PipelineNeighborListHook",
+            "PipelineStep",
+            "PipelineGroup",
+            "PipelineModelWrapper"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "能量力应力字段、单位/符号、cutoff、邻居格式和能力协商",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "abc",
+        "collections",
+        "collections.abc",
+        "dataclasses",
+        "enum",
+        "functools",
+        "pathlib",
+        "pydantic",
+        "torch",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "first_and_force_loss_mixed_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/models/test_pipeline.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "models.mace",
+      "category": "B",
+      "status": "planned",
+      "scenario": "真实 MACE/e3nn 能量、负梯度力、力损失到参数的混合二阶路径",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/models/mace.py"
+        ],
+        "symbols": {
+          "nvalchemi/models/mace.py": [
+            "_load_atomic_energies",
+            "_apply_atomic_energies",
+            "_patch_e3nn_irrep_len_for_compile",
+            "_mace_uses_cueq",
+            "_cueq_conv_unfuse_adapters",
+            "_mace_product_block_static_index_forward",
+            "_mace_cueq_spec",
+            "_mace_scripted_spec",
+            "MACEWrapper"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "真实 MACE/e3nn 能量、负梯度力、力损失到参数的混合二阶路径",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "e3nn.o3",
+        "importlib.metadata",
+        "json",
+        "mace.calculators.foundations_models",
+        "mace.cli.convert_e3nn_cueq",
+        "mace.modules.wrapper_ops",
+        "mace.tools.scatter",
+        "os",
+        "pathlib",
+        "torch",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "first_and_mixed_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/models/test_mace.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "data.storage",
+      "category": "B",
+      "status": "planned",
+      "scenario": "轨迹/预取 stream 生命周期和同步；轨迹不等同于完整模拟 checkpoint",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/data/datapipes/backends/zarr.py",
+          "nvalchemi/data/datapipes/dataloader.py",
+          "nvalchemi/dynamics/sinks.py"
+        ],
+        "symbols": {
+          "nvalchemi/data/datapipes/backends/zarr.py": [
+            "ZarrArrayConfig",
+            "ZarrWriteConfig",
+            "_get_field_level",
+            "_leading_storage_size",
+            "_chunk_span_for_slice",
+            "_sample_chunk_spans",
+            "_spans_overlap",
+            "_merge_chunk_spans",
+            "_merge_physical_runs_by_chunks",
+            "_row_indices_for_ranges",
+            "_get_cat_dim",
+            "_slice_edge_array",
+            "AtomicDataZarrWriter",
+            "AtomicDataZarrReader"
+          ],
+          "nvalchemi/data/datapipes/dataloader.py": [
+            "DataLoader"
+          ],
+          "nvalchemi/dynamics/sinks.py": [
+            "DataSink",
+            "GPUBuffer",
+            "HostMemory",
+            "ZarrData"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "轨迹/预取 stream 生命周期和同步；轨迹不等同于完整模拟 checkpoint",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "abc",
+        "collections.abc",
+        "math",
+        "numpy",
+        "pathlib",
+        "plum",
+        "pydantic",
+        "re",
+        "shutil",
+        "torch",
+        "torch.utils.data",
+        "typing",
+        "zarr",
+        "zarr.abc.codec",
+        "zarr.abc.store",
+        "zarr.storage"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "data_transport",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/data/__init__.py",
+          "test/data/test_atomic_data.py",
+          "test/data/test_batch.py",
+          "test/data/test_buffer_kernels.py",
+          "test/data/test_data_mixin.py",
+          "test/data/test_dataloader_transforms.py",
+          "test/data/test_dataset_transforms.py",
+          "test/data/test_io_test.py",
+          "test/data/test_level_storage.py",
+          "test/data/test_multidataset_samplers.py",
+          "test/data/test_reader_base.py",
+          "test/data/test_transforms_compose.py",
+          "test/data/test_zarr_datapipe.py",
+          "test/dynamics/test_sinks.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "training.loss_checkpoint",
+      "category": "A",
+      "status": "planned",
+      "scenario": "energy/force/stress loss、EMA、优化器与 checkpoint 恢复；恢复字段需逐项核实",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/training/strategy.py",
+          "nvalchemi/training/losses/terms.py",
+          "nvalchemi/training/_checkpoint.py"
+        ],
+        "symbols": {
+          "nvalchemi/training/_checkpoint.py": [
+            "_component_before",
+            "_component_serialize",
+            "_is_fsdp_wrapped",
+            "_checkpoint_model",
+            "_checkpoint_model_components",
+            "CheckpointManifest",
+            "_ckpt_indices",
+            "_without_spec_timestamps",
+            "_check_spec_consistency",
+            "_save_component",
+            "_snapshot_state_value",
+            "_snapshot_state_dict",
+            "_snapshot_components",
+            "_hook_state_key",
+            "_iter_checkpointable_hooks",
+            "_snapshot_hook_states",
+            "_hook_state_path",
+            "_save_hook_states",
+            "_load_hook_states",
+            "_resolve_checkpoint_index",
+            "_create_checkpoint_snapshot",
+            "_write_checkpoint_snapshot",
+            "_assoc_names",
+            "_assoc_scheduler_optimizers",
+            "_assoc_optimizer_parameter_names",
+            "_copy_associations",
+            "_scheduler_optimizer_edges",
+            "_with_scheduler_optimizer_edges",
+            "_infer_associations",
+            "_find_associated_model_params",
+            "_find_associated_optimizer",
+            "_strategy_metadata_path",
+            "_indexed_strategy_metadata_path",
+            "_read_strategy_metadata",
+            "_write_strategy_metadata",
+            "_component_name",
+            "_models_from_strategy_metadata",
+            "_strategy_components",
+            "_loaded_model_objects",
+            "_install_strategy_optimizer_state",
+            "_restore_strategy_runtime_state",
+            "_optimizer_scheduler_maps_from_strategy",
+            "_restore_checkpoint_into_strategy",
+            "_manifest_to_loaded_checkpoint",
+            "_run_validators",
+            "_load_mace_checkpoint",
+            "_strategy_target_device",
+            "_with_strategy_device_override",
+            "_build_model_from_checkpoint_spec",
+            "save_checkpoint",
+            "load_checkpoint",
+            "_load_spec"
+          ],
+          "nvalchemi/training/losses/terms.py": [
+            "_require_metadata",
+            "_node_counts",
+            "_padded_node_mask",
+            "_huber_loss",
+            "EnergyMSELoss",
+            "EnergyMAELoss",
+            "EnergyHuberLoss",
+            "ForceMSELoss",
+            "ForceHuberLoss",
+            "ForceL2NormLoss",
+            "StressMSELoss",
+            "StressHuberLoss"
+          ],
+          "nvalchemi/training/strategy.py": [
+            "_RuntimeOptimizer",
+            "_loss_weight_to_spec",
+            "_validate_single_do_claimants",
+            "_hook_needs_prior_update_orchestrator",
+            "_order_update_orchestrator_before_dependent_hooks",
+            "_validate_hook_dependencies",
+            "_iter_registered_hooks",
+            "default_training_fn",
+            "TrainingStrategy"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "energy/force/stress loss、EMA、优化器与 checkpoint 恢复；恢复字段需逐项核实",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "contextlib",
+        "dataclasses",
+        "itertools",
+        "jaxtyping",
+        "json",
+        "math",
+        "pathlib",
+        "plum",
+        "pydantic",
+        "torch",
+        "torch.distributed._composable.fsdp",
+        "torch.distributed.fsdp",
+        "torch.nn",
+        "torch.optim.lr_scheduler",
+        "types",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "first_and_force_loss_mixed_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/training/__init__.py",
+          "test/training/conftest.py",
+          "test/training/test_checkpoint.py",
+          "test/training/test_checkpoint_hook.py",
+          "test/training/test_ddp_hook.py",
+          "test/training/test_ema_hook.py",
+          "test/training/test_finetune.py",
+          "test/training/test_loss_schedules.py",
+          "test/training/test_losses.py",
+          "test/training/test_mixed_precision.py",
+          "test/training/test_optimizers.py",
+          "test/training/test_runtime.py",
+          "test/training/test_spec.py",
+          "test/training/test_stages.py",
+          "test/training/test_strategy.py",
+          "test/training/test_strategy_validate.py",
+          "test/training/test_training_cli.py",
+          "test/training/test_training_update_orchestrator.py",
+          "test/training/test_validation_config.py",
+          "test/training/test_validation_loop.py",
+          "test/training/test_validation_loop_distributed.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G3"
+    },
+    {
+      "id": "distributed.ddp",
+      "category": "B",
+      "status": "planned",
+      "scenario": "训练梯度归约和 rank 一致性，与大体系域分解单独验证",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/training/distributed.py",
+          "nvalchemi/training/hooks/ddp.py"
+        ],
+        "symbols": {
+          "nvalchemi/training/distributed.py": [
+            "_read_attr_or_call",
+            "_call_manager",
+            "_env_int",
+            "is_distributed_initialized",
+            "get_rank",
+            "get_world_size",
+            "get_local_rank",
+            "distributed_device",
+            "init_distributed",
+            "destroy_distributed",
+            "barrier",
+            "all_reduce"
+          ],
+          "nvalchemi/training/hooks/ddp.py": [
+            "_manager_process_group",
+            "_sampler_is_distributed",
+            "_accepts_distributed_sampler_defaults",
+            "_is_default_sampler_cls",
+            "_infer_shuffle",
+            "DDPHook"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "训练梯度归约和 rank 一致性，与大体系域分解单独验证",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "inspect",
+        "os",
+        "pydantic",
+        "torch",
+        "torch.utils.data",
+        "typing"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "first_and_mixed_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/training/test_ddp_hook.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G3"
+    },
+    {
+      "id": "distributed.domain",
+      "category": "B",
+      "status": "planned",
+      "scenario": "owned/ghost 归属、迁移、halo 梯度、跨边界 pair 不重不漏、全局守恒",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/distributed/domain_parallel.py",
+          "nvalchemi/distributed/particle_halo.py",
+          "nvalchemi/distributed/spec.py"
+        ],
+        "symbols": {
+          "nvalchemi/distributed/domain_parallel.py": [
+            "DomainParallel"
+          ],
+          "nvalchemi/distributed/particle_halo.py": [
+            "_apply_shared_strain",
+            "halo_exchange"
+          ],
+          "nvalchemi/distributed/spec.py": [
+            "_merge_policies",
+            "_merge_compile_policies",
+            "replace_policy",
+            "_decode_output_kinds",
+            "_compile_policy_to_dict",
+            "_compile_policy_from_dict",
+            "ForceStrategy",
+            "CompilePolicy",
+            "MLIPSpec"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "owned/ghost 归属、迁移、halo 梯度、跨边界 pair 不重不漏、全局守恒",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections",
+        "dataclasses",
+        "enum",
+        "json",
+        "logging",
+        "loguru",
+        "pathlib",
+        "torch",
+        "torch.distributed",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "ghost_gradient_and_model_dependent_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/distributed/_core/test_adapter.py",
+          "test/distributed/_core/test_aot_tangent_coercion.py",
+          "test/distributed/_core/test_compile_distributed.py",
+          "test/distributed/_core/test_compile_halo_gather.py",
+          "test/distributed/_core/test_compile_halo_scatter.py",
+          "test/distributed/_core/test_compile_halo_static.py",
+          "test/distributed/_core/test_compile_per_system.py",
+          "test/distributed/_core/test_compile_smoke.py",
+          "test/distributed/_core/test_dispatch_trace.py",
+          "test/distributed/_core/test_distributed_all_reduce.py",
+          "test/distributed/_core/test_escape_hatches.py",
+          "test/distributed/_core/test_gather_primitives.py",
+          "test/distributed/_core/test_gloo_doubles.py",
+          "test/distributed/_core/test_graph_parallel.py",
+          "test/distributed/_core/test_halo_autograd.py",
+          "test/distributed/_core/test_halo_nl_filter.py",
+          "test/distributed/_core/test_halo_primitives_roundtrip.py",
+          "test/distributed/_core/test_neighbor_p2p.py",
+          "test/distributed/_core/test_op_transforms.py",
+          "test/distributed/_core/test_particle_halo.py",
+          "test/distributed/_core/test_pbc_image_vectors.py",
+          "test/distributed/_core/test_per_system.py",
+          "test/distributed/_core/test_placement.py",
+          "test/distributed/_core/test_reshard.py",
+          "test/distributed/_core/test_shard_tensor.py",
+          "test/distributed/_core/test_shard_wrappers.py",
+          "test/distributed/_core/test_storage_policy.py",
+          "test/distributed/_core/test_subgroup_communication.py",
+          "test/distributed/_core/test_topology.py",
+          "test/distributed/_core/test_wrap_custom_op_extensions.py",
+          "test/distributed/_dd_harness.py",
+          "test/distributed/_electrostatics.py",
+          "test/distributed/_gloo_harness.py",
+          "test/distributed/_helpers.py",
+          "test/distributed/_toy_gnn.py",
+          "test/distributed/conftest.py",
+          "test/distributed/model/_toy_graph_parallel_dense.py",
+          "test/distributed/model/_toy_graph_parallel_dense_full.py",
+          "test/distributed/model/_toy_graph_parallel_mpnn.py",
+          "test/distributed/model/_toy_scripted_mpnn.py",
+          "test/distributed/model/test_aimnet2_compile_recompile_gate.py",
+          "test/distributed/model/test_compile_recompile_gate.py",
+          "test/distributed/model/test_dftd3_multigpu.py",
+          "test/distributed/model/test_distributed_models.py",
+          "test/distributed/model/test_distributed_pipeline_multigpu.py",
+          "test/distributed/model/test_electrostatics_stress_multigpu.py",
+          "test/distributed/model/test_ewald_multigpu.py",
+          "test/distributed/model/test_graph_parallel_model.py",
+          "test/distributed/model/test_mace_cueq_compile_gate.py",
+          "test/distributed/model/test_mace_cueq_multigpu.py",
+          "test/distributed/model/test_mace_nocueq_compile_gate.py",
+          "test/distributed/model/test_multigpu.py",
+          "test/distributed/model/test_pme_multigpu.py",
+          "test/distributed/model/test_shared_partition_multigpu.py",
+          "test/distributed/model/test_slab_multigpu.py",
+          "test/distributed/model/test_uma_gp_partition_multigpu.py",
+          "test/distributed/model/test_uma_multigpu.py",
+          "test/distributed/test_2d_subgroup_collectives.py",
+          "test/distributed/test_byo_examples_acceptance.py",
+          "test/distributed/test_compile_refresh.py",
+          "test/distributed/test_config.py",
+          "test/distributed/test_dd_context_helpers.py",
+          "test/distributed/test_deferred_migration_halo.py",
+          "test/distributed/test_domain_parallel.py",
+          "test/distributed/test_domain_parallel_convergence.py",
+          "test/distributed/test_fire_dd.py",
+          "test/distributed/test_global_thermo.py",
+          "test/distributed/test_graph_padder.py",
+          "test/distributed/test_halo_span_exchange.py",
+          "test/distributed/test_init.py",
+          "test/distributed/test_no_attribute_injection.py",
+          "test/distributed/test_output_kinds.py",
+          "test/distributed/test_particle_halo_orchestration.py",
+          "test/distributed/test_partition_health.py",
+          "test/distributed/test_pipeline_construction.py",
+          "test/distributed/test_pipeline_dd_mesh.py",
+          "test/distributed/test_public_api_stability.py",
+          "test/distributed/test_shard_fields.py",
+          "test/distributed/test_sharded_batch.py",
+          "test/distributed/test_spatial_partitioner.py",
+          "test/distributed/test_spec_serialization.py",
+          "test/distributed/test_strategy.py",
+          "test/distributed/test_system_fields.py",
+          "test/distributed/validate/test_helper_diagnosis.py",
+          "test/distributed/validate/test_scripted_diagnostics.py",
+          "test/distributed/validate/test_validate.py",
+          "test/distributed/validate/test_validate_cuda.py",
+          "test/distributed/validate/test_worker_wait.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G5"
+    },
+    {
+      "id": "neighbors.topology",
+      "category": "B",
+      "status": "planned",
+      "scenario": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/torch/neighbors/naive.py",
+          "nvalchemiops/torch/neighbors/batch_naive.py",
+          "nvalchemiops/torch/neighbors/cell_list.py"
+        ],
+        "symbols": {
+          "nvalchemiops/torch/neighbors/batch_naive.py": [
+            "_batch_naive_neighbor_matrix_no_pbc",
+            "_batch_naive_neighbor_matrix_pbc",
+            "_batch_naive_neighbor_matrix_no_pbc_pair",
+            "_batch_naive_neighbor_matrix_pbc_pair",
+            "_batch_naive_neighbor_matrix_no_pbc_pair_target",
+            "_batch_naive_neighbor_matrix_pbc_pair_target",
+            "_register_compiled_batch_naive_no_pbc_pair_op",
+            "_register_compiled_batch_naive_pbc_pair_op",
+            "_validate_output_buffer",
+            "_batch_naive_pair_outputs_forward",
+            "batch_naive_neighbor_list"
+          ],
+          "nvalchemiops/torch/neighbors/cell_list.py": [
+            "_resolve_atom_centric_path",
+            "allocate_query_sort_scratch",
+            "estimate_cell_list_sizes",
+            "_build_cell_list_op",
+            "_",
+            "build_cell_list",
+            "_query_cell_list_op",
+            "query_cell_list",
+            "_",
+            "_query_cell_list_direct_eager",
+            "_query_cell_list_optional_no_pair_fn_op",
+            "_",
+            "_register_compiled_query_cell_list_optional_pair_op",
+            "_query_cell_list_optional",
+            "cell_list",
+            "_cell_list_query_forward"
+          ],
+          "nvalchemiops/torch/neighbors/naive.py": [
+            "_naive_neighbor_matrix_no_pbc",
+            "_naive_neighbor_matrix_pbc",
+            "_naive_neighbor_matrix_no_pbc_pair",
+            "_naive_neighbor_matrix_pbc_pair",
+            "_naive_neighbor_matrix_no_pbc_pair_target",
+            "_naive_neighbor_matrix_pbc_pair_target",
+            "_register_compiled_naive_no_pbc_pair_op",
+            "_register_compiled_naive_pbc_pair_op",
+            "_validate_output_buffer",
+            "_naive_pair_outputs_forward",
+            "naive_neighbor_list"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "torch",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "topology_none_continuous_displacements_first_and_second",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/neighbors/__init__.py",
+          "test/neighbors/bindings/__init__.py",
+          "test/neighbors/bindings/jax/__init__.py",
+          "test/neighbors/bindings/jax/conftest.py",
+          "test/neighbors/bindings/jax/test_base_dispatch.py",
+          "test/neighbors/bindings/jax/test_batch_cell_list.py",
+          "test/neighbors/bindings/jax/test_batch_cluster_tile.py",
+          "test/neighbors/bindings/jax/test_batch_naive.py",
+          "test/neighbors/bindings/jax/test_batch_naive_dual_cutoff.py",
+          "test/neighbors/bindings/jax/test_cell_list.py",
+          "test/neighbors/bindings/jax/test_cluster_tile.py",
+          "test/neighbors/bindings/jax/test_naive.py",
+          "test/neighbors/bindings/jax/test_naive_dual_cutoff.py",
+          "test/neighbors/bindings/jax/test_neighbor_utils.py",
+          "test/neighbors/bindings/jax/test_neighborlist.py",
+          "test/neighbors/bindings/jax/test_pair_fn.py",
+          "test/neighbors/bindings/jax/test_rebuild_detection.py",
+          "test/neighbors/bindings/jax/test_registration.py",
+          "test/neighbors/bindings/torch/__init__.py",
+          "test/neighbors/bindings/torch/conftest.py",
+          "test/neighbors/bindings/torch/test_base_dispatch.py",
+          "test/neighbors/bindings/torch/test_batch_cell_list.py",
+          "test/neighbors/bindings/torch/test_batch_cluster_tile.py",
+          "test/neighbors/bindings/torch/test_batch_naive.py",
+          "test/neighbors/bindings/torch/test_batch_naive_dual_cutoff.py",
+          "test/neighbors/bindings/torch/test_cell_list.py",
+          "test/neighbors/bindings/torch/test_cell_list_partial.py",
+          "test/neighbors/bindings/torch/test_cluster_tile.py",
+          "test/neighbors/bindings/torch/test_naive.py",
+          "test/neighbors/bindings/torch/test_naive_dual_cutoff.py",
+          "test/neighbors/bindings/torch/test_neighborlist.py",
+          "test/neighbors/bindings/torch/test_pair_fn.py",
+          "test/neighbors/bindings/torch/test_rebuild_detection.py",
+          "test/neighbors/conftest.py",
+          "test/neighbors/test_base_dispatch.py",
+          "test/neighbors/test_batch_cell_list_kernels.py",
+          "test/neighbors/test_batch_cluster_tile_kernels.py",
+          "test/neighbors/test_batch_naive_dual_kernels.py",
+          "test/neighbors/test_batch_naive_kernels.py",
+          "test/neighbors/test_cell_list_kernel_getters.py",
+          "test/neighbors/test_cell_list_kernels.py",
+          "test/neighbors/test_cluster_tile_kernel_getters.py",
+          "test/neighbors/test_cluster_tile_kernels.py",
+          "test/neighbors/test_compat_imports.py",
+          "test/neighbors/test_factory_kernel_docstrings.py",
+          "test/neighbors/test_factory_kernel_names.py",
+          "test/neighbors/test_naive_dual_kernels.py",
+          "test/neighbors/test_naive_kernel_getters.py",
+          "test/neighbors/test_naive_kernels.py",
+          "test/neighbors/test_neighbor_utils_kernels.py",
+          "test/neighbors/test_pair_outputs.py",
+          "test/neighbors/test_rebuild_detection_kernels.py",
+          "test/neighbors/test_utils.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G1"
+    },
+    {
+      "id": "interactions.lj",
+      "category": "B",
+      "status": "planned",
+      "scenario": "能量、负梯度力、virial 与 switching 一致；half/full 计数、单位和归约约定",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/interactions/lj.py"
+        ],
+        "symbols": {
+          "nvalchemiops/interactions/lj.py": [
+            "_lj_energy_pair",
+            "_lj_force_over_r",
+            "_switch_params",
+            "_lj_energy_matrix_kernel",
+            "_lj_energy_forces_matrix_kernel",
+            "_lj_energy_forces_virial_matrix_kernel",
+            "_lj_energy_list_kernel",
+            "_lj_energy_forces_list_kernel",
+            "_lj_energy_forces_virial_list_kernel",
+            "_batch_lj_energy_forces_matrix_kernel",
+            "_batch_lj_energy_forces_virial_matrix_kernel",
+            "lj_energy",
+            "lj_forces",
+            "lj_energy_forces",
+            "lj_energy_forces_virial"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "能量、负梯度力、virial 与 switching 一致；half/full 计数、单位和归约约定",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "typing",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "forward_and_required_derivatives_to_audit",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/interactions/test_lj.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G1"
+    },
+    {
+      "id": "math.segment",
+      "category": "B",
+      "status": "planned",
+      "scenario": "分段归约 shape/dtype、空段、索引边界、确定性、mutation/alias 和一二阶梯度",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/torch/segment_ops.py"
+        ],
+        "symbols": {
+          "nvalchemiops/torch/segment_ops.py": [
+            "_infer_wp_dtype",
+            "_inp",
+            "_inp_int",
+            "_out",
+            "_out_int",
+            "_validate_idx",
+            "_segmented_sum_forward",
+            "_segmented_sum_forward_fake",
+            "_segmented_sum_backward",
+            "_segmented_sum_double_backward",
+            "segmented_sum",
+            "_segmented_dot_forward",
+            "_segmented_dot_forward_fake",
+            "_segmented_dot_backward",
+            "_segmented_dot_double_backward",
+            "segmented_dot",
+            "_segmented_mul_forward",
+            "_segmented_mul_backward",
+            "_segmented_mul_double_backward",
+            "segmented_mul",
+            "_segmented_mean_forward",
+            "_segmented_mean_forward_fake",
+            "_segmented_mean_backward",
+            "_segmented_mean_backward_fake",
+            "_segmented_mean_double_backward",
+            "_segmented_mean_double_backward_fake",
+            "segmented_mean",
+            "_segmented_rms_norm_forward",
+            "_segmented_rms_norm_forward_fake",
+            "_segmented_rms_norm_backward",
+            "_segmented_rms_norm_backward_fake",
+            "_segmented_rms_norm_double_backward",
+            "_segmented_rms_norm_double_backward_fake",
+            "segmented_rms_norm",
+            "_segmented_matvec_forward",
+            "_segmented_matvec_backward",
+            "_segmented_matvec_double_backward",
+            "segmented_matvec"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "分段归约 shape/dtype、空段、索引边界、确定性、mutation/alias 和一二阶梯度",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "torch",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "first_and_second_required",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/test_segment_ops_backward.py",
+          "test/test_segment_ops_torch.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G1"
+    },
+    {
+      "id": "dynamics.integrators",
+      "category": "B",
+      "status": "planned",
+      "scenario": "NVE/Langevin/Nose-Hoover/NPT 更新、随机数、温压单位、mask/原位更新",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/dynamics/integrators"
+        ],
+        "symbols": {
+          "nvalchemiops/dynamics/integrators/__init__.py": [],
+          "nvalchemiops/dynamics/integrators/langevin.py": [
+            "_langevin_baoab_half_step_kernel",
+            "_langevin_baoab_half_step_out_kernel",
+            "_batch_langevin_baoab_half_step_kernel",
+            "_batch_langevin_baoab_half_step_out_kernel",
+            "_langevin_baoab_half_step_ptr_kernel",
+            "_langevin_baoab_half_step_ptr_out_kernel",
+            "langevin_baoab_half_step",
+            "langevin_baoab_finalize",
+            "langevin_baoab_half_step_out",
+            "langevin_baoab_finalize_out"
+          ],
+          "nvalchemiops/dynamics/integrators/nose_hoover.py": [
+            "_compute_2ke_kernel",
+            "_compute_2ke_tiled_kernel",
+            "_batch_compute_2ke_kernel",
+            "_nhc_compute_masses_kernel",
+            "_batch_nhc_compute_masses_kernel",
+            "_nhc_chain_propagate_kernel",
+            "_nhc_chain_propagate_single_kernel",
+            "_nhc_compute_chain_energy_kernel",
+            "_batch_nhc_compute_chain_energy_kernel",
+            "_scale_velocities_kernel",
+            "_batch_scale_velocities_kernel",
+            "_scale_velocities_out_kernel",
+            "_batch_scale_velocities_out_kernel",
+            "_multiply_scale_factors_kernel",
+            "nhc_compute_masses",
+            "nhc_compute_2ke",
+            "nhc_thermostat_chain_update",
+            "_compute_weighted_dt_kernel",
+            "_compute_weighted_dt",
+            "nhc_thermostat_chain_update_out",
+            "nhc_velocity_half_step",
+            "nhc_velocity_half_step_out",
+            "nhc_position_update",
+            "nhc_position_update_out",
+            "nhc_compute_chain_energy"
+          ],
+          "nvalchemiops/dynamics/integrators/npt.py": [
+            "_ensure_cells_inv",
+            "_warn_cells_inv_deprecated",
+            "_warn_volumes_deprecated",
+            "_npt_accel",
+            "_drag_isotropic",
+            "_drag_anisotropic",
+            "_drag_triclinic",
+            "_npt_position_step",
+            "_compute_kinetic_tensor_single_kernel",
+            "_compute_kinetic_tensor_single_tiled_kernel",
+            "_compute_kinetic_tensor_kernel",
+            "_finalize_pressure_tensor_kernel",
+            "_compute_scalar_pressure_kernel",
+            "_compute_cell_kinetic_energy_kernel",
+            "_compute_barostat_potential_kernel",
+            "_npt_velocity_half_step_single_kernel",
+            "_npt_velocity_half_step_kernel",
+            "_nph_velocity_half_step_single_kernel",
+            "_nph_velocity_half_step_kernel",
+            "_position_update_single_kernel",
+            "_position_update_kernel",
+            "_npt_cell_velocity_update_kernel",
+            "_nph_cell_velocity_update_kernel",
+            "_npt_cell_velocity_update_aniso_kernel",
+            "_nph_cell_velocity_update_aniso_kernel",
+            "_npt_cell_velocity_update_triclinic_kernel",
+            "_nph_cell_velocity_update_triclinic_kernel",
+            "_npt_velocity_half_step_aniso_single_kernel",
+            "_npt_velocity_half_step_aniso_kernel",
+            "_npt_velocity_half_step_triclinic_single_kernel",
+            "_npt_velocity_half_step_triclinic_kernel",
+            "_nph_velocity_half_step_triclinic_single_kernel",
+            "_nph_velocity_half_step_triclinic_kernel",
+            "_nph_velocity_half_step_aniso_single_kernel",
+            "_nph_velocity_half_step_aniso_kernel",
+            "_cell_update_kernel",
+            "_npt_thermostat_chain_update_kernel",
+            "compute_kinetic_tensor",
+            "compute_pressure_tensor",
+            "compute_scalar_pressure",
+            "_broadcast_scalar_f32_kernel",
+            "_broadcast_scalar_f64_kernel",
+            "_broadcast_scalar_i32_kernel",
+            "_compute_barostat_mass_kernel",
+            "compute_barostat_mass",
+            "compute_cell_kinetic_energy",
+            "compute_barostat_potential_energy",
+            "npt_thermostat_half_step",
+            "npt_barostat_half_step",
+            "npt_barostat_half_step_aniso",
+            "npt_barostat_half_step_triclinic",
+            "npt_velocity_half_step",
+            "npt_velocity_half_step_out",
+            "npt_position_update",
+            "npt_position_update_out",
+            "npt_cell_update",
+            "npt_cell_update_out",
+            "run_npt_step",
+            "nph_barostat_half_step",
+            "nph_barostat_half_step_aniso",
+            "nph_barostat_half_step_triclinic",
+            "nph_velocity_half_step",
+            "nph_velocity_half_step_out",
+            "nph_position_update",
+            "nph_position_update_out",
+            "nph_cell_update",
+            "run_nph_step"
+          ],
+          "nvalchemiops/dynamics/integrators/velocity_rescaling.py": [
+            "_compute_rescale_factor",
+            "velocity_rescale",
+            "velocity_rescale_out"
+          ],
+          "nvalchemiops/dynamics/integrators/velocity_verlet.py": [
+            "_velocity_verlet_position_update_kernel",
+            "_velocity_verlet_position_update_out_kernel",
+            "_batch_velocity_verlet_position_update_kernel",
+            "_batch_velocity_verlet_position_update_out_kernel",
+            "_velocity_verlet_position_update_ptr_kernel",
+            "_velocity_verlet_position_update_ptr_out_kernel",
+            "velocity_verlet_position_update",
+            "velocity_verlet_velocity_finalize",
+            "velocity_verlet_position_update_out",
+            "velocity_verlet_velocity_finalize_out"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "NVE/Langevin/Nose-Hoover/NPT 更新、随机数、温压单位、mask/原位更新",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "os",
+        "typing",
+        "warnings",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "default_forward_only",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/dynamics/__init__.py",
+          "test/dynamics/test_cell_utils.py",
+          "test/dynamics/test_constraints.py",
+          "test/dynamics/test_fire.py",
+          "test/dynamics/test_fire2.py",
+          "test/dynamics/test_integrator_shared.py",
+          "test/dynamics/test_langevin.py",
+          "test/dynamics/test_nose_hoover.py",
+          "test/dynamics/test_npt.py",
+          "test/dynamics/test_utils.py",
+          "test/dynamics/test_velocity_rescaling.py",
+          "test/dynamics/test_velocity_verlet.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G1_then_G4"
+    },
+    {
+      "id": "dynamics.fire",
+      "category": "B",
+      "status": "planned",
+      "scenario": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/dynamics/optimizers",
+          "nvalchemiops/torch/fire2.py"
+        ],
+        "symbols": {
+          "nvalchemiops/dynamics/optimizers/__init__.py": [],
+          "nvalchemiops/dynamics/optimizers/fire.py": [
+            "_fire_uphill_check_kernel",
+            "_fire_revert_and_reduce_kernel",
+            "_fire_revert_kernel",
+            "_fire_update_downhill_batch_idx_kernel",
+            "_fire_update_only_batch_idx_kernel",
+            "_fire_update_only_downhill_batch_idx_kernel",
+            "_fire_reduce_batch_idx_rle_kernel",
+            "_fire_update_batch_idx_kernel",
+            "_fire_step_no_downhill_ptr_kernel",
+            "_fire_step_downhill_ptr_kernel",
+            "_fire_update_params_no_downhill_ptr_kernel",
+            "_fire_update_params_downhill_ptr_kernel",
+            "fire_compute_vf_vv_ff",
+            "fire_step",
+            "fire_update"
+          ],
+          "nvalchemiops/dynamics/optimizers/fire2.py": [
+            "_fire2_reduce_only_kernel",
+            "_fire2_reduce_only_tiled_kernel",
+            "_fire2_fused_mix_maxnorm_kernel",
+            "_fire2_clamp_apply_recompute_kernel",
+            "fire2_step",
+            "fire2_reduce",
+            "fire2_apply_step",
+            "fire2_update"
+          ],
+          "nvalchemiops/torch/fire2.py": [
+            "_alloc_or_zero",
+            "_coord_cell_ext_metadata",
+            "_coord_cell_mix_impl",
+            "fire2_step_coord",
+            "fire2_step_coord_cell",
+            "fire2_step_coord_cell_mix",
+            "fire2_step_coord_cell_couple",
+            "fire2_step_coord_cell_apply",
+            "fire2_compute_extended_reductions",
+            "fire2_step_extended"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "os",
+        "torch",
+        "typing",
+        "warnings",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "default_forward_only",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/dynamics/__init__.py",
+          "test/dynamics/test_cell_utils.py",
+          "test/dynamics/test_constraints.py",
+          "test/dynamics/test_fire.py",
+          "test/dynamics/test_fire2.py",
+          "test/dynamics/test_integrator_shared.py",
+          "test/dynamics/test_langevin.py",
+          "test/dynamics/test_nose_hoover.py",
+          "test/dynamics/test_npt.py",
+          "test/dynamics/test_utils.py",
+          "test/dynamics/test_velocity_rescaling.py",
+          "test/dynamics/test_velocity_verlet.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G2"
+    },
+    {
+      "id": "interactions.long_range",
+      "category": "B",
+      "status": "planned",
+      "scenario": "D3/DSF/Ewald/PME 精度参数、FFT、能量力应力一致性",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/torch/interactions/electrostatics/ewald.py",
+          "nvalchemiops/torch/interactions/electrostatics/pme.py",
+          "nvalchemiops/torch/interactions/electrostatics/dsf.py",
+          "nvalchemiops/torch/interactions/dispersion/_dftd3.py"
+        ],
+        "symbols": {
+          "nvalchemiops/torch/interactions/dispersion/_dftd3.py": [
+            "D3Parameters",
+            "_dftd3_matrix_op",
+            "_dftd3_matrix_pbc_op",
+            "_dftd3_op",
+            "_dftd3_pbc_op",
+            "dftd3"
+          ],
+          "nvalchemiops/torch/interactions/electrostatics/dsf.py": [
+            "_dsf_csr_op",
+            "_dsf_csr_op_fake",
+            "_dsf_matrix_op",
+            "_dsf_matrix_op_fake",
+            "dsf_coulomb"
+          ],
+          "nvalchemiops/torch/interactions/electrostatics/ewald.py": [
+            "_prepare_alpha",
+            "_prepare_cell",
+            "_atom_ranges",
+            "_attach_virial_charge_grad",
+            "_real_space_energy_outputs",
+            "_real_space_energy",
+            "_apply_reciprocal_corrections",
+            "_reciprocal_system_energy_torch",
+            "_reciprocal_space_energy",
+            "ewald_real_space",
+            "ewald_reciprocal_space",
+            "_ewald_reciprocal_space",
+            "ewald_summation"
+          ],
+          "nvalchemiops/torch/interactions/electrostatics/pme.py": [
+            "_prepare_alpha",
+            "_prepare_cell",
+            "_materialize_complex",
+            "_vec2_wp_dtype_for",
+            "_pme_scoped_warp_stream",
+            "_wp_from_torch",
+            "compute_bspline_moduli_1d",
+            "pme_green_structure_factor",
+            "_pme_convolve_forward",
+            "_pme_convolve_backward",
+            "_pme_convolve_double_backward",
+            "_convolve_double_backward_fake",
+            "_convolve_backward_fake",
+            "_convolve_forward_fake",
+            "_energy_corrections_forward_launch",
+            "_energy_corrections_backward_launch",
+            "_energy_corrections_double_backward_launch",
+            "_pme_energy_corrections",
+            "_batch_energy_corrections_forward_launch",
+            "_batch_energy_corrections_backward_launch",
+            "_batch_energy_corrections_double_backward_launch",
+            "_batch_pme_energy_corrections",
+            "_energy_corrections_charge_grad_forward_launch",
+            "_pme_energy_corrections_with_charge_grad",
+            "_batch_energy_corrections_charge_grad_forward_launch",
+            "_batch_pme_energy_corrections_with_charge_grad",
+            "pme_energy_corrections",
+            "pme_energy_corrections_with_charge_grad",
+            "_virial_bg_correction_forward_launch",
+            "_virial_bg_correction_backward_launch",
+            "_pme_convolve_backward_args",
+            "register_pme_ops",
+            "_compute_pme_reciprocal_virial",
+            "_pme_cell_grad_from_virial",
+            "_PMEReciprocalCachedFirstGrad",
+            "_pme_reciprocal_cached_first_grad",
+            "_normalize_cell_inv_t_cache",
+            "_pme_reciprocal_space_impl",
+            "pme_reciprocal_space",
+            "particle_mesh_ewald"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "D3/DSF/Ewald/PME 精度参数、FFT、能量力应力一致性",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "contextlib",
+        "dataclasses",
+        "math",
+        "torch",
+        "typing",
+        "warnings",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "per_operator_first_second_audit_required",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/interactions/__init__.py",
+          "test/interactions/dispersion/__init__.py",
+          "test/interactions/dispersion/bindings/__init__.py",
+          "test/interactions/dispersion/bindings/jax/__init__.py",
+          "test/interactions/dispersion/bindings/jax/conftest.py",
+          "test/interactions/dispersion/bindings/jax/test_dftd3.py",
+          "test/interactions/dispersion/bindings/torch/__init__.py",
+          "test/interactions/dispersion/bindings/torch/test_dftd3.py",
+          "test/interactions/dispersion/conftest.py",
+          "test/interactions/dispersion/generate_reference_outputs.py",
+          "test/interactions/dispersion/test_dftd3.py",
+          "test/interactions/electrostatics/__init__.py",
+          "test/interactions/electrostatics/_deriv_check.py",
+          "test/interactions/electrostatics/bindings/__init__.py",
+          "test/interactions/electrostatics/bindings/jax/__init__.py",
+          "test/interactions/electrostatics/bindings/jax/conftest.py",
+          "test/interactions/electrostatics/bindings/jax/test_coulomb.py",
+          "test/interactions/electrostatics/bindings/jax/test_ewald.py",
+          "test/interactions/electrostatics/bindings/jax/test_gradient_contract.py",
+          "test/interactions/electrostatics/bindings/jax/test_kvectors.py",
+          "test/interactions/electrostatics/bindings/jax/test_parameters.py",
+          "test/interactions/electrostatics/bindings/jax/test_pme.py",
+          "test/interactions/electrostatics/bindings/jax/test_public_api.py",
+          "test/interactions/electrostatics/bindings/jax/test_slab.py",
+          "test/interactions/electrostatics/bindings/torch/__init__.py",
+          "test/interactions/electrostatics/bindings/torch/test_coulomb.py",
+          "test/interactions/electrostatics/bindings/torch/test_dsf.py",
+          "test/interactions/electrostatics/bindings/torch/test_ewald.py",
+          "test/interactions/electrostatics/bindings/torch/test_ewald_corrections.py",
+          "test/interactions/electrostatics/bindings/torch/test_gradient_contract.py",
+          "test/interactions/electrostatics/bindings/torch/test_kvectors.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_api.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_coverage_gaps.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_ewald.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_features.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_moments.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_pme.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_real_space.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_reciprocal.py",
+          "test/interactions/electrostatics/bindings/torch/test_parameters.py",
+          "test/interactions/electrostatics/bindings/torch/test_pme.py",
+          "test/interactions/electrostatics/bindings/torch/test_public_api.py",
+          "test/interactions/electrostatics/bindings/torch/test_slab.py",
+          "test/interactions/electrostatics/bindings/torch/test_utils.py",
+          "test/interactions/electrostatics/conftest.py",
+          "test/interactions/electrostatics/test_cleanup_fixture.py",
+          "test/interactions/electrostatics/test_coulomb.py",
+          "test/interactions/electrostatics/test_deriv_check_selftest.py",
+          "test/interactions/electrostatics/test_dsf.py",
+          "test/interactions/electrostatics/test_ewald_kernels.py",
+          "test/interactions/electrostatics/test_factory.py",
+          "test/interactions/electrostatics/test_factory_ewald_real.py",
+          "test/interactions/electrostatics/test_factory_ewald_real_cell_literal.py",
+          "test/interactions/electrostatics/test_factory_ewald_recip.py",
+          "test/interactions/electrostatics/test_factory_pme.py",
+          "test/interactions/electrostatics/test_jax_autograd.py",
+          "test/interactions/electrostatics/test_multipole_kernels.py",
+          "test/interactions/electrostatics/test_pme_kernels.py",
+          "test/interactions/electrostatics/test_slab_kernels.py",
+          "test/interactions/electrostatics/test_util.py",
+          "test/interactions/test_lj.py",
+          "test/interactions/test_switching.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G4"
+    },
+    {
+      "id": "math.basis",
+      "category": "B",
+      "status": "planned",
+      "scenario": "球谐/GTO/spline 数学约定与可微绑定",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/torch/math",
+          "nvalchemiops/torch/spline.py"
+        ],
+        "symbols": {
+          "nvalchemiops/torch/math/__init__.py": [],
+          "nvalchemiops/torch/math/gto.py": [
+            "NormMode",
+            "inv_cl",
+            "inv_cl_table",
+            "eval_gto_density_pytorch",
+            "eval_gto_fourier_pytorch"
+          ],
+          "nvalchemiops/torch/math/gto_self_overlap.py": [
+            "_radial_F_total",
+            "_overlap_radial_integral",
+            "compute_overlap_constants",
+            "flatten_to_reference_layout"
+          ],
+          "nvalchemiops/torch/math/solid_harmonics.py": [
+            "eval_regular_solid_harmonics_pytorch",
+            "eval_irregular_solid_harmonics_pytorch"
+          ],
+          "nvalchemiops/torch/spline.py": [
+            "_spline_weight",
+            "_scoped_warp_stream",
+            "_wp_from_torch",
+            "_spread_forward_launch",
+            "_gather_forward_launch",
+            "_gather_gradient_forward_launch",
+            "_spread_gradient_weights_launch",
+            "_pos_hessian_forward_launch",
+            "_spline_gather_gradient_setup_ctx",
+            "_spline_gather_gradient_backward_chain",
+            "_cell_inv_t_grad_from_force",
+            "_expand_shared_cell",
+            "_spline_spread_setup_ctx",
+            "_spline_spread_backward_chain",
+            "_spline_gather_setup_ctx",
+            "_spline_gather_backward_chain",
+            "_spline_spread",
+            "_spline_gather",
+            "_spline_gather_vec3",
+            "_spline_gather_gradient",
+            "_gather_with_force_forward_launch",
+            "_spline_gather_with_force_setup_ctx",
+            "_spline_gather_with_force_backward_chain",
+            "_spline_gather_with_force",
+            "_batch_spread_forward_launch",
+            "_batch_gather_forward_launch",
+            "_batch_gather_gradient_forward_launch",
+            "_batch_spread_gradient_weights_launch",
+            "_batch_pos_hessian_forward_launch",
+            "_batch_spline_gather_gradient_setup_ctx",
+            "_batch_spline_gather_gradient_backward_chain",
+            "_batch_cell_inv_t_grad_from_force",
+            "_batch_spline_spread_setup_ctx",
+            "_batch_spline_spread_backward_chain",
+            "_batch_spline_gather_setup_ctx",
+            "_batch_spline_gather_backward_chain",
+            "_batch_spline_spread",
+            "_batch_spline_gather",
+            "_batch_spline_gather_vec3",
+            "_batch_spline_gather_gradient",
+            "_batch_gather_with_force_forward_launch",
+            "_batch_spline_gather_with_force_setup_ctx",
+            "_batch_spline_gather_with_force_backward_chain",
+            "_batch_spline_gather_with_force",
+            "_spline_spread_channels",
+            "_spline_gather_channels",
+            "_batch_spline_spread_channels_output_shape",
+            "_batch_spline_spread_channels",
+            "_batch_spline_gather_channels",
+            "bspline_weight",
+            "spline_spread",
+            "spline_gather",
+            "spline_gather_vec3",
+            "spline_gather_gradient",
+            "_gather_channels_needs_autograd",
+            "_spline_gather_channels_autograd",
+            "_spread_channels_needs_autograd",
+            "_spline_spread_channels_autograd",
+            "_gather_vec3_needs_autograd",
+            "_spline_gather_vec3_autograd",
+            "spline_gather_with_force",
+            "spline_spread_channels",
+            "spline_gather_channels",
+            "_bspline_modulus",
+            "_compute_bspline_coefficients",
+            "compute_bspline_deconvolution",
+            "compute_bspline_deconvolution_1d"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "球谐/GTO/spline 数学约定与可微绑定",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "contextlib",
+        "enum",
+        "math",
+        "torch",
+        "typing",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": [
+          "torch_reference",
+          "triton",
+          "hip"
+        ]
+      },
+      "gradient_level": "first_second_per_operator",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/math/__init__.py",
+          "test/math/bindings/__init__.py",
+          "test/math/bindings/jax/__init__.py",
+          "test/math/bindings/jax/test_spline.py",
+          "test/math/bindings/torch/__init__.py",
+          "test/math/bindings/torch/test_autograd.py",
+          "test/math/bindings/torch/test_gto.py",
+          "test/math/bindings/torch/test_gto_self_overlap.py",
+          "test/math/bindings/torch/test_solid_harmonics.py",
+          "test/math/bindings/torch/test_spline.py",
+          "test/math/conftest.py",
+          "test/math/test_spherical_harmonics.py",
+          "test/math/test_spline.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行"
+      ],
+      "release_gate": "G4"
+    },
+    {
+      "id": "jax.bindings",
+      "category": "C",
+      "status": "deferred",
+      "scenario": "保留 JAX 来源；DCU 支持延期，尚无安装/运行支持承诺",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/jax"
+        ],
+        "symbols": {
+          "nvalchemiops/jax/__init__.py": [],
+          "nvalchemiops/jax/interactions/__init__.py": [],
+          "nvalchemiops/jax/interactions/dispersion/__init__.py": [],
+          "nvalchemiops/jax/interactions/dispersion/_dftd3.py": [
+            "_normalize_dtype",
+            "_make_jax_kernels",
+            "_launch_kwargs_for_positions",
+            "_restore_nonfinite_to_init",
+            "direct_forces_kernel_nm_virial",
+            "direct_forces_kernel_nl_virial",
+            "direct_forces_kernel_nm",
+            "direct_forces_kernel_nl",
+            "cn_forces_contrib_nm_virial",
+            "cn_forces_contrib_nl_virial",
+            "cn_forces_contrib_nm",
+            "cn_forces_contrib_nl",
+            "D3Parameters",
+            "_dftd3_nm_impl",
+            "_dftd3_nl_impl",
+            "dftd3"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/__init__.py": [
+            "_warn_low_level_pme_helper",
+            "pme_green_structure_factor",
+            "pme_energy_corrections",
+            "pme_energy_corrections_with_charge_grad",
+            "_preserve_deprecated_alias_metadata"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/_autograd.py": [
+            "_cell_3d",
+            "_inject_charge_grad",
+            "_inject_charge_grad_fwd",
+            "_inject_charge_grad_bwd",
+            "_cell_grad_from_strain_virial"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/_lazy_jax_kernels.py": [
+            "_LazyJaxKernels",
+            "_make_jax_kernels",
+            "_LazyJaxKernelFactory",
+            "_make_jax_kernel_factory"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/_utils.py": [
+            "_normalize_dtype",
+            "_prepare_cell",
+            "_validate_energy_reduction",
+            "_system_sum_from_atoms",
+            "_per_system_atom_counts",
+            "_distribute_system_values",
+            "_apply_energy_reduction",
+            "_build_electrostatic_result",
+            "_unpack_electrostatic_outputs",
+            "_direct_output_deprecation_msg",
+            "_component_direct_output_deprecation_msg"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/coulomb.py": [
+            "coulomb_energy",
+            "coulomb_forces",
+            "coulomb_energy_forces"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/ewald.py": [
+            "_jax_can_tile_ewald_recip",
+            "_jax_ewald_real_forward",
+            "_jax_ewald_real_double_backward",
+            "_jax_ewald_recip_component",
+            "_ewald_recip_fill_tiled_f32",
+            "_ewald_recip_fill_tiled_f64",
+            "_batch_ewald_recip_fill_tiled_f32",
+            "_batch_ewald_recip_fill_tiled_f64",
+            "_prepare_alpha_array",
+            "_launch_ewald_real_forward_factory",
+            "_compute_total_charge",
+            "_ewald_real_space_impl",
+            "ewald_real_space",
+            "_ewald_reciprocal_space_impl",
+            "ewald_reciprocal_space",
+            "_tangent_or_zeros",
+            "_stop_optional",
+            "_is_symbolic_zero",
+            "_cell_tangent_system_values",
+            "_kvector_tangent_from_cell",
+            "_real_space_energy_reference",
+            "_reciprocal_space_energy_reference",
+            "_empty_i32",
+            "_empty_vec",
+            "_empty_vec_matrix",
+            "_empty_mat",
+            "_empty_matrix_i32",
+            "_empty_shift_matrix",
+            "_ewald_real_energy_derivatives",
+            "_ewald_real_energy_derivatives_jvp",
+            "_ewald_real_energy_derivatives_jvp_impl",
+            "_ewald_reciprocal_energy_derivatives",
+            "_ewald_reciprocal_energy_derivatives_jvp",
+            "_ewald_real_hvp",
+            "_ewald_reciprocal_hvp",
+            "_ewald_real_energy_derivatives_jvp_wrapped",
+            "_ewald_reciprocal_energy_derivatives_jvp_wrapped",
+            "_ewald_real_space_energy_jvp",
+            "_ewald_real_space_energy_jvp_rule",
+            "_ewald_reciprocal_space_energy_jvp",
+            "_ewald_reciprocal_space_energy_jvp_rule",
+            "_ewald_summation_energy_jvp",
+            "_ewald_summation_energy_jvp_rule",
+            "_resolve_ewald_summation_parameters",
+            "_ewald_summation_impl",
+            "ewald_summation"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/k_vectors.py": [
+            "_prepare_k_cutoff",
+            "generate_miller_indices",
+            "generate_k_vectors_ewald_summation",
+            "generate_k_vectors_pme"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/parameters.py": [
+            "EwaldParameters",
+            "PMEParameters",
+            "_count_atoms_per_system",
+            "estimate_ewald_parameters",
+            "estimate_pme_mesh_dimensions",
+            "estimate_pme_parameters",
+            "mesh_spacing_to_dimensions"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/pme.py": [
+            "_jax_pme_factory_component",
+            "_make_jax_pme_virial_bg_fused",
+            "compute_bspline_moduli_1d",
+            "pme_fused_convolve",
+            "pme_green_structure_factor",
+            "pme_virial_bg_correction",
+            "pme_energy_corrections",
+            "pme_energy_corrections_with_charge_grad",
+            "_compute_pme_reciprocal_virial",
+            "_pme_reciprocal_space_impl",
+            "_stop_optional",
+            "_is_traced_array",
+            "_require_explicit_mesh_dimensions_in_tracing",
+            "_tangent_or_zeros",
+            "_is_symbolic_zero",
+            "_bspline_weight_reference",
+            "_reference_cell_inv_t",
+            "_reference_atom_systems",
+            "_spline_spread_reference",
+            "_spline_gather_reference",
+            "_pme_energy_corrections_reference",
+            "_pme_convolve_reference",
+            "_pme_reciprocal_energy_reference",
+            "_unsupported_pme_cell_hvp_gradient",
+            "_unsupported_pme_cell_hvp_gradient_jvp",
+            "_unsupported_pme_cell_hvp_primal",
+            "_unsupported_pme_cell_hvp_primal_jvp",
+            "_cell_tangent_system_values",
+            "_per_atom_cell_inv_t_matvec",
+            "_pme_alpha_array",
+            "_pme_charge_background_hvp",
+            "_pme_reciprocal_hvp_state",
+            "_pme_reciprocal_energy_hvp_from_state",
+            "_pme_reciprocal_energy_hvp_raw",
+            "_pme_reciprocal_energy_derivative_values",
+            "_pme_reciprocal_energy_derivatives",
+            "_pme_reciprocal_energy_derivatives_fwd",
+            "_pme_reciprocal_energy_derivatives_bwd",
+            "_pme_reciprocal_energy_jvp",
+            "_pme_reciprocal_energy_jvp_rule",
+            "pme_reciprocal_space",
+            "_particle_mesh_ewald_impl",
+            "_resolve_particle_mesh_ewald_parameters",
+            "particle_mesh_ewald"
+          ],
+          "nvalchemiops/jax/interactions/electrostatics/slab.py": [
+            "_prepare_pbc_for_slab",
+            "_slab_correction_energy_reference",
+            "_is_symbolic_zero",
+            "_tangent_or_zeros",
+            "_precompute_slab_geometry",
+            "_slab_correction_energy_kernel_value",
+            "_slab_energy_derivative_values",
+            "_slab_energy_derivatives",
+            "_slab_energy_derivatives_jvp",
+            "_slab_energy_hvp_raw",
+            "_slab_energy_hvp",
+            "_slab_correction_energy_jvp",
+            "_slab_correction_energy_jvp_rule",
+            "_slab_correction_energy_autodiff",
+            "_compute_slab_correction_impl",
+            "compute_slab_correction"
+          ],
+          "nvalchemiops/jax/neighbors/__init__.py": [
+            "neighbor_list"
+          ],
+          "nvalchemiops/jax/neighbors/_autograd.py": [
+            "_NeighborForwardOutput",
+            "_build_index_residuals",
+            "_reconstruct_pair_geometry",
+            "_route_pair_outputs"
+          ],
+          "nvalchemiops/jax/neighbors/_cluster_tile_preload.py": [
+            "_current_warp_device_alias",
+            "_warp_device_aliases",
+            "_load_kernel_modules",
+            "_validate_cluster_tile_build_options",
+            "_validate_cluster_tile_matrix_options",
+            "_validate_cluster_tile_coo_options",
+            "_preload_cluster_tile_build_module",
+            "_preload_cluster_tile_build_kernel",
+            "_preload_cluster_tile_query_kernel_cached",
+            "_preload_cluster_tile_query_kernel",
+            "_preload_cluster_tile_coo_kernel_cached",
+            "_preload_cluster_tile_coo_kernel"
+          ],
+          "nvalchemiops/jax/neighbors/_dispatch.py": [
+            "_is_jax_cpu_array",
+            "_jax_selector_cpu_fallback",
+            "_selector_batch_ptr_from_geometry",
+            "_synthesize_cell_for_geometry",
+            "synthesize_cell_for_cell_list",
+            "_normalize_selector_cell_pbc",
+            "estimate_neighbor_list_costs",
+            "suggest_neighbor_list_method",
+            "_reject_unsupported_cluster_tile_combo",
+            "_auto_method_from_geometry",
+            "_auto_base_method_from_geometry"
+          ],
+          "nvalchemiops/jax/neighbors/_registration.py": [
+            "_register_jax_kernel",
+            "_register_jax_callable",
+            "_GraphRegistration",
+            "_cluster_tile_build_outputs",
+            "_cluster_tile_matrix_outputs",
+            "_cluster_tile_coo_outputs",
+            "_cluster_tile_build_registration",
+            "_cluster_tile_matrix_registration",
+            "_cluster_tile_coo_registration",
+            "_LazyJaxKernel",
+            "_naive_outputs",
+            "_validate_lazy_naive_options",
+            "_lazy_naive_kernel",
+            "_cell_list_build_outputs",
+            "_validate_lazy_cell_list_build_options",
+            "_lazy_cell_list_build_kernel",
+            "_cell_list_query_outputs",
+            "_validate_lazy_cell_list_query_options",
+            "_lazy_cell_list_query_kernel"
+          ],
+          "nvalchemiops/jax/neighbors/batch_cell_list.py": [
+            "_build_registry",
+            "_query_registry",
+            "_get_jax_batch_cell_list_pair_outputs_kernel",
+            "_normalize_batch_cell_pbc",
+            "_estimate_batch_max_total_cells",
+            "_construct_batch_cells_per_dimension",
+            "_run_batch_query_cell_list_pair_centric",
+            "_batch_query_cell_list_pair_centric_f32",
+            "_batch_query_cell_list_pair_centric_f64",
+            "_batch_query_cell_list_pair_centric_geom_f32",
+            "_batch_query_cell_list_pair_centric_geom_f64",
+            "_get_jax_batch_cell_list_pair_centric_pair_fn_callable",
+            "estimate_batch_cell_list_sizes",
+            "batch_build_cell_list",
+            "batch_query_cell_list",
+            "_batch_cell_list_pair_outputs_forward",
+            "batch_cell_list"
+          ],
+          "nvalchemiops/jax/neighbors/batch_cluster_tile.py": [
+            "_batch_tile_buffer_max_tiles_per_group",
+            "_concrete_cell_batch_volumes",
+            "_concrete_batch_ptr_values",
+            "estimate_batch_max_tiles_per_group",
+            "estimate_batch_cluster_tile_list_sizes",
+            "estimate_batch_cluster_tile_segments",
+            "allocate_batch_cluster_tile_list",
+            "_spread_10bit",
+            "_per_atom_morton_codes",
+            "_batched_morton_sort_padded",
+            "_batch_build_cluster_tile_list_callback",
+            "_batch_build_cluster_tile_list_selective_callback",
+            "_batch_query_cluster_tile_callback",
+            "_batch_query_cluster_tile_selective_callback",
+            "_batch_query_cluster_tile_dual_callback",
+            "_batch_query_cluster_tile_dual_selective_callback",
+            "_batch_query_cluster_tile_pair_callback",
+            "_batch_query_cluster_tile_coo_callback",
+            "_batch_query_cluster_tile_coo_segmented_callback",
+            "_get_jax_batch_cluster_tile_pair_fn_registration",
+            "_make_batch_idx",
+            "batch_build_cluster_tile_list",
+            "batch_query_cluster_tile",
+            "batch_query_cluster_tile_coo",
+            "batch_cluster_tile_neighbor_list"
+          ],
+          "nvalchemiops/jax/neighbors/batch_naive.py": [
+            "_get_jax_batch_naive_pair_kernel",
+            "_get_jax_batch_naive_pair_fn_kernel",
+            "_jax_scalar_sentinels",
+            "_batch_naive_tile_no_pbc_f32",
+            "_batch_naive_tile_no_pbc_f64",
+            "_batch_naive_tile_pbc_wrapped_f32",
+            "_batch_naive_tile_pbc_wrapped_f64",
+            "_register_batch_naive_tile_callables",
+            "_batch_naive_pair_outputs_forward",
+            "_validate_pair_output_buffer",
+            "batch_naive_neighbor_list"
+          ],
+          "nvalchemiops/jax/neighbors/batch_naive_dual_cutoff.py": [
+            "_jax_scalar_sentinels",
+            "batch_naive_neighbor_list_dual_cutoff"
+          ],
+          "nvalchemiops/jax/neighbors/cell_list.py": [
+            "_build_registry",
+            "_query_registry",
+            "_get_jax_cell_list_pair_outputs_kernel",
+            "_reset_query_outputs",
+            "_derive_neighbor_search_radius",
+            "_derive_promoted_cells_per_dimension",
+            "_is_cpu_array",
+            "_validate_atom_centric_path",
+            "_validate_pair_kwargs",
+            "_validate_output_shape",
+            "_validate_compact_target_buffers",
+            "_resolve_cell_strategy",
+            "_run_graph_build_cell_list",
+            "_run_graph_query_cell_list",
+            "_run_graph_cell_list",
+            "_graph_build_cell_list_f32",
+            "_graph_build_cell_list_f64",
+            "_graph_query_cell_list_f32",
+            "_graph_query_cell_list_f64",
+            "_graph_query_cell_list_selective_f32",
+            "_graph_query_cell_list_selective_f64",
+            "_graph_query_cell_list_pair_centric_f32",
+            "_graph_query_cell_list_pair_centric_f64",
+            "_graph_query_cell_list_pair_centric_selective_f32",
+            "_graph_query_cell_list_pair_centric_selective_f64",
+            "_graph_cell_list_f32",
+            "_graph_cell_list_f64",
+            "_graph_query_cell_list_pair_centric_geom_f32",
+            "_graph_query_cell_list_pair_centric_geom_f64",
+            "_get_jax_cell_list_pair_centric_pair_fn_callable",
+            "estimate_cell_list_sizes",
+            "_cell_list_pair_outputs_forward",
+            "build_cell_list",
+            "query_cell_list",
+            "cell_list"
+          ],
+          "nvalchemiops/jax/neighbors/cluster_tile.py": [
+            "_concrete_cell_volume",
+            "_tile_buffer_max_tiles_per_group",
+            "estimate_cluster_tile_list_sizes",
+            "allocate_cluster_tile_list",
+            "_spread_10bit",
+            "_compute_morton_codes",
+            "_build_cluster_tile_list_callback",
+            "_build_cluster_tile_list_selective_callback",
+            "_query_cluster_tile_callback",
+            "_query_cluster_tile_selective_callback",
+            "_query_cluster_tile_dual_callback",
+            "_query_cluster_tile_dual_selective_callback",
+            "_query_cluster_tile_pair_callback",
+            "_query_cluster_tile_coo_callback",
+            "_query_cluster_tile_coo_segmented_callback",
+            "_get_jax_cluster_tile_pair_fn_registration",
+            "_normalize_cell",
+            "_morton_sort_and_gather",
+            "build_cluster_tile_list",
+            "query_cluster_tile",
+            "_validate_single_segment_coo_state",
+            "_normalize_single_segment_coo_count",
+            "query_cluster_tile_coo",
+            "_cluster_tile_pair_outputs_forward",
+            "cluster_tile_neighbor_list"
+          ],
+          "nvalchemiops/jax/neighbors/naive.py": [
+            "_get_jax_naive_pair_kernel",
+            "_get_jax_naive_pair_fn_kernel",
+            "_reset_graph_neighbor_outputs",
+            "_jax_scalar_sentinels",
+            "_wp_scalar_sentinels",
+            "_run_graph_naive_no_pbc",
+            "_run_graph_naive_pbc_prewrapped",
+            "_run_graph_naive_pbc_wrapped",
+            "_graph_naive_no_pbc_f32",
+            "_graph_naive_no_pbc_f64",
+            "_graph_naive_no_pbc_selective_f32",
+            "_graph_naive_no_pbc_selective_f64",
+            "_graph_naive_pbc_prewrapped_f32",
+            "_graph_naive_pbc_prewrapped_f64",
+            "_graph_naive_pbc_prewrapped_selective_f32",
+            "_graph_naive_pbc_prewrapped_selective_f64",
+            "_graph_naive_pbc_wrapped_f32",
+            "_graph_naive_pbc_wrapped_f64",
+            "_graph_naive_pbc_wrapped_selective_f32",
+            "_graph_naive_pbc_wrapped_selective_f64",
+            "_register_graph_naive_callables",
+            "_graph_naive_tile_no_pbc_f32",
+            "_graph_naive_tile_no_pbc_f64",
+            "_graph_naive_tile_pbc_prewrapped_f32",
+            "_graph_naive_tile_pbc_prewrapped_f64",
+            "_graph_naive_tile_pbc_wrapped_f32",
+            "_graph_naive_tile_pbc_wrapped_f64",
+            "_register_graph_naive_tile_callables",
+            "_naive_pair_outputs_forward",
+            "_validate_pair_output_buffer",
+            "naive_neighbor_list"
+          ],
+          "nvalchemiops/jax/neighbors/naive_dual_cutoff.py": [
+            "_jax_scalar_sentinels",
+            "naive_neighbor_list_dual_cutoff"
+          ],
+          "nvalchemiops/jax/neighbors/neighbor_utils.py": [
+            "build_naive_kernel_tables",
+            "_validate_graph_mode",
+            "_num_shifts_from_shift_range",
+            "compute_naive_num_shifts",
+            "get_neighbor_list_from_neighbor_matrix",
+            "coo_pack_pair_geometry",
+            "prepare_batch_idx_ptr",
+            "allocate_cell_list"
+          ],
+          "nvalchemiops/jax/neighbors/rebuild_detection.py": [
+            "_empty_i32",
+            "_empty_vec3i",
+            "_empty_bool",
+            "_empty_bool2d",
+            "_empty_cell",
+            "cell_list_needs_rebuild",
+            "neighbor_list_needs_rebuild",
+            "check_cell_list_rebuild_needed",
+            "check_neighbor_list_rebuild_needed",
+            "batch_neighbor_list_needs_rebuild",
+            "batch_cell_list_needs_rebuild",
+            "check_batch_neighbor_list_rebuild_needed",
+            "check_batch_cell_list_rebuild_needed"
+          ],
+          "nvalchemiops/jax/segment_ops.py": [
+            "jax_callable",
+            "_norm_dtype",
+            "_make_callable_dict",
+            "_make_sum_fwd",
+            "_make_sum_bwd",
+            "_make_sum_dbl_bwd",
+            "_sum_kind",
+            "_sum_bwd_op",
+            "_sum_bwd_op_fwd",
+            "_sum_bwd_op_bwd",
+            "_sum_op",
+            "_sum_op_fwd",
+            "_sum_op_bwd",
+            "segmented_sum",
+            "_make_dot_fwd",
+            "_make_dot_bwd",
+            "_make_dot_dbl_bwd",
+            "_dot_bwd_op",
+            "_dot_bwd_op_fwd",
+            "_dot_bwd_op_bwd",
+            "_dot_op",
+            "_dot_op_fwd",
+            "_dot_op_bwd",
+            "segmented_dot",
+            "_make_mul_fwd",
+            "_make_mul_bwd",
+            "_make_mul_dbl_bwd",
+            "_mul_bwd_op",
+            "_mul_bwd_op_fwd",
+            "_mul_bwd_op_bwd",
+            "_mul_op",
+            "_mul_op_fwd",
+            "_mul_op_bwd",
+            "segmented_mul",
+            "_make_mean_fwd",
+            "_make_mean_bwd",
+            "_make_mean_dbl_bwd",
+            "_mean_bwd_op",
+            "_mean_bwd_op_fwd",
+            "_mean_bwd_op_bwd",
+            "_mean_op",
+            "_mean_op_fwd",
+            "_mean_op_bwd",
+            "segmented_mean",
+            "_make_rms_fwd",
+            "_make_rms_bwd",
+            "_make_rms_dbl_bwd",
+            "_rms_bwd_op",
+            "_rms_bwd_op_fwd",
+            "_rms_bwd_op_bwd",
+            "_rms_op",
+            "_rms_op_fwd",
+            "_rms_op_bwd",
+            "segmented_rms_norm",
+            "_make_matvec_fwd",
+            "_make_matvec_bwd",
+            "_make_matvec_dbl_bwd",
+            "_matvec_bwd_op",
+            "_matvec_bwd_op_fwd",
+            "_matvec_bwd_op_bwd",
+            "_matvec_op",
+            "_matvec_op_fwd",
+            "_matvec_op_bwd",
+            "segmented_matvec"
+          ],
+          "nvalchemiops/jax/spline.py": [
+            "_make_spline_jax_kernels",
+            "_LazySplineJaxKernels",
+            "_LazySplineOrderKernels",
+            "_LazySplinePerOrderJaxKernels",
+            "_normalize_dtype",
+            "bspline_weight",
+            "spline_spread",
+            "spline_gather",
+            "spline_gather_vec3",
+            "spline_gather_gradient",
+            "_spline_spread_gradient_weights",
+            "_spline_gather_gradient_position_hessian",
+            "_spline_gather_with_force",
+            "spline_spread_channels",
+            "spline_gather_channels",
+            "_bspline_modulus",
+            "_compute_bspline_coefficients",
+            "compute_bspline_deconvolution",
+            "compute_bspline_deconvolution_1d"
+          ],
+          "nvalchemiops/jax/types.py": [
+            "get_warp_device",
+            "get_warp_device_from_array",
+            "get_wp_dtype",
+            "get_wp_vec_dtype",
+            "get_wp_mat_dtype"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "保留 JAX 来源；DCU 支持延期，尚无安装/运行支持承诺",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "dataclasses",
+        "functools",
+        "importlib",
+        "inspect",
+        "jax",
+        "jax.interpreters",
+        "jax.numpy",
+        "jax.scipy.special",
+        "math",
+        "numpy",
+        "typing",
+        "warnings",
+        "warp",
+        "warp.jax_experimental"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": []
+      },
+      "gradient_level": "deferred",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/__init__.py",
+          "test/_license/config.json",
+          "test/_license/header.txt",
+          "test/_license/header_check.py",
+          "test/conftest.py",
+          "test/dynamics/__init__.py",
+          "test/dynamics/test_cell_utils.py",
+          "test/dynamics/test_constraints.py",
+          "test/dynamics/test_fire.py",
+          "test/dynamics/test_fire2.py",
+          "test/dynamics/test_integrator_shared.py",
+          "test/dynamics/test_langevin.py",
+          "test/dynamics/test_nose_hoover.py",
+          "test/dynamics/test_npt.py",
+          "test/dynamics/test_utils.py",
+          "test/dynamics/test_velocity_rescaling.py",
+          "test/dynamics/test_velocity_verlet.py",
+          "test/interactions/__init__.py",
+          "test/interactions/dispersion/__init__.py",
+          "test/interactions/dispersion/bindings/__init__.py",
+          "test/interactions/dispersion/bindings/jax/__init__.py",
+          "test/interactions/dispersion/bindings/jax/conftest.py",
+          "test/interactions/dispersion/bindings/jax/test_dftd3.py",
+          "test/interactions/dispersion/bindings/torch/__init__.py",
+          "test/interactions/dispersion/bindings/torch/test_dftd3.py",
+          "test/interactions/dispersion/conftest.py",
+          "test/interactions/dispersion/generate_reference_outputs.py",
+          "test/interactions/dispersion/test_dftd3.py",
+          "test/interactions/electrostatics/__init__.py",
+          "test/interactions/electrostatics/_deriv_check.py",
+          "test/interactions/electrostatics/bindings/__init__.py",
+          "test/interactions/electrostatics/bindings/jax/__init__.py",
+          "test/interactions/electrostatics/bindings/jax/conftest.py",
+          "test/interactions/electrostatics/bindings/jax/test_coulomb.py",
+          "test/interactions/electrostatics/bindings/jax/test_ewald.py",
+          "test/interactions/electrostatics/bindings/jax/test_gradient_contract.py",
+          "test/interactions/electrostatics/bindings/jax/test_kvectors.py",
+          "test/interactions/electrostatics/bindings/jax/test_parameters.py",
+          "test/interactions/electrostatics/bindings/jax/test_pme.py",
+          "test/interactions/electrostatics/bindings/jax/test_public_api.py",
+          "test/interactions/electrostatics/bindings/jax/test_slab.py",
+          "test/interactions/electrostatics/bindings/torch/__init__.py",
+          "test/interactions/electrostatics/bindings/torch/test_coulomb.py",
+          "test/interactions/electrostatics/bindings/torch/test_dsf.py",
+          "test/interactions/electrostatics/bindings/torch/test_ewald.py",
+          "test/interactions/electrostatics/bindings/torch/test_ewald_corrections.py",
+          "test/interactions/electrostatics/bindings/torch/test_gradient_contract.py",
+          "test/interactions/electrostatics/bindings/torch/test_kvectors.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_api.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_coverage_gaps.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_ewald.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_features.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_moments.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_pme.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_real_space.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_reciprocal.py",
+          "test/interactions/electrostatics/bindings/torch/test_parameters.py",
+          "test/interactions/electrostatics/bindings/torch/test_pme.py",
+          "test/interactions/electrostatics/bindings/torch/test_public_api.py",
+          "test/interactions/electrostatics/bindings/torch/test_slab.py",
+          "test/interactions/electrostatics/bindings/torch/test_utils.py",
+          "test/interactions/electrostatics/conftest.py",
+          "test/interactions/electrostatics/test_cleanup_fixture.py",
+          "test/interactions/electrostatics/test_coulomb.py",
+          "test/interactions/electrostatics/test_deriv_check_selftest.py",
+          "test/interactions/electrostatics/test_dsf.py",
+          "test/interactions/electrostatics/test_ewald_kernels.py",
+          "test/interactions/electrostatics/test_factory.py",
+          "test/interactions/electrostatics/test_factory_ewald_real.py",
+          "test/interactions/electrostatics/test_factory_ewald_real_cell_literal.py",
+          "test/interactions/electrostatics/test_factory_ewald_recip.py",
+          "test/interactions/electrostatics/test_factory_pme.py",
+          "test/interactions/electrostatics/test_jax_autograd.py",
+          "test/interactions/electrostatics/test_multipole_kernels.py",
+          "test/interactions/electrostatics/test_pme_kernels.py",
+          "test/interactions/electrostatics/test_slab_kernels.py",
+          "test/interactions/electrostatics/test_util.py",
+          "test/interactions/test_lj.py",
+          "test/interactions/test_switching.py",
+          "test/math/__init__.py",
+          "test/math/bindings/__init__.py",
+          "test/math/bindings/jax/__init__.py",
+          "test/math/bindings/jax/test_spline.py",
+          "test/math/bindings/torch/__init__.py",
+          "test/math/bindings/torch/test_autograd.py",
+          "test/math/bindings/torch/test_gto.py",
+          "test/math/bindings/torch/test_gto_self_overlap.py",
+          "test/math/bindings/torch/test_solid_harmonics.py",
+          "test/math/bindings/torch/test_spline.py",
+          "test/math/conftest.py",
+          "test/math/test_spherical_harmonics.py",
+          "test/math/test_spline.py",
+          "test/neighbors/__init__.py",
+          "test/neighbors/bindings/__init__.py",
+          "test/neighbors/bindings/jax/__init__.py",
+          "test/neighbors/bindings/jax/conftest.py",
+          "test/neighbors/bindings/jax/test_base_dispatch.py",
+          "test/neighbors/bindings/jax/test_batch_cell_list.py",
+          "test/neighbors/bindings/jax/test_batch_cluster_tile.py",
+          "test/neighbors/bindings/jax/test_batch_naive.py",
+          "test/neighbors/bindings/jax/test_batch_naive_dual_cutoff.py",
+          "test/neighbors/bindings/jax/test_cell_list.py",
+          "test/neighbors/bindings/jax/test_cluster_tile.py",
+          "test/neighbors/bindings/jax/test_naive.py",
+          "test/neighbors/bindings/jax/test_naive_dual_cutoff.py",
+          "test/neighbors/bindings/jax/test_neighbor_utils.py",
+          "test/neighbors/bindings/jax/test_neighborlist.py",
+          "test/neighbors/bindings/jax/test_pair_fn.py",
+          "test/neighbors/bindings/jax/test_rebuild_detection.py",
+          "test/neighbors/bindings/jax/test_registration.py",
+          "test/neighbors/bindings/torch/__init__.py",
+          "test/neighbors/bindings/torch/conftest.py",
+          "test/neighbors/bindings/torch/test_base_dispatch.py",
+          "test/neighbors/bindings/torch/test_batch_cell_list.py",
+          "test/neighbors/bindings/torch/test_batch_cluster_tile.py",
+          "test/neighbors/bindings/torch/test_batch_naive.py",
+          "test/neighbors/bindings/torch/test_batch_naive_dual_cutoff.py",
+          "test/neighbors/bindings/torch/test_cell_list.py",
+          "test/neighbors/bindings/torch/test_cell_list_partial.py",
+          "test/neighbors/bindings/torch/test_cluster_tile.py",
+          "test/neighbors/bindings/torch/test_naive.py",
+          "test/neighbors/bindings/torch/test_naive_dual_cutoff.py",
+          "test/neighbors/bindings/torch/test_neighborlist.py",
+          "test/neighbors/bindings/torch/test_pair_fn.py",
+          "test/neighbors/bindings/torch/test_rebuild_detection.py",
+          "test/neighbors/conftest.py",
+          "test/neighbors/test_base_dispatch.py",
+          "test/neighbors/test_batch_cell_list_kernels.py",
+          "test/neighbors/test_batch_cluster_tile_kernels.py",
+          "test/neighbors/test_batch_naive_dual_kernels.py",
+          "test/neighbors/test_batch_naive_kernels.py",
+          "test/neighbors/test_cell_list_kernel_getters.py",
+          "test/neighbors/test_cell_list_kernels.py",
+          "test/neighbors/test_cluster_tile_kernel_getters.py",
+          "test/neighbors/test_cluster_tile_kernels.py",
+          "test/neighbors/test_compat_imports.py",
+          "test/neighbors/test_factory_kernel_docstrings.py",
+          "test/neighbors/test_factory_kernel_names.py",
+          "test/neighbors/test_naive_dual_kernels.py",
+          "test/neighbors/test_naive_kernel_getters.py",
+          "test/neighbors/test_naive_kernels.py",
+          "test/neighbors/test_neighbor_utils_kernels.py",
+          "test/neighbors/test_pair_outputs.py",
+          "test/neighbors/test_rebuild_detection_kernels.py",
+          "test/neighbors/test_utils.py",
+          "test/test-requires.txt",
+          "test/test_batch_utils.py",
+          "test/test_segment_ops.py",
+          "test/test_segment_ops_backward.py",
+          "test/test_segment_ops_jax.py",
+          "test/test_segment_ops_torch.py",
+          "test/test_types.py",
+          "test/test_warp_dispatch.py",
+          "test/torch/test_warp_boundary_audit.py",
+          "test/utils/__init__.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行",
+        "DCU 路径未提供；原版依赖错误不得包装为成功；恢复条件：独立依赖、数值和目标设备验证完成"
+      ],
+      "release_gate": "G6"
+    },
+    {
+      "id": "interactions.multipole",
+      "category": "C",
+      "status": "deferred",
+      "scenario": "高阶多极长程与 SCF 延期，保留算法与测试",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemiops/torch/interactions/electrostatics/multipole_ewald.py",
+          "nvalchemiops/torch/interactions/electrostatics/pme_multipole.py"
+        ],
+        "symbols": {
+          "nvalchemiops/torch/interactions/electrostatics/multipole_ewald.py": [
+            "MultipoleRealSpaceMonopoleBackwardFunction",
+            "MultipoleRealSpaceMonopoleFusedScalarFunction",
+            "MultipoleRealSpaceMonopoleFunction",
+            "MultipoleRealSpaceBackwardFunction",
+            "MultipoleRealSpaceDipoleFusedScalarFunction",
+            "MultipoleRealSpaceFunction",
+            "_real_space_dipole_forward",
+            "_real_space_dipole_forward_fake",
+            "_real_space_dipole_backward",
+            "_real_space_dipole_double_backward",
+            "_real_space_monopole_forward",
+            "_real_space_monopole_forward_fake",
+            "_real_space_monopole_backward",
+            "_real_space_monopole_double_backward",
+            "_rs_dipole_cell_grad_op",
+            "_",
+            "_rs_dipole_cell_grad_setup",
+            "_rs_dipole_cell_grad_backward",
+            "_rs_dipole_fused_op",
+            "_",
+            "_rs_dipole_fused_setup",
+            "_rs_dipole_fused_backward",
+            "_AttachRealSpaceCellGradLmax1",
+            "multipole_real_space_energy_with_stress",
+            "_rs_monopole_cell_grad_op",
+            "_",
+            "_rs_monopole_cell_grad_setup",
+            "_rs_monopole_cell_grad_backward",
+            "_rs_monopole_fused_op",
+            "_",
+            "_rs_monopole_fused_setup",
+            "_rs_monopole_fused_backward",
+            "multipole_real_space_energy",
+            "BatchMultipoleRealSpaceMonopoleBackwardFunction",
+            "BatchMultipoleRealSpaceMonopoleFusedScalarFunction",
+            "BatchMultipoleRealSpaceMonopoleFunction",
+            "_batch_real_space_monopole_forward",
+            "_batch_real_space_forward_fake",
+            "_batch_real_space_monopole_backward",
+            "_batch_real_space_monopole_double_backward",
+            "_batch_real_space_dipole_forward",
+            "_batch_real_space_dipole_backward",
+            "_batch_real_space_dipole_double_backward",
+            "_batch_rs_dipole_cell_grad_op",
+            "_",
+            "_batch_rs_dipole_cell_grad_setup",
+            "_batch_rs_dipole_cell_grad_backward",
+            "_batch_rs_dipole_fused_op",
+            "_",
+            "_batch_rs_dipole_fused_setup",
+            "_batch_rs_dipole_fused_backward",
+            "_batch_rs_monopole_cell_grad_op",
+            "_",
+            "_batch_rs_monopole_cell_grad_setup",
+            "_batch_rs_monopole_cell_grad_backward",
+            "_batch_rs_monopole_fused_op",
+            "_",
+            "_batch_rs_monopole_fused_setup",
+            "_batch_rs_monopole_fused_backward",
+            "_batch_multipole_real_space_energy",
+            "BatchMultipoleRealSpaceBackwardFunction",
+            "BatchMultipoleRealSpaceDipoleFusedScalarFunction",
+            "BatchMultipoleRealSpaceFunction",
+            "_multipole_ewald_self_energy_per_atom",
+            "multipole_ewald_summation"
+          ],
+          "nvalchemiops/torch/interactions/electrostatics/pme_multipole.py": [
+            "_scoped_warp_stream",
+            "_wp_from_torch",
+            "_bspline_moduli_1d_op",
+            "_bspline_moduli_1d_fake",
+            "_compute_bspline_moduli",
+            "_resolve_pme_moduli",
+            "_resolve_pme_k_squared",
+            "_resolve_batch_pme_k_squared",
+            "_multipole_pme_convolve_run",
+            "_multipole_pme_convolve_forward",
+            "_multipole_pme_convolve_backward",
+            "_batch_multipole_pme_convolve_forward",
+            "_batch_multipole_pme_convolve_backward",
+            "_convolve_forward_fake",
+            "_convolve_backward_fake",
+            "_convolve_double_backward_run",
+            "_multipole_pme_convolve_double_backward",
+            "_batch_multipole_pme_convolve_double_backward",
+            "_batch_convolve_backward_fake",
+            "_convolve_double_backward_fake",
+            "_batch_convolve_double_backward_fake",
+            "multipole_pme_convolve",
+            "_resolve_cell_inv_t",
+            "_multipole_pme_spread_unified_forward",
+            "_multipole_pme_spread_unified_backward",
+            "_spread_unified_forward_fake",
+            "_multipole_pme_spread_unified_double_backward",
+            "_spread_unified_double_backward_fake",
+            "_batch_multipole_pme_spread_forward",
+            "_batch_multipole_pme_spread_backward",
+            "_batch_spread_forward_fake",
+            "_batch_multipole_pme_spread_unified_forward",
+            "_batch_multipole_pme_spread_unified_backward",
+            "_batch_spread_unified_forward_fake",
+            "_batch_multipole_pme_spread_unified_double_backward",
+            "_batch_spread_unified_double_backward_fake",
+            "_mask_gather_cotangents",
+            "_multipole_pme_gather_via_spread_t_forward",
+            "_gather_via_spread_t_forward_fake",
+            "_multipole_pme_gather_via_spread_t_backward",
+            "_gather_via_spread_t_backward_fake",
+            "_multipole_pme_gather_via_spread_t_double_backward",
+            "_gather_via_spread_t_double_backward_fake",
+            "_batch_multipole_pme_gather_via_spread_t_forward",
+            "_batch_gather_via_spread_t_forward_fake",
+            "_batch_multipole_pme_gather_via_spread_t_backward",
+            "_batch_gather_via_spread_t_backward_fake",
+            "_batch_multipole_pme_gather_via_spread_t_double_backward",
+            "_batch_gather_via_spread_t_double_backward_fake",
+            "_resolve_batch_cell_inv_t",
+            "_multipole_pme_green_struct_forward",
+            "_green_struct_forward_fake",
+            "_batch_multipole_pme_green_struct_forward",
+            "_batch_green_struct_forward_fake",
+            "multipole_pme_green_structure_factor",
+            "_multipole_pme_gather_potential_forward",
+            "_multipole_pme_gather_potential_backward",
+            "_gather_potential_forward_fake",
+            "_gather_grad_field",
+            "_hessian_contract",
+            "_multipole_pme_gather_potential_double_backward",
+            "_batch_multipole_pme_gather_potential_forward",
+            "_batch_multipole_pme_gather_potential_backward",
+            "_batch_gather_grad_field",
+            "_batch_hessian_contract",
+            "_batch_multipole_pme_gather_potential_double_backward",
+            "multipole_pme_gather_potential",
+            "_multipole_pme_gather_field_forward",
+            "_multipole_pme_gather_field_backward",
+            "_gather_field_forward_fake",
+            "_quad_gradpos",
+            "_quad_spread",
+            "_multipole_pme_gather_field_double_backward",
+            "_batch_multipole_pme_gather_field_forward",
+            "_batch_multipole_pme_gather_field_backward",
+            "_batch_quad_gradpos",
+            "_batch_quad_spread",
+            "_batch_multipole_pme_gather_field_double_backward",
+            "multipole_pme_gather_field",
+            "_multipole_pme_gather_hessian_forward",
+            "_multipole_pme_gather_hessian_backward",
+            "_gather_hessian_forward_fake",
+            "multipole_pme_gather_hessian",
+            "_corr_scalar_array",
+            "_multipole_pme_corrections_forward",
+            "_multipole_pme_corrections_backward",
+            "_multipole_pme_corrections_double_backward",
+            "_corrections_forward_fake",
+            "_corrections_backward_fake",
+            "_corrections_double_backward_fake",
+            "multipole_pme_energy_corrections",
+            "multipole_pme_energy_corrections_per_atom",
+            "_multipole_reciprocal_rho_energy_forward",
+            "_multipole_reciprocal_rho_energy_backward",
+            "_multipole_reciprocal_rho_energy_double_backward",
+            "_rho_energy_forward_fake",
+            "_rho_energy_backward_fake",
+            "_rho_energy_double_backward_fake",
+            "multipole_reciprocal_rho_energy",
+            "_multipole_self_energy_forward",
+            "_multipole_self_energy_backward",
+            "_multipole_self_energy_double_backward",
+            "_self_energy_forward_fake",
+            "_self_energy_backward_fake",
+            "_self_energy_double_backward_fake",
+            "multipole_self_energy",
+            "_multipole_pme_mesh_inner_product_forward",
+            "_multipole_pme_mesh_inner_product_backward",
+            "_multipole_pme_mesh_inner_product_double_backward",
+            "_mesh_inner_product_forward_fake",
+            "_mesh_inner_product_backward_fake",
+            "_mesh_inner_product_double_backward_fake",
+            "multipole_pme_mesh_inner_product",
+            "_pme_k_squared_forward",
+            "_pme_k_squared_backward",
+            "_pme_k_squared_forward_fake",
+            "_pme_k_squared_double_backward",
+            "_pme_fractionalize_forward",
+            "_pme_fractionalize_backward",
+            "_pme_fractionalize_double_backward",
+            "_pme_fractionalize_forward_fake",
+            "_pme_fractionalize_backward_fake",
+            "_pme_fractionalize_double_backward_fake",
+            "_build_pme_k_grids",
+            "multipole_pme_reciprocal_space",
+            "multipole_particle_mesh_ewald",
+            "_build_batch_pme_k_grids",
+            "_batch_multipole_pme_reciprocal_space_impl"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "高阶多极长程与 SCF 延期，保留算法与测试",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "contextlib",
+        "math",
+        "torch",
+        "typing",
+        "warp"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": []
+      },
+      "gradient_level": "deferred",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/interactions/__init__.py",
+          "test/interactions/dispersion/__init__.py",
+          "test/interactions/dispersion/bindings/__init__.py",
+          "test/interactions/dispersion/bindings/jax/__init__.py",
+          "test/interactions/dispersion/bindings/jax/conftest.py",
+          "test/interactions/dispersion/bindings/jax/test_dftd3.py",
+          "test/interactions/dispersion/bindings/torch/__init__.py",
+          "test/interactions/dispersion/bindings/torch/test_dftd3.py",
+          "test/interactions/dispersion/conftest.py",
+          "test/interactions/dispersion/generate_reference_outputs.py",
+          "test/interactions/dispersion/test_dftd3.py",
+          "test/interactions/electrostatics/__init__.py",
+          "test/interactions/electrostatics/_deriv_check.py",
+          "test/interactions/electrostatics/bindings/__init__.py",
+          "test/interactions/electrostatics/bindings/jax/__init__.py",
+          "test/interactions/electrostatics/bindings/jax/conftest.py",
+          "test/interactions/electrostatics/bindings/jax/test_coulomb.py",
+          "test/interactions/electrostatics/bindings/jax/test_ewald.py",
+          "test/interactions/electrostatics/bindings/jax/test_gradient_contract.py",
+          "test/interactions/electrostatics/bindings/jax/test_kvectors.py",
+          "test/interactions/electrostatics/bindings/jax/test_parameters.py",
+          "test/interactions/electrostatics/bindings/jax/test_pme.py",
+          "test/interactions/electrostatics/bindings/jax/test_public_api.py",
+          "test/interactions/electrostatics/bindings/jax/test_slab.py",
+          "test/interactions/electrostatics/bindings/torch/__init__.py",
+          "test/interactions/electrostatics/bindings/torch/test_coulomb.py",
+          "test/interactions/electrostatics/bindings/torch/test_dsf.py",
+          "test/interactions/electrostatics/bindings/torch/test_ewald.py",
+          "test/interactions/electrostatics/bindings/torch/test_ewald_corrections.py",
+          "test/interactions/electrostatics/bindings/torch/test_gradient_contract.py",
+          "test/interactions/electrostatics/bindings/torch/test_kvectors.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_api.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_coverage_gaps.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_ewald.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_features.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_moments.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_pme.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_real_space.py",
+          "test/interactions/electrostatics/bindings/torch/test_multipole_reciprocal.py",
+          "test/interactions/electrostatics/bindings/torch/test_parameters.py",
+          "test/interactions/electrostatics/bindings/torch/test_pme.py",
+          "test/interactions/electrostatics/bindings/torch/test_public_api.py",
+          "test/interactions/electrostatics/bindings/torch/test_slab.py",
+          "test/interactions/electrostatics/bindings/torch/test_utils.py",
+          "test/interactions/electrostatics/conftest.py",
+          "test/interactions/electrostatics/test_cleanup_fixture.py",
+          "test/interactions/electrostatics/test_coulomb.py",
+          "test/interactions/electrostatics/test_deriv_check_selftest.py",
+          "test/interactions/electrostatics/test_dsf.py",
+          "test/interactions/electrostatics/test_ewald_kernels.py",
+          "test/interactions/electrostatics/test_factory.py",
+          "test/interactions/electrostatics/test_factory_ewald_real.py",
+          "test/interactions/electrostatics/test_factory_ewald_real_cell_literal.py",
+          "test/interactions/electrostatics/test_factory_ewald_recip.py",
+          "test/interactions/electrostatics/test_factory_pme.py",
+          "test/interactions/electrostatics/test_jax_autograd.py",
+          "test/interactions/electrostatics/test_multipole_kernels.py",
+          "test/interactions/electrostatics/test_pme_kernels.py",
+          "test/interactions/electrostatics/test_slab_kernels.py",
+          "test/interactions/electrostatics/test_util.py",
+          "test/interactions/test_lj.py",
+          "test/interactions/test_switching.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行",
+        "DCU 路径未提供；原版依赖错误不得包装为成功；恢复条件：独立依赖、数值和目标设备验证完成"
+      ],
+      "release_gate": "G6"
+    },
+    {
+      "id": "compile.acceleration",
+      "category": "C",
+      "status": "deferred",
+      "scenario": "cuEquivariance/UMA/compile 独立环境与能力门控；不以 eager 通过推断编译可用",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/distributed/compile_refresh.py",
+          "nvalchemi/models/mace.py",
+          "nvalchemi/models/uma.py"
+        ],
+        "symbols": {
+          "nvalchemi/distributed/compile_refresh.py": [
+            "keep_routing_live",
+            "RefreshReport",
+            "_placeholders_matching",
+            "_traces_to",
+            "_is_node_scatter",
+            "insert_halo_refresh",
+            "make_dd_halo_backend"
+          ],
+          "nvalchemi/models/mace.py": [
+            "_load_atomic_energies",
+            "_apply_atomic_energies",
+            "_patch_e3nn_irrep_len_for_compile",
+            "_mace_uses_cueq",
+            "_cueq_conv_unfuse_adapters",
+            "_mace_product_block_static_index_forward",
+            "_mace_cueq_spec",
+            "_mace_scripted_spec",
+            "MACEWrapper"
+          ],
+          "nvalchemi/models/uma.py": [
+            "_pad_capped_graph",
+            "_UMAGraphPadder",
+            "_eager_block_refresh",
+            "_distributed_escn_block_forward",
+            "_distributed_edgewise_fold",
+            "_distributed_edge_degree_fold",
+            "_is_node_partition",
+            "_node_partition_bounds",
+            "_distributed_partition_graph",
+            "_distributed_edgewise_gather",
+            "_distributed_reduce_node_to_system",
+            "_distributed_undo_refs",
+            "_distributed_get_composition_info",
+            "_distributed_merged_mole_consistency_info",
+            "_distributed_set_mole_coefficients",
+            "UMAWrapper"
+          ]
+        }
+      },
+      "contract": {
+        "api": "preserve_locked_upstream_signature_defaults_outputs",
+        "data": "cuEquivariance/UMA/compile 独立环境与能力门控；不以 eager 通过推断编译可用",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "Source docstrings/signatures remain authoritative; per-operator specification required before implementation."
+      },
+      "dependencies": [
+        "__future__",
+        "collections.abc",
+        "contextlib",
+        "dataclasses",
+        "e3nn.o3",
+        "fairchem.core.calculate",
+        "fairchem.core.datasets.atomic_data",
+        "fairchem.core.graph.compute",
+        "fairchem.core.models.uma.escn_md",
+        "fairchem.core.models.uma.escn_md_block",
+        "fairchem.core.models.uma.escn_moe",
+        "fairchem.core.models.uma.nn.embedding",
+        "fairchem.core.modules.normalization.element_references",
+        "fairchem.core.units.mlip_unit",
+        "fairchem.core.units.mlip_unit.api.inference",
+        "importlib.metadata",
+        "json",
+        "logging",
+        "mace.calculators.foundations_models",
+        "mace.cli.convert_e3nn_cueq",
+        "mace.modules.wrapper_ops",
+        "mace.tools.scatter",
+        "numpy",
+        "os",
+        "pathlib",
+        "torch",
+        "torch._dynamo",
+        "torch.fx",
+        "typing",
+        "warnings"
+      ],
+      "backends": {
+        "upstream": "torch/warp; per-module imports in inventory",
+        "target": []
+      },
+      "gradient_level": "deferred",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [
+          "test/distributed/model/_toy_graph_parallel_dense.py",
+          "test/distributed/model/_toy_graph_parallel_dense_full.py",
+          "test/distributed/model/_toy_graph_parallel_mpnn.py",
+          "test/distributed/model/_toy_scripted_mpnn.py",
+          "test/distributed/model/test_aimnet2_compile_recompile_gate.py",
+          "test/distributed/model/test_compile_recompile_gate.py",
+          "test/distributed/model/test_dftd3_multigpu.py",
+          "test/distributed/model/test_distributed_models.py",
+          "test/distributed/model/test_distributed_pipeline_multigpu.py",
+          "test/distributed/model/test_electrostatics_stress_multigpu.py",
+          "test/distributed/model/test_ewald_multigpu.py",
+          "test/distributed/model/test_graph_parallel_model.py",
+          "test/distributed/model/test_mace_cueq_compile_gate.py",
+          "test/distributed/model/test_mace_cueq_multigpu.py",
+          "test/distributed/model/test_mace_nocueq_compile_gate.py",
+          "test/distributed/model/test_multigpu.py",
+          "test/distributed/model/test_pme_multigpu.py",
+          "test/distributed/model/test_shared_partition_multigpu.py",
+          "test/distributed/model/test_slab_multigpu.py",
+          "test/distributed/model/test_uma_gp_partition_multigpu.py",
+          "test/distributed/model/test_uma_multigpu.py",
+          "test/distributed/test_compile_refresh.py"
+        ],
+        "dcu_tests": [],
+        "evidence": [
+          "reports/upstream_inventory.json"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "源码保留不等于 DCU 运行支持",
+        "原测试未在本基线运行",
+        "DCU 路径未提供；原版依赖错误不得包装为成功；恢复条件：独立依赖、数值和目标设备验证完成"
+      ],
+      "release_gate": "G6"
+    }
+  ]
+}

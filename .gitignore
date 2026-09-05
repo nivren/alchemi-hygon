@@ -1,0 +1,22 @@
+# 上游参考 clone 不进入产品仓库
+/external/
+
+# 本地环境、构建和科学计算输出
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+/artifacts/
+/data/
+/checkpoints/
+/models-cache/
+.env
+.env.*
+!.env.example
+
+# 报告摘要留在 reports/；勿忽略测试 fixtures 和版本锁文件

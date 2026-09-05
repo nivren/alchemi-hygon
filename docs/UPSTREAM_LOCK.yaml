@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "repositories": {
+    "nvalchemi-toolkit": {
+      "url": "https://github.com/NVIDIA/nvalchemi-toolkit.git",
+      "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+      "version": "0.2.0",
+      "tag": null,
+      "license": "Apache-2.0",
+      "license_files": [
+        ".licenses/README.md",
+        ".licenses/Third_party_attr.txt",
+        ".licenses/details.json",
+        ".licenses/generate_licenses.sh",
+        ".licenses/license-overrides.json",
+        ".licenses/summary.md",
+        ".licenses/version-pins.txt",
+        "LICENSE",
+        "test/_license/config.json",
+        "test/_license/header.txt",
+        "test/_license/header_check.py"
+      ],
+      "import_path": "packages/framework",
+      "history": "git subtree add without squash",
+      "date": "2026-09-05",
+      "compatibility": "Python 3.12; torch 2.9 satisfies >=2.8; ops 0.4.1 satisfies framework >=0.4.1; 97 explicit cross-package imports statically resolved; runtime not verified"
+    },
+    "nvalchemi-toolkit-ops": {
+      "url": "https://github.com/NVIDIA/nvalchemi-toolkit-ops.git",
+      "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+      "version": "0.4.1",
+      "tag": null,
+      "license": "Apache-2.0",
+      "license_files": [
+        ".licenses/README.md",
+        ".licenses/details.json",
+        ".licenses/summary.md",
+        "LICENSE",
+        "test/_license/config.json",
+        "test/_license/header.txt",
+        "test/_license/header_check.py"
+      ],
+      "import_path": "packages/ops",
+      "history": "git subtree add without squash",
+      "date": "2026-09-05",
+      "compatibility": "Python 3.12; torch 2.9 satisfies >=2.8; ops 0.4.1 satisfies framework >=0.4.1; 97 explicit cross-package imports statically resolved; runtime not verified"
+    }
+  }
+}
