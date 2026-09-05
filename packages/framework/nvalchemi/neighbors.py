@@ -34,17 +34,45 @@ path you use.
 from __future__ import annotations
 
 import torch
-from nvalchemiops.neighbors.neighbor_utils import estimate_max_neighbors
-from nvalchemiops.torch.neighbors import neighbor_list
-from nvalchemiops.torch.neighbors.neighbor_utils import (
-    get_neighbor_list_from_neighbor_matrix,
-)
+from nvalchemiops.backend import BackendUnavailableError
+from nvalchemiops.torch_backend import dispatch_neighbor_list
 
 from nvalchemi.data import Batch
 from nvalchemi.data.level_storage import SegmentedLevelStorage
 from nvalchemi.models.base import NeighborConfig, NeighborListFormat
 
 __all__ = ["compute_neighbors"]
+
+
+def _neighbor_matrix_to_coo(
+    neighbor_matrix: torch.Tensor,
+    num_neighbors: torch.Tensor,
+    neighbor_matrix_shifts: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """Convert contiguous dense rows to the framework's COO edge layout."""
+    if neighbor_matrix.ndim != 2 or num_neighbors.ndim != 1:
+        raise ValueError("neighbor matrix and counts must be rank 2 and rank 1")
+    if neighbor_matrix.shape[0] != num_neighbors.shape[0]:
+        raise ValueError("neighbor matrix and counts must have the same number of rows")
+    if torch.any(num_neighbors < 0) or torch.any(
+        num_neighbors > neighbor_matrix.shape[1]
+    ):
+        raise ValueError("neighbor counts must fit within the neighbor matrix width")
+    columns = torch.arange(
+        neighbor_matrix.shape[1], device=neighbor_matrix.device, dtype=torch.long
+    )
+    active = columns.unsqueeze(0) < num_neighbors.to(torch.long).unsqueeze(1)
+    rows = torch.arange(
+        neighbor_matrix.shape[0], device=neighbor_matrix.device, dtype=torch.int32
+    )
+    rows = torch.repeat_interleave(rows, num_neighbors.to(torch.long))
+    edges = torch.stack((rows, neighbor_matrix[active].to(torch.int32)), dim=0)
+    shifts = (
+        neighbor_matrix_shifts[active].to(torch.int32)
+        if neighbor_matrix_shifts is not None
+        else None
+    )
+    return edges, shifts
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +88,7 @@ def _write_neighbor_data_to_batch(
     neighbor_matrix_shifts: torch.Tensor | None,
     format: NeighborListFormat,
     cutoff: float,
+    backend: str = "warp",
 ) -> None:
     """Write computed neighbor data into *batch* and stamp the cutoff.
 
@@ -67,7 +96,7 @@ def _write_neighbor_data_to_batch(
     and (optionally) ``neighbor_matrix_shifts`` into ``batch._atoms_group``.
 
     For ``COO`` format: converts the matrix to sparse edge form via
-    :func:`get_neighbor_list_from_neighbor_matrix`, creates a
+        backend-specific matrix-to-COO conversion, creates a
     :class:`~nvalchemi.data.level_storage.SegmentedLevelStorage`, and
     replaces ``batch._storage.groups["edges"]``.
 
@@ -87,20 +116,36 @@ def _write_neighbor_data_to_batch(
     cutoff : float
         The cutoff used to build the list (stamped on the batch for
         downstream filtering by ``prepare_neighbors_for_model``).
+    backend : str
+        Backend that produced the matrix. The legacy Warp path keeps using
+        the upstream conversion helper; Warp-independent backends use the
+        local Torch conversion.
     """
     if format == NeighborListFormat.COO:
-        neighbor_list_coo = get_neighbor_list_from_neighbor_matrix(
-            neighbor_matrix=neighbor_matrix,
-            num_neighbors=num_neighbors,
-            neighbor_shift_matrix=neighbor_matrix_shifts
-            if neighbor_matrix_shifts is not None
-            else None,
-            fill_value=batch.num_nodes,
-        )
-        neighbor_list_edges = neighbor_list_coo[0].T.contiguous()  # (E, 2) int32
-        nl_shifts = (
-            neighbor_list_coo[2].to(torch.int32) if len(neighbor_list_coo) > 2 else None
-        )
+        if backend == "warp":
+            from nvalchemiops.torch.neighbors.neighbor_utils import (
+                get_neighbor_list_from_neighbor_matrix,
+            )
+
+            neighbor_list_coo = get_neighbor_list_from_neighbor_matrix(
+                neighbor_matrix=neighbor_matrix,
+                num_neighbors=num_neighbors,
+                neighbor_shift_matrix=neighbor_matrix_shifts
+                if neighbor_matrix_shifts is not None
+                else None,
+                fill_value=batch.num_nodes,
+            )
+            neighbor_list_edges = neighbor_list_coo[0].T.contiguous()
+            nl_shifts = (
+                neighbor_list_coo[2].to(torch.int32)
+                if len(neighbor_list_coo) > 2
+                else None
+            )
+        else:
+            neighbor_list_coo, nl_shifts = _neighbor_matrix_to_coo(
+                neighbor_matrix, num_neighbors, neighbor_matrix_shifts
+            )
+            neighbor_list_edges = neighbor_list_coo.T.contiguous()
 
         src_atoms = neighbor_list_edges[:, 0]  # (E,)
         graph_per_edge = batch.batch_idx[src_atoms]  # (E,)
@@ -142,6 +187,7 @@ def compute_neighbors(
     format: NeighborListFormat = NeighborListFormat.MATRIX,
     max_neighbors: int | None = None,
     half_list: bool = False,
+    backend: str | None = None,
 ) -> None:
     """Compute a neighbor list and write results into *batch* in-place.
 
@@ -178,6 +224,11 @@ def compute_neighbors(
         ``None``.
     half_list : bool
         Whether to build a half neighbor list.  Default: ``False``.
+    backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
+        Execution backend. ``None`` preserves the upstream Warp path. The
+        explicit Torch reference path currently supports no-PBC inputs and
+        reports no silent CPU fallback. ``"auto"`` currently resolves to the
+        Torch reference path because it is the only registered dispatcher.
 
     Raises
     ------
@@ -223,6 +274,41 @@ def compute_neighbors(
     if pbc is not None and not bool(pbc.any()):
         pbc = None
         cell = None
+
+    selected_backend = "warp" if backend is None else backend
+    if selected_backend in ("torch_reference", "auto"):
+        if max_neighbors is None:
+            max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
+        neighbor_matrix, num_neighbors = dispatch_neighbor_list(
+            positions=batch.positions,
+            cutoff=cutoff,
+            cell=cell,
+            pbc=pbc,
+            batch_idx=batch.batch_idx,
+            batch_ptr=batch.batch_ptr,
+            max_neighbors=max_neighbors,
+            half_fill=half_list,
+            backend=selected_backend,
+        )
+        _write_neighbor_data_to_batch(
+            batch,
+            neighbor_matrix,
+            num_neighbors,
+            None,
+            format,
+            cutoff,
+            backend=selected_backend,
+        )
+        return
+    if selected_backend != "warp":
+        raise BackendUnavailableError(
+            f"backend {selected_backend!r} is not registered for framework.compute_neighbors"
+        )
+
+    # Warp imports stay on the legacy path so importing this module and using
+    # the explicit Torch reference backend does not require Warp.
+    from nvalchemiops.neighbors.neighbor_utils import estimate_max_neighbors
+    from nvalchemiops.torch.neighbors import neighbor_list
 
     if max_neighbors is None:
         max_neighbors = estimate_max_neighbors(cutoff=cutoff)
@@ -273,5 +359,5 @@ def compute_neighbors(
         max_neighbors = int(actual_max * 1.5) + 1
 
     _write_neighbor_data_to_batch(
-        batch, nb_matrix, nb_counts, nb_shifts, format, cutoff
+        batch, nb_matrix, nb_counts, nb_shifts, format, cutoff, backend="warp"
     )

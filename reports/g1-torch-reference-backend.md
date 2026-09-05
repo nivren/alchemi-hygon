@@ -19,6 +19,22 @@
 
 `packages/ops/pyproject.toml` 将 Warp 从基础依赖移到 `warp`/Warp 适配器 extras，并增加 `torch-reference` extra；framework 的 uv dependency metadata 已同步。使用 PyPI 构建 wheel 成功，且 wheel 的基础 `Requires-Dist` 只有 `numpy`，不会在 HCU reference 环境强制安装 Warp。原镜像返回 403 的构建尝试未改变项目环境。
 
+## Framework 入口
+
+`packages/framework/nvalchemi/neighbors.py` 现在保留 `compute_neighbors` 公共入口，并增加可选的 `backend` 参数。默认 `backend=None` 仍在函数体内延迟导入并执行上游 Warp 路径；`backend="torch_reference"` 和当前的 `backend="auto"` 通过 ops dispatcher 执行 Torch reference，并把结果写回 framework 的 MATRIX 或 COO 存储。模块导入本身不再要求 Warp，因此可以在无 Warp 的环境中使用显式 reference 路径。
+
+Framework 入口验证：
+
+```bash
+PYTHONPATH=packages/framework:packages/ops \
+  /home/wangleping/codes/nvalchemi-toolkit/.venv/bin/python -m pytest -q \
+  packages/framework/test/models/test_neighbors_torch_reference.py
+```
+
+结果：`2 passed`，退出码 `0`。测试覆盖异构双体系、MATRIX/COO 写回、`auto` 选择和未注册 Triton 请求的显式失败。加载 `/opt/dtk-26.04/env.sh`、设置 `HIP_VISIBLE_DEVICES=0` 后，用同一探索环境在 `BW200, UBB BW1000` 上运行 MATRIX 路径，得到 `[[1], [0], [3], [2]]` 与计数 `[1, 1, 1, 1]`，退出码 `0`。
+
+项目 `.venv` 当前不能独立运行该 framework 测试：导入 `nvalchemi.data.transforms.compose` 时缺少 `plum`；本轮未向环境安装新包，避免改变已冻结的海光 Torch/Triton 组合。该限制与 HCU kernel 运行结果分开记录。
+
 ## 可重跑验证
 
 CPU/无 Warp 导入与六项 reference/dispatcher 测试：
@@ -54,4 +70,4 @@ unzip -p /tmp/alchemi-ops-dist/*.whl '*/METADATA' | sed -n '1,45p'
 
 ## 限制
 
-本报告只证明 Torch reference dispatcher 的 no-PBC 小规模路径在 CPU/HCU 可运行，不代表上游 `nvalchemiops.torch.neighbors` 或 `nvalchemiops.interactions.lj` 公共 Warp API 已替换。PBC/cell-list/skin、switching/virial、NVE、上游兼容入口、Triton/HIP kernel、双卡 ownership 和性能结论仍未实现或验证。下一步是审计上游调用方并接入不改变默认返回值的显式 reference backend 入口。
+本报告只证明 Torch reference dispatcher 及 framework 的显式 no-PBC 小规模入口在 CPU/HCU 可运行，不代表上游 `nvalchemiops.torch.neighbors` 或 `nvalchemiops.interactions.lj` 公共 Warp API 已替换。PBC/cell-list/skin、switching/virial、NVE、动态邻居重建、Triton/HIP kernel、双卡 ownership 和性能结论仍未实现或验证。默认 framework 路径仍保持 Warp；下一步是审计 `NeighborListHook` 与 LJ wrapper 的调用契约，再逐步接入 reference backend。

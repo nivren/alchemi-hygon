@@ -114,3 +114,10 @@
 - `packages/ops` 基础依赖不再强制安装 Warp，Warp 放入显式 `warp`/Warp adapter extras，并增加 `torch-reference` extra；framework 的 uv dependency metadata 已同步。使用 PyPI 构建 wheel 成功，基础元数据只要求 NumPy。
 - CPU reference/dispatcher 测试 `6 passed`、退出码 0；加载 `/opt/dtk-26.04/env.sh` 后，`HIP_VISIBLE_DEVICES=0` 的 BW200 HCU dispatcher 检查退出码 0，full/half 均报告 `torch_reference`，能量 `-0.6236757013081533`、力范数 `23.859458411523782`。详细命令和限制见 `reports/g1-torch-reference-backend.md`。
 - 该 dispatcher 仍是独立 Warp-free 入口，尚未替换上游 `nvalchemiops.torch.neighbors`/LJ 默认公共 API；PBC、cell-list、NVE、Triton/HIP 和自动性能选择仍未实现。下一小步是审计上游调用方并接入不改变默认返回值的显式 reference backend 入口。
+
+### 2026-09-05：framework.compute_neighbors reference 入口
+
+- `packages/framework/nvalchemi/neighbors.py` 保留原有 `compute_neighbors` 公共入口，新增可选 `backend` 参数。`backend=None` 仍保持上游 Warp 默认路径，并将 Warp 相关导入延迟到该路径；`backend="torch_reference"` 和当前的 `backend="auto"` 通过 ops dispatcher 执行 Torch reference。未注册的 Triton/HIP 请求会明确失败，不会静默转 CPU。
+- Torch reference 结果现在可以写回 framework 的 MATRIX 或 COO 邻居存储；Warp 默认路径仍调用上游矩阵到 COO 转换，Torch 路径使用等价的无 Warp 转换并对邻居容量做显式检查。PBC、cell-list、skin、动态重建和邻居 hook 尚未接入该 dispatcher。
+- `packages/framework/test/models/test_neighbors_torch_reference.py` 在探索环境通过 `2 passed`；加载 `/opt/dtk-26.04/env.sh`、使用 `HIP_VISIBLE_DEVICES=0` 的 BW200 HCU 运行 MATRIX 路径通过，结果为邻居矩阵 `[[1], [0], [3], [2]]`、计数 `[1, 1, 1, 1]`。项目 `.venv` 运行 framework 测试仍被缺少 `plum` 阻断，未安装额外依赖。
+- 证据已补入 `reports/g1-torch-reference-backend.md`，兼容清单的 `neighbors.topology` 已登记 framework 测试和该报告。下一小步：审计 `NeighborListHook` 与 LJ wrapper 的调用契约，确定 reference 入口的最小纵向接入范围。
