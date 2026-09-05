@@ -60,42 +60,98 @@ from __future__ import annotations
 from enum import Enum
 
 import torch
-from nvalchemiops.neighbors.base_dispatch import neighbor_list_strategy_run_args
-from nvalchemiops.neighbors.neighbor_utils import estimate_max_neighbors
-from nvalchemiops.torch.neighbors import neighbor_list, suggest_neighbor_list_method
-from nvalchemiops.torch.neighbors.rebuild_detection import (
-    batch_neighbor_list_needs_rebuild,
-)
-
-try:
-    from nvalchemiops.torch.neighbors.batch_cell_list import (
-        estimate_batch_cell_list_sizes,
-    )
-except ImportError:
-    estimate_batch_cell_list_sizes = None
-
-try:
-    from nvalchemiops.torch.neighbors.batch_cluster_tile import (
-        allocate_batch_cluster_tile_list,
-        estimate_batch_max_tiles_per_group,
-    )
-except ImportError:
-    allocate_batch_cluster_tile_list = None
-    estimate_batch_max_tiles_per_group = None
-
-try:
-    from nvalchemiops.torch.neighbors.neighbor_utils import (
-        allocate_cell_list,
-        compute_naive_num_shifts,
-    )
-except ImportError:
-    allocate_cell_list = None
-    compute_naive_num_shifts = None
+from nvalchemiops.torch_backend import dispatch_neighbor_list
 
 from nvalchemi.data import Batch
 from nvalchemi.hooks._context import HookContext
 from nvalchemi.models.base import NeighborConfig, NeighborListFormat
 from nvalchemi.neighbors import _write_neighbor_data_to_batch
+
+# Warp-facing dependencies are loaded only when the legacy backend is selected.
+# This keeps an explicit Torch reference hook usable in environments where Warp
+# is intentionally absent, while preserving the original implementation once
+# the default path is entered.
+_WARP_DEPENDENCIES_READY = False
+neighbor_list_strategy_run_args = None
+estimate_max_neighbors = None
+neighbor_list = None
+suggest_neighbor_list_method = None
+batch_neighbor_list_needs_rebuild = None
+estimate_batch_cell_list_sizes = None
+allocate_batch_cluster_tile_list = None
+estimate_batch_max_tiles_per_group = None
+allocate_cell_list = None
+compute_naive_num_shifts = None
+
+
+def _initialize_warp_dependencies() -> None:
+    """Import the legacy Warp neighbor implementation on demand."""
+    global _WARP_DEPENDENCIES_READY
+    global neighbor_list_strategy_run_args, estimate_max_neighbors, neighbor_list
+    global suggest_neighbor_list_method, batch_neighbor_list_needs_rebuild
+    global estimate_batch_cell_list_sizes
+    global allocate_batch_cluster_tile_list, estimate_batch_max_tiles_per_group
+    global allocate_cell_list, compute_naive_num_shifts
+
+    if _WARP_DEPENDENCIES_READY:
+        return
+
+    from nvalchemiops.neighbors.base_dispatch import (
+        neighbor_list_strategy_run_args as _neighbor_list_strategy_run_args,
+    )
+    from nvalchemiops.neighbors.neighbor_utils import (
+        estimate_max_neighbors as _estimate_max_neighbors,
+    )
+    from nvalchemiops.torch.neighbors import (
+        neighbor_list as _neighbor_list,
+    )
+    from nvalchemiops.torch.neighbors import (
+        suggest_neighbor_list_method as _suggest_neighbor_list_method,
+    )
+    from nvalchemiops.torch.neighbors.rebuild_detection import (
+        batch_neighbor_list_needs_rebuild as _batch_neighbor_list_needs_rebuild,
+    )
+
+    try:
+        from nvalchemiops.torch.neighbors.batch_cell_list import (
+            estimate_batch_cell_list_sizes as _estimate_batch_cell_list_sizes,
+        )
+    except ImportError:
+        _estimate_batch_cell_list_sizes = None
+
+    try:
+        from nvalchemiops.torch.neighbors.batch_cluster_tile import (
+            allocate_batch_cluster_tile_list as _allocate_batch_cluster_tile_list,
+        )
+        from nvalchemiops.torch.neighbors.batch_cluster_tile import (
+            estimate_batch_max_tiles_per_group as _estimate_batch_max_tiles_per_group,
+        )
+    except ImportError:
+        _allocate_batch_cluster_tile_list = None
+        _estimate_batch_max_tiles_per_group = None
+
+    try:
+        from nvalchemiops.torch.neighbors.neighbor_utils import (
+            allocate_cell_list as _allocate_cell_list,
+        )
+        from nvalchemiops.torch.neighbors.neighbor_utils import (
+            compute_naive_num_shifts as _compute_naive_num_shifts,
+        )
+    except ImportError:
+        _allocate_cell_list = None
+        _compute_naive_num_shifts = None
+
+    neighbor_list_strategy_run_args = _neighbor_list_strategy_run_args
+    estimate_max_neighbors = _estimate_max_neighbors
+    neighbor_list = _neighbor_list
+    suggest_neighbor_list_method = _suggest_neighbor_list_method
+    batch_neighbor_list_needs_rebuild = _batch_neighbor_list_needs_rebuild
+    estimate_batch_cell_list_sizes = _estimate_batch_cell_list_sizes
+    allocate_batch_cluster_tile_list = _allocate_batch_cluster_tile_list
+    estimate_batch_max_tiles_per_group = _estimate_batch_max_tiles_per_group
+    allocate_cell_list = _allocate_cell_list
+    compute_naive_num_shifts = _compute_naive_num_shifts
+    _WARP_DEPENDENCIES_READY = True
 
 
 class NeighborListHook:
@@ -149,6 +205,10 @@ class NeighborListHook:
         Explicit ``nvalchemiops`` neighbor-list method to use.  When ``None``
         (default), the hook selects an appropriate method from the batch shape
         and periodic-cell metadata.
+    backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
+        Execution backend. ``None`` preserves the upstream Warp path. The
+        explicit Torch reference path currently supports only no-PBC batches
+        with ``skin=0``; unsupported combinations fail explicitly.
     """
 
     def __init__(
@@ -158,11 +218,22 @@ class NeighborListHook:
         max_neighbors: int | None = None,
         stage: Enum | None = None,
         method: str | None = None,
+        backend: str | None = None,
     ) -> None:
+        selected_backend = "warp" if backend is None else backend
+        if selected_backend not in {"warp", "auto", "torch_reference"}:
+            raise ValueError(
+                f"unknown NeighborListHook backend {selected_backend!r}; "
+                "choices are 'warp', 'auto', and 'torch_reference'"
+            )
+        if selected_backend == "warp":
+            _initialize_warp_dependencies()
+
         self.config = config
         self.skin = skin
         self.stage = stage
         self.method = method
+        self.backend = selected_backend
         self._max_neighbors_override = max_neighbors
         self.frequency = 1
         self._neighbor_list_flag = config.format == NeighborListFormat.COO
@@ -211,11 +282,59 @@ class NeighborListHook:
         has moved more than ``skin / 2`` since the previous build.  The reference
         positions are updated in-place on the GPU whenever a rebuild occurs.
         """
+        if self.backend in ("auto", "torch_reference"):
+            self._rebuild_reference(ctx.batch)
+            return
+
         self._rebuild(ctx.batch)
 
         # First build: initialise the skin-buffer reference (one-time clone).
         if self.skin > 0.0 and self._ref_positions is None:
             self._init_ref_positions(ctx.batch.positions)
+
+    @torch.compiler.disable
+    def _rebuild_reference(self, batch: Batch) -> None:
+        """Run the restricted Warp-independent reference neighbor path."""
+        if self.skin != 0.0:
+            raise NotImplementedError(
+                "Torch reference NeighborListHook currently requires skin=0"
+            )
+        if self.method is not None:
+            raise NotImplementedError(
+                "Torch reference NeighborListHook does not support method selection"
+            )
+
+        pbc = getattr(batch, "pbc", None)
+        if pbc is not None and bool(pbc.any()):
+            raise NotImplementedError(
+                "Torch reference NeighborListHook currently does not support PBC"
+            )
+
+        # A cell without active periodic flags is metadata, not a periodic
+        # neighbor contract. Drop it explicitly so the reference dispatcher
+        # cannot accidentally interpret it as a supported PBC input.
+        neighbor_matrix, num_neighbors = dispatch_neighbor_list(
+            positions=batch.positions,
+            cutoff=self.config.cutoff,
+            cell=None,
+            pbc=None,
+            batch_idx=batch.batch_idx,
+            batch_ptr=batch.batch_ptr,
+            max_neighbors=self._max_neighbors_override
+            if self._max_neighbors_override is not None
+            else max(int(batch.max_num_nodes) - 1, 0),
+            half_fill=self.config.half_list,
+            backend=self.backend,
+        )
+        _write_neighbor_data_to_batch(
+            batch=batch,
+            neighbor_matrix=neighbor_matrix,
+            num_neighbors=num_neighbors,
+            neighbor_matrix_shifts=None,
+            format=self.config.format,
+            cutoff=self.config.cutoff,
+            backend=self.backend,
+        )
 
     @torch.compiler.disable
     def _init_ref_positions(self, positions: torch.Tensor) -> None:

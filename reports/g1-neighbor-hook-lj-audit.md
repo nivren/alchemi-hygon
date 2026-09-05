@@ -41,12 +41,25 @@ PY
 
 结果：两个模块均为 `ModuleNotFoundError: No module named 'warp'`。这说明当前已完成的 `compute_neighbors(backend="torch_reference")` 隔离还没有覆盖动态 Hook 和 LJ wrapper；本审计没有把该失败写成 DCU 运行失败，也没有安装 Warp 来掩盖边界。
 
-## 下一条最小纵向实现
+## Hook reference slice 实现结果
+
+`NeighborListHook` 现在接受显式 `backend` 参数。默认 `None` 仍初始化并使用原有 Warp 路径；`"torch_reference"`/`"auto"` 不加载 Warp，绕过 staging/rebuild 热路径，调用已有 neighbor dispatcher，再通过共享写回函数写入 MATRIX 或 COO。为保持边界明确，该分支拒绝 `skin != 0`、PBC 和 `method` 选择。`nvalchemi.hooks` 同时把 Warp-backed `WrapPeriodicHook` 改为按需导入，使显式 reference Hook 可以在无 Warp 环境导入。
+
+验证命令：
+
+```bash
+PYTHONPATH=packages/framework:packages/ops \
+  /home/wangleping/codes/nvalchemi-toolkit/.venv/bin/python -m pytest -q \
+  packages/framework/test/hooks/test_neighbor_list_torch_reference.py
+```
+
+结果：`6 passed`，退出码 `0`。覆盖无 Warp 导入、真实 `@torch.compile` 入口、MATRIX/COO、`auto`、method/skin/PBC 的显式失败。该测试在探索环境 CPU 上运行；本轮没有重复受限沙箱 GPU 探针，也没有新增 HCU Hook 运行证据。
+
+## 后续最小纵向实现
 
 后续实现应保持默认参数和 Warp 路径不变，并增加显式 backend 入口：
 
-1. `NeighborListHook(..., backend="torch_reference")` 走一个 `@torch.compiler.disable` 的 reference 分支，调用已有 dispatcher 并复用 `_write_neighbor_data_to_batch()`；第一版只接受无 PBC、`skin=0`、无预分配 scratch，其他组合明确抛出 `BackendUnavailableError` 或 `NotImplementedError`。
-2. `LennardJonesModelWrapper(..., backend="torch_reference")` 走 Warp-independent LJ dispatcher；第一版只接受无 PBC、`switch_width=0`、不请求 stress，明确处理 `positions` 的 autograd 需求，并保持 energy/force 的 full/half 归约和 per-system scatter 语义。
-3. 先补 CPU contract tests，再在 HCU 上运行同一条邻居→LJ 链；确认数值后再考虑把 skin/rebuild、PBC、switching 和 virial 拆成独立特性。
+1. `LennardJonesModelWrapper(..., backend="torch_reference")` 走 Warp-independent LJ dispatcher；第一版只接受无 PBC、`switch_width=0`、不请求 stress，明确处理 `positions` 的 autograd 需求，并保持 energy/force 的 full/half 归约和 per-system scatter 语义。
+2. 先补 CPU contract tests，再在 HCU 上运行同一条邻居→LJ 链；确认数值后再考虑把 skin/rebuild、PBC、switching 和 virial 拆成独立特性。
 
 本步没有修改 Hook 或 LJ 生产代码，也没有宣称动态 MD、NVE、PBC 或 stress 已支持。

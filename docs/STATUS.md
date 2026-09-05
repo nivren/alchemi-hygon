@@ -128,3 +128,10 @@
 - `LennardJonesModelWrapper` 当前固定消费 MATRIX 邻居，顶层导入 `nvalchemi.models._ops.lj`；该 custom op 直接依赖 Warp，提供 analytic force、switching 和可选 virial/stress。Torch reference LJ 要求 `positions.requires_grad`，目前只覆盖 no-PBC、`switch_width=0`，没有 virial 输出。
 - 探索环境的无 Warp 导入检查：`nvalchemi.hooks.neighbor_list` 和 `nvalchemi.models.lj` 均以 `ModuleNotFoundError: No module named 'warp'` 失败。这是尚未隔离的依赖边界，不是 HCU 设备运行结论。详细审计见 `reports/g1-neighbor-hook-lj-audit.md`。
 - 下一小步：为 Hook 增加显式 `backend="torch_reference"` 的受限分支（先无 PBC、`skin=0`），再为 LJ wrapper 增加同样显式的 reference 分支和 energy/force contract tests；默认 Warp 参数和路径保持不变。
+
+### 2026-09-05：NeighborListHook Torch reference 受限入口
+
+- `NeighborListHook` 新增 `backend` 参数。默认 `None` 仍使用原 Warp 实现；显式 `"torch_reference"`/`"auto"` 绕过 Warp staging、rebuild 和 scratch，调用已有 Torch dispatcher 并写回 MATRIX/COO。`nvalchemi.hooks` 的 `WrapPeriodicHook` 改为按需导入，避免显式 reference Hook 导入时触发 Warp。
+- reference 分支明确拒绝 `skin != 0`、PBC 和 `method` 选择；这些能力尚未移植，未做静默忽略或 CPU 回退。新增 `packages/framework/test/hooks/test_neighbor_list_torch_reference.py`。
+- 探索环境测试 `6 passed`，覆盖真实 `@torch.compile` 入口、无 Warp 导入、异构 batch、MATRIX/COO 和受限条件失败。静态编译与 diff 检查通过；本轮未新增 HCU Hook 运行证据。
+- 下一小步：给 `LennardJonesModelWrapper` 增加同样显式的 Torch reference 分支，先覆盖无 PBC、无 switching、无 stress 的 energy/force contract。

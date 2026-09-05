@@ -74,15 +74,13 @@
         ],
         "dcu_tests": [],
         "evidence": [
-          "reports/upstream_inventory.json",
-          "reports/g1-neighbor-hook-lj-audit.md"
+          "reports/upstream_inventory.json"
         ],
         "environments": []
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行",
-        "NeighborListHook 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖动态 skin、rebuild_flags、PBC 或预分配 scratch"
+        "原测试未在本基线运行"
       ],
       "release_gate": "G1"
     },
@@ -362,15 +360,19 @@
           "test/hooks/test_shared_hooks.py",
           "test/hooks/test_stage_timing_hook.py"
         ],
-        "dcu_tests": [],
+        "dcu_tests": [
+          "packages/framework/test/hooks/test_neighbor_list_torch_reference.py"
+        ],
         "evidence": [
-          "reports/upstream_inventory.json"
+          "reports/upstream_inventory.json",
+          "reports/g1-neighbor-hook-lj-audit.md"
         ],
         "environments": []
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线运行",
+        "NeighborListHook 的 Torch reference 仅覆盖无 PBC、skin=0 且不使用 method/scratch；默认生产路径仍依赖 Warp"
       ],
       "release_gate": "G2"
     },
