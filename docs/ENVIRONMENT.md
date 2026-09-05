@@ -11,4 +11,8 @@
 - 默认 uv cache 指向只读 /data/envs/uv-cache，探针显式使用 /tmp/alchemi-uv-cache；未修改用户全局配置。
 - 默认清华 PyPI 镜像普通依赖下载返回 HTTP 403，安装改用 https://pypi.org/simple；本地 Torch/Triton 来源不变。
 
-原始探针输出放 artifacts/g0，摘要放 reports。未知：目标架构的运行时识别、可分配空闲卡、实际 Torch/HIP/Triton/RCCL 设备能力、MLIP checkpoint、NVIDIA 基线。设备型号、安装版本和编译成功不等于算子或产品支持。
+原始探针输出放 artifacts/g0，摘要放 reports。未知：可分配空闲卡、实际 Torch/HIP/Triton/RCCL 设备能力、MLIP checkpoint、NVIDIA 基线。设备型号、安装版本和编译成功不等于算子或产品支持。
+
+用户随后明确 BW200/BW1000 适配目标为 gfx936；所有目标 HIP 编译使用 gfx936。此前 gfx928 编译仅为过程试探，不作为目标能力证据。
+
+本轮按用户额度提醒收口：NumPy 1.26.4 下载被主动中止（退出 130），当前实际安装为 2.3.5。constraints 中 1.26.4 为待落实要求，不是安装成功记录。Torch 的 NumPy ABI 问题尚未修复；新增互操作探针未复跑。

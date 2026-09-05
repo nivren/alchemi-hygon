@@ -39,3 +39,12 @@
 - 命令、退出码及数值见 reports/g0-validation.md；详细重跑命令见 PROBE_PLAN。GPU、MLIP、原测试、NVIDIA fixture 均无本轮通过证据。
 - 下一可独立任务 G1：先隔离 Batch/AtomicData 的 import-time Warp/PhysicsNeMo 耦合，再实现 Torch reference 邻居→LJ→NVE 纵向链。对应兼容测试保护异构两体系 ID/索引、half/full/PBC pair 集合、FP64 解析 E/F、容量溢出明确失败、短轨迹能量漂移与轨迹输出。保留上游测试，再按功能回归。
 - 有分配卡后依次运行 P01/P02/P03 和双卡 P07；指定可信 MACE checkpoint 并审计依赖后运行 P06。通信探针不能替代两卡 LJ 域分解验收。
+- 导入完成：`52ffa2d` framework / `88aa209` ops，不 squash；`probes/verify_import.py` 退出 0，源码 tree 精确相同、祖先历史可达、无嵌套 .git。工作分支 `codex/g0-initialization`，未推送。
+- 用户补充确认目标架构 gfx936；更新 HIP 编译命令并重编译，gfx928 不作为适配目标。
+
+### 本轮停止点（用户要求分步推进）
+
+- G0 源码审计和完整历史导入完成；不展开 G1。
+- NumPy 1.26.4 下载主动中止，退出 130；当前 .venv 实际 NumPy 2.3.5。constraints=1.26.4 表示目标约束，尚未落实。初版 CPU 张量探针通过，但 NumPy ABI 修复及新增互操作检查未完成。
+- 下轮只做一个小任务：按 constraints 安装 NumPy 1.26.4，复跑 CPU/NumPy 互操作探针并更新证据；完成后再选一条 G1 链路。GPU 探针继续等待空闲卡分配。
+- gfx936 HIP 最终编译退出 0，无编译警告；无设备执行证据。

@@ -5,7 +5,7 @@
 已运行：
 - 两个 external `git fsck --full --no-dangling`，退出 0；非浅克隆，工作树干净。
 - `.venv/bin/python probes/audit_upstream.py`，退出 0。framework 191 个源码模块、178 个 test 目录文件、39 个 example 文件、20 个配置文件；ops 分别 159/155/47/26。这里是文件数量，不是测试用例数量。97 条显式跨包 from-import 静态解析成功；未验证动态导出/运行调用。
-- `hipcc --offload-arch=gfx928 probes/hip_probe.cpp -o artifacts/g0/hip_probe`，退出 0。仅编译，架构仍需设备元数据核对。
+- `hipcc --offload-arch=gfx936 probes/hip_probe.cpp -o artifacts/g0/hip_probe`，退出 0。仅编译；gfx936 为用户明确指定适配目标。
 - 初版 `OMP_NUM_THREADS=1 .venv/bin/python probes/torch_probe.py --device cpu` 张量计算成功，但导入时报 NumPy 2.5.2 ABI 警告；据此固定 NumPy 1.26.4 并增加互操作检查。
 
 CPU 数值：FP64 x=[1,2,3] 的立方和，一阶=[3,12,27]，二阶=[6,12,18]，容差 1e-12；segment=[4,2]，梯度与二阶解析对照严格一致；FFT roundtrip 最大绝对误差 0。仅显式 CPU/Torch reference，不是上游算子或 HCU 数值证据。
@@ -14,4 +14,10 @@ CPU 数值：FP64 x=[1,2,3] 的立方和，一阶=[3,12,27]，二阶=[6,12,18]�
 
 未运行：全部设备计算（8 卡满载且无分配）、Triton JIT、HIP kernel 执行、RCCL collective/P2P、真实 MACE（缺环境依赖和指定可信 checkpoint）、上游两包测试、自定义算子 opcheck、PBC/LJ/NVE、域分解和 NVIDIA 基线。MACE 探针直接调用模型，不覆盖 toolkit wrapper；未用 mock 或旧探索结果充当证据。
 
-原始输出：artifacts/g0/{audit.txt,hip_compile.txt,torch_cpu.json,torch_cpu.stderr,build_metadata.txt}。完整可提交源码清单：reports/upstream_inventory.json。
+原始输出：artifacts/g0/{audit.txt,hip_compile_gfx936.txt,torch_cpu.json,torch_cpu.stderr,build_metadata.txt}。完整可提交源码清单：reports/upstream_inventory.json。
+
+导入验证：`.venv/bin/python probes/verify_import.py` 退出 0，见 reports/import-verification.json。完整源码/许可证/测试/示例树与指定 SHA 精确相同；两个 SHA 的历史在主仓库中可达，无嵌套 .git。产品代码尚未适配、安装或运行。
+
+配置检查：两份 YAML 可解析，21 个特性 ID 唯一，均有真实源码和上游测试路径；vendor wheel SHA256 见 reports/vendor-wheels.sha256。
+
+最终环境状态：NumPy 2.3.5；1.26.4 安装因用户要求本轮收口而主动中止（130）。初版 CPU 结果保留，新增 NumPy 互操作检查尚未复跑；不能宣称 ABI 已修复。最终 gfx936 HIP 编译退出 0、无警告。
