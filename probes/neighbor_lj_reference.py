@@ -16,7 +16,10 @@ import argparse
 import json
 
 import torch
-from nvalchemiops.torch_reference import lj_energy_forces, neighbor_list
+from nvalchemiops.torch_backend import (
+    dispatch_lj_energy_forces,
+    dispatch_neighbor_list,
+)
 
 
 def _run(device: torch.device) -> dict[str, object]:
@@ -42,15 +45,18 @@ def _run(device: torch.device) -> dict[str, object]:
     energies: dict[str, float] = {}
     force_norms: dict[str, float] = {}
     pair_sets: dict[str, list[list[int]]] = {}
+    backend_records: dict[str, dict[str, str]] = {}
     for half_list in (False, True):
-        matrix, counts = neighbor_list(
+        (matrix, counts), neighbor_selection = dispatch_neighbor_list(
             positions,
             cutoff,
             batch_ptr=batch_ptr,
             max_neighbors=4,
             half_fill=half_list,
+            backend="auto",
+            return_backend=True,
         )
-        atomic_energies, forces = lj_energy_forces(
+        (atomic_energies, forces), lj_selection = dispatch_lj_energy_forces(
             positions,
             matrix,
             counts,
@@ -58,9 +64,15 @@ def _run(device: torch.device) -> dict[str, object]:
             sigma=sigma,
             cutoff=cutoff,
             half_list=half_list,
+            backend="auto",
+            return_backend=True,
         )
         energy = atomic_energies.sum()
         key = "half" if half_list else "full"
+        backend_records[key] = {
+            "neighbor": neighbor_selection.selected,
+            "lj": lj_selection.selected,
+        }
         active_pairs = []
         for i in range(positions.shape[0]):
             for slot in range(int(counts[i].item())):
@@ -99,6 +111,7 @@ def _run(device: torch.device) -> dict[str, object]:
             "energy_expected": expected_pair_energy,
             "force_norm_full": force_norms["full"],
             "force_norm_half": force_norms["half"],
+            "backend": backend_records,
             "status": "passed",
         }
     )

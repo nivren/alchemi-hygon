@@ -110,7 +110,7 @@
 ### 2026-09-05：Torch-first 后端策略与 ops reference slice
 
 - 按 ADR 0003，当前阶段不实现 Triton/HIP kernel；先以海光 PyTorch 作为设备内 Torch reference 和正确性基线，后续只在真实 gfx936 基准显示瓶颈且能力/梯度满足时逐算子增加 Triton 或 HIP。选择不能由 `cuda` 字符串或语言偏好决定，必须记录实际后端和原因。
-- 新增 `packages/ops/nvalchemiops/torch_reference.py` 及 `packages/ops/test/torch/test_torch_reference_backend.py`。该模块不导入 Warp，覆盖 no-PBC neighbors → LJ energy/force 的 full/half、异构 batch、COO、容量溢出和二阶梯度检查；已有 Warp-facing 子包改为在包边界显式调用 `initialize_warp()`，保留原 Warp 路径。
+- 新增 `packages/ops/nvalchemiops/torch_reference.py`、`backend.py`、`torch_backend.py` 及 `packages/ops/test/torch/test_torch_reference_backend.py`。reference 模块不导入 Warp，dispatcher 的 `backend="auto"` 当前明确选择并报告 `torch_reference`；覆盖 no-PBC neighbors → LJ energy/force 的 full/half、异构 batch、COO、容量溢出和二阶梯度检查。已有 Warp-facing 子包改为在包边界显式调用 `initialize_warp()`，保留原 Warp 路径。
 - `packages/ops` 基础依赖不再强制安装 Warp，Warp 放入显式 `warp`/Warp adapter extras，并增加 `torch-reference` extra；framework 的 uv dependency metadata 已同步。使用 PyPI 构建 wheel 成功，基础元数据只要求 NumPy。
-- CPU reference 测试 `5 passed`、退出码 0；加载 `/opt/dtk-26.04/env.sh` 后，`HIP_VISIBLE_DEVICES=0` 的 BW200 HCU reference 检查退出码 0，能量 `-0.9833724493736826`、力范数 `2.245906038631372`。详细命令和限制见 `reports/g1-torch-reference-backend.md`。
-- 当前仍未接入稳定的公共 neighbors/LJ dispatcher，未实现 PBC、cell-list、NVE、Triton/HIP 或自动选择；下一小步是设计不改变上游调用约定的 reference dispatcher，并为实际后端报告保留显式接口。
+- CPU reference/dispatcher 测试 `6 passed`、退出码 0；加载 `/opt/dtk-26.04/env.sh` 后，`HIP_VISIBLE_DEVICES=0` 的 BW200 HCU dispatcher 检查退出码 0，full/half 均报告 `torch_reference`，能量 `-0.6236757013081533`、力范数 `23.859458411523782`。详细命令和限制见 `reports/g1-torch-reference-backend.md`。
+- 该 dispatcher 仍是独立 Warp-free 入口，尚未替换上游 `nvalchemiops.torch.neighbors`/LJ 默认公共 API；PBC、cell-list、NVE、Triton/HIP 和自动性能选择仍未实现。下一小步是审计上游调用方并接入不改变默认返回值的显式 reference backend 入口。

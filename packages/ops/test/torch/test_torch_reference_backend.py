@@ -140,3 +140,52 @@ def test_single_atom_zero_capacity_is_valid():
     matrix, counts = neighbor_list(torch.zeros((1, 3)), 2.0)
     assert matrix.shape == (1, 0)
     assert counts.tolist() == [0]
+
+
+def test_dispatcher_preserves_outputs_and_reports_backend():
+    """The explicit dispatcher keeps tensor outputs unchanged and auditable."""
+    from nvalchemiops.backend import (  # noqa: PLC0415
+        BackendUnavailableError,
+        resolve_backend,
+    )
+    from nvalchemiops.torch_backend import (  # noqa: PLC0415
+        dispatch_lj_energy_forces,
+        dispatch_neighbor_list,
+    )
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+    (matrix, counts), neighbor_selection = dispatch_neighbor_list(
+        positions,
+        2.0,
+        backend="auto",
+        return_backend=True,
+    )
+    assert neighbor_selection.as_dict() == {
+        "requested": "auto",
+        "selected": "torch_reference",
+        "operation": "neighbor_list",
+        "device": "cpu",
+        "reason": "auto selected the only registered backend in this slice",
+    }
+
+    coordinates = positions.clone().requires_grad_()
+    (atomic, forces), lj_selection = dispatch_lj_energy_forces(
+        coordinates,
+        matrix,
+        counts,
+        epsilon=1.0,
+        sigma=1.0,
+        cutoff=2.0,
+        backend="torch_reference",
+        return_backend=True,
+    )
+    assert atomic.shape == (2,)
+    assert forces.shape == (2, 3)
+    assert lj_selection.selected == "torch_reference"
+    assert lj_selection.operation == "lj_energy_forces"
+    assert resolve_backend("torch_reference", operation="test").device == "unspecified"
+    with pytest.raises(BackendUnavailableError, match="not registered"):
+        dispatch_neighbor_list(positions, 2.0, backend="triton")

@@ -15,11 +15,13 @@
 
 `nvalchemiops` 根包现在只在调用 `initialize_warp()` 或导入 Warp-facing 子包时初始化 Warp。`nvalchemiops.torch_reference` 可单独导入；已有 neighbors、interactions、dynamics、math、jax 和 Torch Warp adapters 在各自包边界显式初始化 Warp，以保留原有 Warp 路径。
 
+新增 `backend.py` 和 `torch_backend.py` 提供 Warp-independent dispatcher。默认和 `backend="auto"` 当前都选择 `torch_reference`；`return_backend=True` 会返回 `BackendSelection`，包含 requested、selected、operation、device 和 reason。请求尚未注册的 Triton/HIP/Warp dispatcher 会明确失败。
+
 `packages/ops/pyproject.toml` 将 Warp 从基础依赖移到 `warp`/Warp 适配器 extras，并增加 `torch-reference` extra；framework 的 uv dependency metadata 已同步。使用 PyPI 构建 wheel 成功，且 wheel 的基础 `Requires-Dist` 只有 `numpy`，不会在 HCU reference 环境强制安装 Warp。原镜像返回 403 的构建尝试未改变项目环境。
 
 ## 可重跑验证
 
-CPU/无 Warp 导入与五项 reference 测试：
+CPU/无 Warp 导入与六项 reference/dispatcher 测试：
 
 ```bash
 PYTHONPATH=packages/ops \
@@ -27,17 +29,17 @@ PYTHONPATH=packages/ops \
   packages/ops/test/torch/test_torch_reference_backend.py
 ```
 
-结果：`5 passed`，退出码 `0`。测试覆盖 Warp 未加载、异构 batch、full/half/COO、LJ 能量/力、二阶梯度、容量溢出、显式 PBC 失败和单原子零容量。
+结果：`6 passed`，退出码 `0`。测试覆盖 Warp 未加载、异构 batch、full/half/COO、LJ 能量/力、二阶梯度、容量溢出、显式 PBC 失败、单原子零容量和 dispatcher 后端审计。
 
 HCU 单卡验证（先加载 `/opt/dtk-26.04/env.sh`，使用 `HIP_VISIBLE_DEVICES=0`）：
 
 ```bash
 bash -lc 'source /opt/dtk-26.04/env.sh && \
   PYTHONPATH=packages/ops HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 \
-  .venv/bin/python -c "import torch; from nvalchemiops.torch_reference import neighbor_list, lj_energy_forces; assert torch.cuda.is_available(); p=torch.tensor([[0.,0.,0.],[1.1,0.,0.]],device=\"cuda\",dtype=torch.float64); m,n=neighbor_list(p,2.0); q=p.detach().requires_grad_(); e,f=lj_energy_forces(q,m,n,epsilon=1.,sigma=1.,cutoff=2.); print(torch.cuda.get_device_name(), m.tolist(), n.tolist(), e.sum().item(), torch.linalg.vector_norm(f).item())"'
+  .venv/bin/python probes/neighbor_lj_reference.py --device cuda'
 ```
 
-结果：设备 `BW200, UBB BW1000`，邻居 `[[1], [0]]`、计数 `[1, 1]`，总能量 `-0.9833724493736826`，力范数 `2.245906038631372`，退出码 `0`。
+结果：两个 full/half 分支的 neighbor 与 LJ dispatcher 均报告 `torch_reference`；设备为 `BW200, UBB BW1000`，总能量 `-0.6236757013081533`，力范数 `23.859458411523782`，退出码 `0`。
 
 wheel 元数据检查：
 
@@ -52,4 +54,4 @@ unzip -p /tmp/alchemi-ops-dist/*.whl '*/METADATA' | sed -n '1,45p'
 
 ## 限制
 
-本报告只证明 Torch reference 的 no-PBC 小规模路径在 CPU/HCU 可运行，不代表上游 `nvalchemiops.torch.neighbors` 或 `nvalchemiops.interactions.lj` 公共 Warp API 已替换。PBC/cell-list/skin、switching/virial、NVE、自动 dispatcher、Triton/HIP kernel、双卡 ownership 和性能结论仍未实现或验证。下一步是把 reference 接到受控的公共 dispatcher，再按 gfx936 的实测瓶颈逐算子评估 Triton 与 HIP。
+本报告只证明 Torch reference dispatcher 的 no-PBC 小规模路径在 CPU/HCU 可运行，不代表上游 `nvalchemiops.torch.neighbors` 或 `nvalchemiops.interactions.lj` 公共 Warp API 已替换。PBC/cell-list/skin、switching/virial、NVE、上游兼容入口、Triton/HIP kernel、双卡 ownership 和性能结论仍未实现或验证。下一步是审计上游调用方并接入不改变默认返回值的显式 reference backend 入口。

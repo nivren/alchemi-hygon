@@ -2,7 +2,7 @@
 
 日期：2026-09-05
 
-本探针导入 `nvalchemiops.torch_reference`，而不导入仍依赖 Warp 的上游邻居和 LJ 公共模块。它固定第一条纵向链的语义：两个 batch system、无 PBC、dense neighbor matrix、full/half 拓扑、LJ 能量和位置负梯度力。
+本探针导入 Warp-independent `nvalchemiops.torch_backend` dispatcher，而不导入仍依赖 Warp 的上游邻居和 LJ 公共模块。它固定第一条纵向链的语义：两个 batch system、无 PBC、dense neighbor matrix、full/half 拓扑、LJ 能量和位置负梯度力，并记录实际选择的后端。
 
 ## 契约覆盖
 
@@ -12,6 +12,7 @@
 - LJ 使用 `V(r)=4*epsilon*((sigma/r)^12-(sigma/r)^6)`，full list 按二分之一计数，half list 按一次计数。
 - 力由 `-autograd.grad(energy, positions)` 得到；每个体系的总力为零。
 - 本探针暂不覆盖 PBC、cell-list、容量扩容、switching、virial 或生产 `nvalchemiops` API。
+- 当前 dispatcher 只有 `torch_reference` 注册项；Triton/HIP 尚未实现或加入自动选择。
 
 ## 可重跑命令
 
@@ -37,6 +38,7 @@ energy_expected = -0.6236757013081533
 energy_full     = -0.6236757013081533
 energy_half     = -0.6236757013081533
 force_norm      = 23.859458411523782
+backend         = torch_reference (neighbor and LJ, full and half)
 pairs_full      = [[0,1], [1,0], [3,4], [4,3]]
 pairs_half      = [[0,1], [3,4]]
 status          = passed

@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Warp-independent Torch operation dispatcher for the first HCU slice."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+
+from nvalchemiops.backend import BackendName, resolve_backend
+from nvalchemiops.torch_reference import lj_energy_forces as _lj_energy_forces
+from nvalchemiops.torch_reference import neighbor_list as _neighbor_list
+
+
+def dispatch_neighbor_list(
+    positions: torch.Tensor,
+    cutoff: float,
+    cell: torch.Tensor | None = None,
+    pbc: torch.Tensor | None = None,
+    batch_idx: torch.Tensor | None = None,
+    batch_ptr: torch.Tensor | None = None,
+    max_neighbors: int | None = None,
+    half_fill: bool = False,
+    fill_value: int | None = None,
+    return_neighbor_list: bool = False,
+    *,
+    return_distances: bool = False,
+    return_vectors: bool = False,
+    target_indices: torch.Tensor | None = None,
+    backend: BackendName = "torch_reference",
+    return_backend: bool = False,
+    **kwargs: object,
+) -> Any:
+    """Dispatch neighbor construction and optionally return its audit record."""
+    selection = resolve_backend(backend, operation="neighbor_list", device=positions.device)
+    result = _neighbor_list(
+        positions,
+        cutoff,
+        cell=cell,
+        pbc=pbc,
+        batch_idx=batch_idx,
+        batch_ptr=batch_ptr,
+        max_neighbors=max_neighbors,
+        half_fill=half_fill,
+        fill_value=fill_value,
+        return_neighbor_list=return_neighbor_list,
+        return_distances=return_distances,
+        return_vectors=return_vectors,
+        target_indices=target_indices,
+        **kwargs,
+    )
+    return (result, selection) if return_backend else result
+
+
+def dispatch_lj_energy_forces(
+    positions: torch.Tensor,
+    neighbor_matrix: torch.Tensor,
+    num_neighbors: torch.Tensor,
+    *,
+    epsilon: float,
+    sigma: float,
+    cutoff: float,
+    half_list: bool = False,
+    fill_value: int | None = None,
+    switch_width: float = 0.0,
+    backend: BackendName = "torch_reference",
+    return_backend: bool = False,
+) -> Any:
+    """Dispatch LJ energy/force evaluation and optionally return its audit record."""
+    selection = resolve_backend(
+        backend, operation="lj_energy_forces", device=positions.device
+    )
+    result = _lj_energy_forces(
+        positions,
+        neighbor_matrix,
+        num_neighbors,
+        epsilon=epsilon,
+        sigma=sigma,
+        cutoff=cutoff,
+        half_list=half_list,
+        fill_value=fill_value,
+        switch_width=switch_width,
+    )
+    return (result, selection) if return_backend else result
+
+
+__all__ = ["dispatch_lj_energy_forces", "dispatch_neighbor_list"]
