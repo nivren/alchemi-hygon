@@ -85,6 +85,30 @@ def test_reference_hook_supports_coo_and_auto():
     assert batch.neighbor_list.tolist() == [[0, 1], [1, 0], [2, 3], [3, 2]]
 
 
+def test_reference_hook_supports_full_pbc_and_writes_shifts():
+    hook = NeighborListHook(
+        NeighborConfig(cutoff=0.5, format=NeighborListFormat.MATRIX),
+        backend="torch_reference",
+    )
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
+    _call_eager(hook, batch)
+    assert batch.neighbor_matrix.tolist() == [[1], [0]]
+    assert batch.neighbor_matrix_shifts.tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
+
+
 def test_shared_dynamics_stage_keeps_stage_timing_domain_without_warp():
     from nvalchemi._dynamics_stage import DynamicsStage
     from nvalchemi.hooks.stage_timing import _stage_domain
@@ -107,7 +131,6 @@ def test_reference_hook_rejects_method_selection():
     "config_kwargs, batch_kwargs, message",
     [
         ({"skin": 0.5}, {}, "requires skin=0"),
-        ({}, {"pbc": True}, "does not support PBC"),
     ],
 )
 def test_reference_hook_rejects_unsupported_state(
@@ -121,16 +144,5 @@ def test_reference_hook_rejects_unsupported_state(
         skin=float(config_kwargs.get("skin", 0.0)),
     )
     batch = _batch()
-    if batch_kwargs.get("pbc"):
-        batch = Batch.from_data_list(
-            [
-                AtomicData(
-                    positions=torch.tensor([[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]]),
-                    atomic_numbers=torch.tensor([1, 1]),
-                    cell=torch.eye(3).unsqueeze(0) * 10.0,
-                    pbc=torch.ones(1, 3, dtype=torch.bool),
-                )
-            ]
-        )
     with pytest.raises(NotImplementedError, match=message):
         _call_eager(hook, batch)

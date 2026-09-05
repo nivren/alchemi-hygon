@@ -11,11 +11,198 @@ features fail instead of silently falling back or dropping interactions.
 
 from __future__ import annotations
 
+import math
+
 import torch
 
 
 class NeighborOverflowError(RuntimeError):
     """Raised when a caller-provided neighbor matrix is too small."""
+
+
+def _normalize_periodic_geometry(
+    cell: torch.Tensor | None,
+    pbc: torch.Tensor | None,
+    *,
+    num_systems: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if cell is None or pbc is None:
+        raise ValueError("cell and pbc must be provided together for periodic neighbors")
+    if cell.ndim == 2:
+        if num_systems != 1:
+            raise ValueError("a single cell is only valid for a single-system batch")
+        cells = cell.unsqueeze(0)
+    elif cell.ndim == 3 and cell.shape[0] == num_systems:
+        cells = cell
+    else:
+        raise ValueError(
+            f"cell must have shape (3, 3) or ({num_systems}, 3, 3), got {tuple(cell.shape)}"
+        )
+    if pbc.ndim == 1:
+        if num_systems != 1 or pbc.shape[0] != 3:
+            raise ValueError("a single pbc row is only valid for a single-system batch")
+        periodic = pbc.unsqueeze(0)
+    elif pbc.ndim == 2 and pbc.shape == (num_systems, 3):
+        periodic = pbc
+    else:
+        raise ValueError(
+            f"pbc must have shape (3,) or ({num_systems}, 3), got {tuple(pbc.shape)}"
+        )
+    cells = cells.to(device=device, dtype=dtype)
+    periodic = periodic.to(device=device, dtype=torch.bool)
+    if not torch.isfinite(cells).all():
+        raise ValueError("cell must contain finite values")
+    return cells, periodic
+
+
+def _periodic_neighbor_rows(
+    positions: torch.Tensor,
+    ptr: torch.Tensor,
+    cutoff: float,
+    cells: torch.Tensor,
+    pbc: torch.Tensor,
+) -> list[list[tuple[int, tuple[int, int, int], torch.Tensor, torch.Tensor]]]:
+    """Enumerate periodic neighbors and their integer image shifts.
+
+    The shift convention matches the upstream matrix contract:
+    ``r_ij = r_i - r_j - shift @ cell``.  This reference implementation is
+    intentionally eager and small-input oriented; the later Triton/HIP paths
+    will replace the Python loops after the contract is validated.
+    """
+    rows: list[list[tuple[int, tuple[int, int, int], torch.Tensor, torch.Tensor]]] = [
+        [] for _ in range(positions.shape[0])
+    ]
+    cutoff_sq = cutoff * cutoff
+    for system in range(ptr.numel() - 1):
+        start = int(ptr[system].item())
+        end = int(ptr[system + 1].item())
+        cell_s = cells[system]
+        pbc_s = pbc[system]
+        inv_cell = torch.linalg.inv(cell_s)
+        bounds = torch.ceil(
+            cutoff * torch.linalg.vector_norm(inv_cell, dim=0)
+        ).to(torch.int64) + 1
+        for i in range(start, end):
+            for j in range(start, end):
+                delta = positions[i] - positions[j]
+                fractional_delta = delta @ inv_cell
+                ranges: list[range] = []
+                for dim in range(3):
+                    if bool(pbc_s[dim]):
+                        center = float(fractional_delta[dim].item())
+                        bound = int(bounds[dim].item())
+                        lower = math.floor(center) - bound - 1
+                        upper = math.floor(center) + bound + 1
+                        ranges.append(range(lower, upper + 1))
+                    else:
+                        ranges.append(range(0, 1))
+                for sx in ranges[0]:
+                    for sy in ranges[1]:
+                        for sz in ranges[2]:
+                            shift = (sx, sy, sz)
+                            if i == j and shift == (0, 0, 0):
+                                continue
+                            shift_tensor = torch.tensor(
+                                shift, dtype=positions.dtype, device=positions.device
+                            )
+                            vector = delta - shift_tensor @ cell_s
+                            distance_sq = vector.square().sum()
+                            if distance_sq < cutoff_sq and distance_sq >= 1e-10:
+                                rows[i].append((j, shift, distance_sq, vector))
+    return rows
+
+
+def _neighbor_list_periodic(
+    positions: torch.Tensor,
+    cutoff: float,
+    *,
+    cell: torch.Tensor,
+    pbc: torch.Tensor,
+    batch_idx: torch.Tensor | None,
+    batch_ptr: torch.Tensor | None,
+    max_neighbors: int | None,
+    fill_value: int,
+    return_neighbor_list: bool,
+    return_distances: bool,
+    return_vectors: bool,
+) -> tuple[torch.Tensor, ...]:
+    if return_neighbor_list and (return_distances or return_vectors):
+        raise NotImplementedError(
+            "Torch reference periodic COO pair geometry is not implemented yet"
+        )
+    ptr = _prepare_batch_ptr(positions, batch_idx, batch_ptr)
+    cells, periodic = _normalize_periodic_geometry(
+        cell,
+        pbc,
+        num_systems=ptr.numel() - 1,
+        device=positions.device,
+        dtype=positions.dtype,
+    )
+    rows = _periodic_neighbor_rows(positions, ptr, cutoff, cells, periodic)
+    found_max = max((len(row) for row in rows), default=0)
+    if max_neighbors is None:
+        max_neighbors = found_max
+    if max_neighbors < 0:
+        raise ValueError("max_neighbors must be non-negative")
+    if found_max > max_neighbors:
+        raise NeighborOverflowError(
+            f"neighbor capacity {max_neighbors} is smaller than a periodic row count {found_max}"
+        )
+    matrix = torch.full(
+        (positions.shape[0], max_neighbors),
+        int(fill_value),
+        dtype=torch.int32,
+        device=positions.device,
+    )
+    counts = torch.zeros(positions.shape[0], dtype=torch.int32, device=positions.device)
+    shifts = torch.zeros(
+        positions.shape[0], max_neighbors, 3, dtype=torch.int32, device=positions.device
+    )
+    distances = (
+        torch.zeros(positions.shape[0], max_neighbors, dtype=positions.dtype, device=positions.device)
+        if return_distances
+        else None
+    )
+    vectors = (
+        torch.zeros(positions.shape[0], max_neighbors, 3, dtype=positions.dtype, device=positions.device)
+        if return_vectors
+        else None
+    )
+    for row_idx, row in enumerate(rows):
+        counts[row_idx] = len(row)
+        for col_idx, (neighbor, shift, distance_sq, vector) in enumerate(row):
+            matrix[row_idx, col_idx] = neighbor
+            shifts[row_idx, col_idx] = torch.tensor(
+                shift, dtype=torch.int32, device=positions.device
+            )
+            if distances is not None:
+                distances[row_idx, col_idx] = distance_sq.sqrt()
+            if vectors is not None:
+                vectors[row_idx, col_idx] = vector
+
+    if return_neighbor_list:
+        active = torch.arange(max_neighbors, device=positions.device).unsqueeze(0) < counts.to(
+            torch.long
+        ).unsqueeze(1)
+        row_ids = torch.arange(
+            positions.shape[0], dtype=torch.int32, device=positions.device
+        )
+        row_ids = torch.repeat_interleave(row_ids, counts.to(torch.long))
+        edges = torch.stack((row_ids, matrix[active].to(torch.int32)), dim=0)
+        ptr_out = torch.cat(
+            [torch.zeros(1, dtype=torch.int32, device=positions.device), counts.cumsum(0)]
+        )
+        output: list[torch.Tensor] = [edges, ptr_out, shifts[active]]
+        return tuple(output)
+
+    output = [matrix, counts, shifts]
+    if distances is not None:
+        output.append(distances)
+    if vectors is not None:
+        output.append(vectors)
+    return tuple(output)
 
 
 def _validate_positions(positions: torch.Tensor) -> None:
@@ -80,28 +267,48 @@ def neighbor_list(
     target_indices: torch.Tensor | None = None,
     **kwargs: object,
 ) -> tuple[torch.Tensor, ...]:
-    """Build a no-PBC neighbor matrix or COO list with Torch operations.
+    """Build a reference neighbor matrix or COO list with Torch operations.
 
     This first backend slice keeps topology discrete and deterministic.  It
-    supports contiguous batches and full/half lists.  PBC, target rows,
-    rebuild state, pair callbacks, and preallocated scratch buffers are not
-    silently ignored; callers receive ``NotImplementedError``.
+    supports contiguous batches and full/half no-PBC lists.  Periodic lists
+    support full lists and return integer image shifts; periodic half lists,
+    target rows, rebuild state, pair callbacks, and preallocated scratch
+    buffers fail explicitly.
     """
     _validate_positions(positions)
     if cutoff <= 0:
         raise ValueError("cutoff must be positive")
-    if cell is not None or pbc is not None:
-        raise NotImplementedError("Torch reference neighbor_list currently supports no PBC")
     if target_indices is not None:
         raise NotImplementedError("Torch reference neighbor_list does not support target_indices yet")
     if kwargs:
         unsupported = ", ".join(sorted(kwargs))
         raise NotImplementedError(f"Torch reference neighbor_list does not support: {unsupported}")
 
-    ptr = _prepare_batch_ptr(positions, batch_idx, batch_ptr)
     n_atoms = positions.shape[0]
     if fill_value is None:
         fill_value = n_atoms
+    if fill_value < n_atoms:
+        raise ValueError("fill_value must be >= num atoms so it cannot collide with an index")
+    if cell is not None or pbc is not None:
+        if half_fill:
+            raise NotImplementedError(
+                "Torch reference periodic neighbor_list currently requires half_fill=False"
+            )
+        return _neighbor_list_periodic(
+            positions,
+            cutoff,
+            cell=cell,
+            pbc=pbc,
+            batch_idx=batch_idx,
+            batch_ptr=batch_ptr,
+            max_neighbors=max_neighbors,
+            fill_value=fill_value,
+            return_neighbor_list=return_neighbor_list,
+            return_distances=return_distances,
+            return_vectors=return_vectors,
+        )
+
+    ptr = _prepare_batch_ptr(positions, batch_idx, batch_ptr)
     if max_neighbors is None:
         max_neighbors = max(
             (int(ptr[i + 1].item()) - int(ptr[i].item()) - 1 for i in range(ptr.numel() - 1)),

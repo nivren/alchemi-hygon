@@ -120,7 +120,7 @@ def test_lj_energy_force_and_second_derivative_match_list_conventions():
 
 
 def test_neighbor_capacity_and_unsupported_features_are_explicit():
-    """The reference backend never truncates neighbors or silently ignores PBC."""
+    """The reference backend never truncates neighbors or silently ignores limits."""
     from nvalchemiops.torch_reference import (  # noqa: PLC0415
         NeighborOverflowError,
         neighbor_list,
@@ -129,8 +129,67 @@ def test_neighbor_capacity_and_unsupported_features_are_explicit():
     positions = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
     with pytest.raises(NeighborOverflowError):
         neighbor_list(positions, 2.0, max_neighbors=0)
-    with pytest.raises(NotImplementedError, match="no PBC"):
+    with pytest.raises(ValueError, match="cell and pbc"):
         neighbor_list(positions, 2.0, pbc=torch.ones(3, dtype=torch.bool))
+    with pytest.raises(NotImplementedError, match="half_fill=False"):
+        neighbor_list(
+            positions,
+            2.0,
+            cell=torch.eye(3),
+            pbc=torch.ones(3, dtype=torch.bool),
+            half_fill=True,
+        )
+
+
+def test_periodic_full_list_returns_integer_image_shifts():
+    """Periodic full lists include the nearest image and its signed shift."""
+    from nvalchemiops.torch_reference import neighbor_list  # noqa: PLC0415
+
+    positions = torch.tensor(
+        [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+    )
+    matrix, counts, shifts = neighbor_list(
+        positions,
+        0.5,
+        cell=torch.diag(torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)),
+        pbc=torch.tensor([True, False, False]),
+    )
+    assert matrix.tolist() == [[1], [0]]
+    assert counts.tolist() == [1, 1]
+    assert shifts.tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
+
+    edges, ptr, coo_shifts = neighbor_list(
+        positions,
+        0.5,
+        cell=torch.diag(torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)),
+        pbc=torch.tensor([True, False, False]),
+        return_neighbor_list=True,
+    )
+    assert edges.tolist() == [[0, 1], [1, 0]]
+    assert ptr.tolist() == [0, 1, 2]
+    assert coo_shifts.tolist() == [[-1, 0, 0], [1, 0, 0]]
+
+
+def test_periodic_triclinic_cell_preserves_shift_contract():
+    """The reference shift calculation also handles a non-orthogonal cell."""
+    from nvalchemiops.torch_reference import neighbor_list  # noqa: PLC0415
+
+    positions = torch.tensor(
+        [[0.1, 0.1, 0.0], [0.55, 1.9, 0.0]], dtype=torch.float64
+    )
+    cell = torch.tensor(
+        [[2.0, 0.0, 0.0], [0.5, 2.0, 0.0], [0.0, 0.0, 10.0]],
+        dtype=torch.float64,
+    )
+    matrix, counts, shifts = neighbor_list(
+        positions,
+        0.5,
+        cell=cell,
+        pbc=torch.ones(3, dtype=torch.bool),
+    )
+    assert matrix.tolist() == [[1], [0]]
+    assert counts.tolist() == [1, 1]
+    assert shifts.tolist() == [[[0, -1, 0]], [[0, 1, 0]]]
 
 
 def test_single_atom_zero_capacity_is_valid():

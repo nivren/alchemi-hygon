@@ -66,3 +66,52 @@ def test_compute_neighbors_rejects_unregistered_optimized_backend():
     """A framework caller cannot silently fall back from an unknown backend."""
     with pytest.raises(RuntimeError, match="not registered"):
         compute_neighbors(_make_batch(), cutoff=2.0, backend="triton")
+
+
+def test_compute_neighbors_torch_reference_pbc_writes_shifts():
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
+    compute_neighbors(
+        batch,
+        cutoff=0.5,
+        format=NeighborListFormat.MATRIX,
+        backend="torch_reference",
+    )
+    assert batch.neighbor_matrix.tolist() == [[1], [0]]
+    assert batch.num_neighbors.tolist() == [1, 1]
+    assert batch.neighbor_matrix_shifts.tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
+
+    coo_batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
+    compute_neighbors(
+        coo_batch,
+        cutoff=0.5,
+        format=NeighborListFormat.COO,
+        backend="torch_reference",
+    )
+    assert coo_batch.neighbor_list.tolist() == [[0, 1], [1, 0]]
+    assert coo_batch.neighbor_list_shifts.tolist() == [[-1, 0, 0], [1, 0, 0]]

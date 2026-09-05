@@ -207,8 +207,9 @@ class NeighborListHook:
         and periodic-cell metadata.
     backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
         Execution backend. ``None`` preserves the upstream Warp path. The
-        explicit Torch reference path currently supports only no-PBC batches
-        with ``skin=0``; unsupported combinations fail explicitly.
+        explicit Torch reference path supports full periodic lists with
+        ``skin=0`` and no method selection; periodic half lists and other
+        unsupported combinations fail explicitly.
     """
 
     def __init__(
@@ -305,32 +306,35 @@ class NeighborListHook:
             )
 
         pbc = getattr(batch, "pbc", None)
-        if pbc is not None and bool(pbc.any()):
-            raise NotImplementedError(
-                "Torch reference NeighborListHook currently does not support PBC"
-            )
+        cell = getattr(batch, "cell", None)
+        if pbc is not None and not bool(pbc.any()):
+            pbc = None
+            cell = None
 
-        # A cell without active periodic flags is metadata, not a periodic
-        # neighbor contract. Drop it explicitly so the reference dispatcher
-        # cannot accidentally interpret it as a supported PBC input.
-        neighbor_matrix, num_neighbors = dispatch_neighbor_list(
+        max_neighbors = self._max_neighbors_override
+        if max_neighbors is None and pbc is None:
+            max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
+        result = dispatch_neighbor_list(
             positions=batch.positions,
             cutoff=self.config.cutoff,
-            cell=None,
-            pbc=None,
+            cell=cell,
+            pbc=pbc,
             batch_idx=batch.batch_idx,
             batch_ptr=batch.batch_ptr,
-            max_neighbors=self._max_neighbors_override
-            if self._max_neighbors_override is not None
-            else max(int(batch.max_num_nodes) - 1, 0),
+            max_neighbors=max_neighbors,
             half_fill=self.config.half_list,
             backend=self.backend,
         )
+        if pbc is None:
+            neighbor_matrix, num_neighbors = result
+            neighbor_matrix_shifts = None
+        else:
+            neighbor_matrix, num_neighbors, neighbor_matrix_shifts = result
         _write_neighbor_data_to_batch(
             batch=batch,
             neighbor_matrix=neighbor_matrix,
             num_neighbors=num_neighbors,
-            neighbor_matrix_shifts=None,
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
             format=self.config.format,
             cutoff=self.config.cutoff,
             backend=self.backend,

@@ -1189,22 +1189,26 @@
         "dcu_tests": [
           "packages/ops/test/torch/test_torch_reference_backend.py",
           "packages/framework/test/models/test_neighbors_torch_reference.py",
-          "probes/neighbor_lj_reference.py"
+          "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
+          "probes/neighbor_lj_reference.py",
+          "probes/pbc_neighbor_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-lj-reference.md",
-          "reports/g1-torch-reference-backend.md"
+          "reports/g1-torch-reference-backend.md",
+          "reports/g1-pbc-neighbor-reference.md",
+          "artifacts/g1/pbc_neighbor_reference_hcu0.json"
         ],
         "environments": [
-          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors; framework wrapper probe blocked by missing plum",
-          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for framework Hook→LJ probe"
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors",
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for framework Hook/PBC probes"
         ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "当前证据仅覆盖 framework.compute_neighbors 显式 Torch reference 的无 PBC 小输入；默认生产路径仍依赖 Warp，PBC、cell-list、skin 与动态溢出处理尚未接入 reference dispatcher"
+        "当前 PBC 证据仅覆盖 full-list、小输入、显式 Torch reference；默认生产路径仍依赖 Warp，PBC half-list、skin/rebuild、cell-list、动态溢出扩容和性能路径尚未接入"
       ],
       "release_gate": "G1"
     },

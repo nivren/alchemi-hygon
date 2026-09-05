@@ -152,3 +152,10 @@
 - framework 邻居 Hook 与 LJ reference 测试合计 `13 passed`，退出码 `0`；新增测试覆盖无 eager dynamics 导入、共享 `DynamicsStage` 域识别和完整 Hook→LJ 链。ruff、compileall、diff 检查通过。项目 `.venv` 的 HCU 命令首次因缺少 `plum` 阻断，补齐 `plum-dispatch` 后继续暴露尚未安装的 `jaxtyping`；改用已有探索环境后，在 source DTK 26.04、BW200/gfx936、`HIP_VISIBLE_DEVICES=0` 上同一条链退出码 `0`，能量 `[-0.9833724493736826, -0.8909652875830761]`，总力 `[0, 0, 0]`，设备为 `BW200, UBB BW1000`。原始摘要见 `artifacts/g1/framework_neighbor_lj_reference_hcu0.json`。
 - 上游 `test/hooks/test_stage_timing_hook.py` 在当前探索环境收集阶段仍因 `nvalchemi.dynamics` eager 导入 Warp 而阻断；这不是本次 stage-domain 修复的断言失败，reference-specific stage-domain 回归已包含在上述 `13 passed` 中。
 - 下一小步：把 G1 的 PBC 邻居集合和短 NVE/轨迹输出拆成独立小步；本轮仍未宣称 PBC、NVE 或生产 Warp API 已支持。
+
+### 2026-09-05：Torch reference PBC 邻居集合与 image shifts
+
+- `packages/ops/nvalchemiops/torch_reference.py` 现在支持 full periodic neighbor list：批量 cell、部分 PBC、正交/可逆三斜胞、MATRIX/COO 和 `neighbor_matrix_shifts`；使用 `r_ij = r_i - r_j - shift @ cell` 的上游约定。reference 路径保留 eager 小输入定位，不把它当作最终性能后端。
+- PBC `half_fill=True`、周期 pair geometry、skin/rebuild、method/scratch 仍显式失败；因此尚未改变 LJ wrapper 的 PBC 拒绝契约，也没有伪装支持周期力或 NVE。
+- ops PBC 测试 `8 passed`；framework `compute_neighbors`/Hook PBC 测试通过；CPU 三斜胞契约和 source DTK 26.04 后 BW200/gfx936 HCU 探针均通过。HCU 结果为邻居矩阵 `[[1], [0]]`、shift `[[[-1, 0, 0]], [[1, 0, 0]]]`、计数 `[1, 1]`，设备 `BW200, UBB BW1000`。证据：[reports/g1-pbc-neighbor-reference.md](../reports/g1-pbc-neighbor-reference.md)。
+- 下一小步：为 LJ reference 接入 PBC shift 后的 energy/force 公式和 FP64 解析对照；通过后再做短 NVE/轨迹。

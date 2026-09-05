@@ -226,8 +226,9 @@ def compute_neighbors(
         Whether to build a half neighbor list.  Default: ``False``.
     backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
         Execution backend. ``None`` preserves the upstream Warp path. The
-        explicit Torch reference path currently supports no-PBC inputs and
-        reports no silent CPU fallback. ``"auto"`` currently resolves to the
+        explicit Torch reference path supports full periodic lists with
+        integer image shifts, while periodic half-list and dynamic rebuild
+        features remain explicit errors. ``"auto"`` currently resolves to the
         Torch reference path because it is the only registered dispatcher.
 
     Raises
@@ -277,9 +278,9 @@ def compute_neighbors(
 
     selected_backend = "warp" if backend is None else backend
     if selected_backend in ("torch_reference", "auto"):
-        if max_neighbors is None:
+        if max_neighbors is None and pbc is None:
             max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
-        neighbor_matrix, num_neighbors = dispatch_neighbor_list(
+        result = dispatch_neighbor_list(
             positions=batch.positions,
             cutoff=cutoff,
             cell=cell,
@@ -290,11 +291,16 @@ def compute_neighbors(
             half_fill=half_list,
             backend=selected_backend,
         )
+        if pbc is None:
+            neighbor_matrix, num_neighbors = result
+            neighbor_matrix_shifts = None
+        else:
+            neighbor_matrix, num_neighbors, neighbor_matrix_shifts = result
         _write_neighbor_data_to_batch(
             batch,
             neighbor_matrix,
             num_neighbors,
-            None,
+            neighbor_matrix_shifts,
             format,
             cutoff,
             backend=selected_backend,
