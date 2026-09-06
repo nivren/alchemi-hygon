@@ -35,8 +35,23 @@ PY
 - `probes/mace_probe.py` 已在探索环境 CPU 和 source DTK 26.04 的 BW200/gfx936 HCU 上退出 `0`，检查能量、力、力损失到模型参数的非零梯度；详细结果见 `reports/g1-mace-wrapper-batch.md`。这只是原始 MACE 模型证据，不等同于 framework wrapper 或 dynamics 支持。
 - `probes/mace_wrapper_reference.py` 已加入正式 wrapper + Torch reference neighbor + Batch smoke；H₂O 单/双体系、单个 `perf_46` 和两个 `perf_46` CIF 的 CPU/HCU batching 均通过。向量化周期 Torch reference 邻居后，双体系 HCU 结果为 `batch_ptr=[0,46,92]`、1754 条边、无跨体系边、逐体系总力最大分量约 `9.6e-7`；向量化前的 180 秒超时（退出 `124`）仍作为优化前证据保留，详见 wrapper 报告。
 
+## 项目环境依赖 dry-run（2026-09-06）
+
+项目 `.venv` 沿用 `configs/probe-constraints.txt` 的海光 Torch/Triton 与 `numpy==1.26.4` 约束，执行：
+
+```bash
+UV_CACHE_DIR=/data/envs/uv-cache uv pip install --dry-run \
+  --python .venv/bin/python \
+  --index-url https://mirrors.hust.edu.cn/pypi/web/simple \
+  -c configs/probe-constraints.txt 'mace-torch==0.3.15'
+```
+
+在线解析因 HUST 镜像读取 `numpy` 索引时 TLS 响应提前关闭而退出 `1`；没有安装任何包。随后使用同一缓存的 `--offline` dry-run，解析器报告：缓存中的 `matscipy==1.2.0` 需要 `numpy>=2.0.0`，而 `mace-torch==0.3.15` 与项目约束需要 `numpy==1.26.4`；兼容 `numpy<2` 的 `matscipy<=1.1.1` 元数据存在，但相应 registry wheel 在离线候选中不可用，故解析退出 `1`。这是当前镜像/缓存和版本锁定问题，不是 HCU 运行时不兼容结论。
+
+项目 `.venv` 在两次 dry-run 后保持不变，海光 Torch/Triton 未被替换。后续应先从缓存或可访问镜像取得与 `numpy<2` 匹配的 `matscipy` wheel，并重新解析最小 MACE 集合；探索环境的已安装组合仍只作为运行证据，不作为项目环境依赖锁定。
+
 ## 解释和边界
 
 审计命令在受限探针沙箱中观察到 `torch.cuda.is_available()=False`；该沙箱不暴露 `/dev/kfd`、`/dev/dri`，不能据此判断 HCU 不可用。此前 source DTK 26.04、可见 BW200/gfx936 环境中的 Torch/HCU 证据仍以对应 reports 为准。
 
-P06 目前为 `partial`：探索环境已有真实 checkpoint 与依赖，项目 `.venv` 尚未安装 MACE/e3nn/ASE；当前证据覆盖的是探索环境中的 wrapper/reference batching，不等于项目环境依赖已封装，也不等于完整 dynamics、训练或生产 cell-list/Triton/HIP 支持。下一步先审核项目 `.venv` 的最小依赖解析，再决定是否从缓存安装；不把探索环境证据写成项目环境支持。
+P06 目前为 `partial`：探索环境已有真实 checkpoint 与依赖，项目 `.venv` 尚未安装 MACE/e3nn/ASE；当前证据覆盖的是探索环境中的 wrapper/reference batching，不等于项目环境依赖已封装，也不等于完整 dynamics、训练或生产 cell-list/Triton/HIP 支持。dry-run 已确认当前缓存/镜像不能解析 `numpy<2` 的 MACE 依赖，下一步先补齐匹配的 `matscipy` wheel 或明确版本方案，再从缓存安装；不把探索环境证据写成项目环境支持。

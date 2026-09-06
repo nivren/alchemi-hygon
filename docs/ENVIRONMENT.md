@@ -12,7 +12,7 @@
 - 早期安装曾遇到其他镜像 HTTP 403；当前不再把其他源作为默认。本地 Torch/Triton wheel 来源不变。
 - 为解除 framework 导入的首个缺口，项目 `.venv` 已用 `/data/envs/uv-cache` 和 HUST 镜像补齐 `plum-dispatch==2.7.1`、`beartype`、`rich`；Torch/Triton 未被替换。该环境随后仍缺 `jaxtyping`，因此尚未视为完整 framework 环境。完整 Hook→LJ HCU 探针使用已有 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 探索环境通过。
 
-原始探针输出放 artifacts/g0 和 artifacts/g1，摘要放 reports。当前已确认用户缓存中的 `MACE-OFF23_small.model` 可在探索环境 CPU/HCU 运行；项目 `.venv` 仍未安装 MACE/e3nn/ASE。向量化 Torch reference 邻居后，两个 perf_46 结构的 HCU wrapper batching 已通过；更大规模性能、生产 cell-list/Triton/HIP 和完整 dynamics 仍未验证。
+原始探针输出放 artifacts/g0 和 artifacts/g1，摘要放 reports。当前已确认用户缓存中的 `MACE-OFF23_small.model` 可在探索环境 CPU/HCU 运行；项目 `.venv` 仍未安装 MACE/e3nn/ASE。向量化 Torch reference 邻居后，两个 perf_46 结构的 HCU wrapper batching 已通过；项目环境 MACE dry-run 目前受 `matscipy` wheel/`numpy<2` 缓存解析阻塞，详见 `reports/g1-mace-dependency-audit.md`。更大规模性能、生产 cell-list/Triton/HIP 和完整 dynamics 仍未验证。
 
 用户随后明确 BW200/BW1000 适配目标为 gfx936；所有目标 HIP 编译使用 gfx936。此前 gfx928 编译仅为过程试探，不作为目标能力证据。
 

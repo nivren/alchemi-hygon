@@ -34,7 +34,8 @@
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
 - MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境 CPU/HCU 通过；H₂O 和两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在 CPU/HCU 通过。周期 reference 邻居向量化后，单个 perf_46 邻居约 5.33 秒、完整链约 9.76 秒。详细报告见 `reports/g1-mace-wrapper-batch.md`。
 - 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、项目 `.venv` 中的 MACE 依赖、cuEquivariance/Triton/HIP kernel 和多卡域分解。向量化前双 perf46 超时记录仍保留为优化前证据。
-- 当前下一步：先在项目 `.venv` 对 MACE 最小依赖做不改 Torch/Triton 的 dry-run，再运行项目环境 wrapper/上游真实模型测试；同时保留更大规模邻居的 Triton/HIP/cell-list 评估，不把 reference fallback 当作最终性能后端。
+- 依赖检查：项目 `.venv` 的在线 dry-run 因 HUST 镜像 TLS 提前关闭退出 `1`；离线 dry-run 因缓存的 `matscipy==1.2.0` 要求 `numpy>=2`、兼容 `numpy<2` 的 `matscipy<=1.1.1` wheel 不可用而退出 `1`。两次均未安装或替换 Torch/Triton，详见 `reports/g1-mace-dependency-audit.md`。
+- 当前下一步：先取得与 `numpy<2` 匹配的 `matscipy` wheel 或确定 MACE 版本方案，再在项目 `.venv` 做最小依赖安装和 wrapper 测试；同时保留更大规模邻居的 Triton/HIP/cell-list 评估，不把 reference fallback 当作最终性能后端。
 
 ## 2026-09-05：G0 初始化审计
 
