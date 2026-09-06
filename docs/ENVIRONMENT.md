@@ -17,3 +17,12 @@
 用户随后明确 BW200/BW1000 适配目标为 gfx936；所有目标 HIP 编译使用 gfx936。此前 gfx928 编译仅为过程试探，不作为目标能力证据。
 
 本轮已从 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 复用已验证的 NumPy 1.26.4，安装到项目 `.venv`；未重新下载 Torch/Triton。当前 Torch 的 NumPy 互操作已通过，详见 G0 验证摘要。
+
+常用环境加载：
+
+```bash
+source scripts/activate_hygon_env.sh project       # 项目 .venv
+source scripts/activate_hygon_env.sh exploration   # 已验证的探索环境
+```
+
+脚本只加载 `/opt/dtk-26.04/env.sh`、激活选定 Python 环境，并设置项目 `PYTHONPATH`、HUST PyPI 镜像和 `/data/envs/uv-cache`；GPU 可见性、线程数和超时仍需由探针或作业命令显式指定。
