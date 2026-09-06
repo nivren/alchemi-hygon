@@ -1692,7 +1692,7 @@
       },
       "gradient_level": "default_forward_only",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/dynamics/__init__.py",
           "test/dynamics/test_cell_utils.py",
@@ -1707,15 +1707,20 @@
           "test/dynamics/test_velocity_rescaling.py",
           "test/dynamics/test_velocity_verlet.py"
         ],
-        "dcu_tests": [],
-        "evidence": [
-          "reports/upstream_inventory.json"
+        "dcu_tests": [
+          "test/compatibility/test_dynamics_reference_fire.py"
         ],
-        "environments": []
+        "evidence": [
+          "reports/upstream_inventory.json",
+          "reports/g2-dynamics-reference-fire.md"
+        ],
+        "environments": [
+          "project .venv + DTK 26.04 + BW200/gfx936"
+        ]
       },
       "limitations": [
-        "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "仅完成顶层 Warp-free 固定晶胞 FIRE/FIRE2 reference；公共 dynamics 委派、uphill energy-check、变胞 FIRE2 和收敛流程尚未接线",
+        "上游 Warp-backed FIRE/FIRE2 API 和上游 dynamics 测试仍未解除导入阻断"
       ],
       "release_gate": "G2"
     },

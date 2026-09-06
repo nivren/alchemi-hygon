@@ -46,7 +46,8 @@
 - 当前未完成：PBC 容量压力、周期 half-list、生产 cell-list、规模化性能和异步 rebuild；这些不因 N1 reference 通过而提前标记为 verified。
 - N2a 首个切片已完成：新增顶层 `nvalchemi._dynamics_reference.velocity_verlet`，不触发 `nvalchemi.dynamics` 或 Warp，覆盖原位 position/half-kick/final-kick、异构 per-system `dt`、float32/64 和显式输入检查。项目 `.venv` CPU 测试 `5 passed`；同一项目 `.venv` 在 source DTK 26.04、BW200/gfx936 HCU 探针退出码 `0`，最大位置误差 `6.94e-18`、final velocity 最大绝对值 `0.0`。证据见 `reports/g2-dynamics-reference-velocity-verlet.md`。
 - N2a 第二个切片已完成：新增顶层 `nvalchemi._dynamics_reference.kinetics`，用 Torch `index_add_` 实现异构 Batch 的 kinetic energy 和 `3N` temperature。项目 `.venv` CPU 回归 `7 passed`（含 VV 与 kinetics）；同一项目 `.venv` 在 source DTK 26.04、BW200/gfx936 HCU 探针退出码 `0`，动能 `[7.0, 6.0]`、温度 `[27077.2089507397, 46418.07248698234]`，无 Warp 导入。证据见 `reports/g2-dynamics-reference-kinetics.md`。
-- 本轮仍未改动上游 `nvalchemi.dynamics._ops.velocity_verlet.py`、`hooks/_utils.py` 或完整 `NVE`，默认 Warp 路径保持不变；下一步移植固定晶胞 FIRE/FIRE2 reference，随后由 N2b 接入公共 dynamics 后端委派和 hooks。
+- N2a 第三个切片已完成：新增顶层 `nvalchemi._dynamics_reference.fire`，实现固定晶胞、异构 `batch_idx` 的 FIRE `fire_step`/`fire_update` 与 FIRE2 `fire2_step_coord`；项目 `.venv` CPU reference 测试 `4 passed`，同一项目 `.venv` 在 source DTK 26.04、BW200/gfx936 HCU 探针退出码 `0`，FIRE/FIRE2 结果与 CPU 一致且无 Warp 导入。证据见 `reports/g2-dynamics-reference-fire.md`。
+- 本轮仍未改动上游 `nvalchemi.dynamics._ops.velocity_verlet.py`、`_ops/fire.py`、`hooks/_utils.py` 或完整 NVE/FIRE 优化器类，默认 Warp 路径保持不变；FIRE2 变胞、公共 dynamics 后端委派、收敛 Hook 和 MACE 端到端流程仍未验证，下一步进入 N2b 导入隔离与 backend 委派。
 
 ## 2026-09-05：G0 初始化审计
 

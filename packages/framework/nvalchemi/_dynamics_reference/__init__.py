@@ -17,11 +17,21 @@ from nvalchemi._dynamics_reference.kinetics import (
     kinetic_energy_per_graph,
     temperature_per_graph,
 )
+from nvalchemi._dynamics_reference.fire import (
+    fire2_step_coord,
+    fire2_step_coord_cell,
+    fire_step,
+    fire_update,
+)
 
 __all__ = [
     "KB_EV",
     "kinetic_energy_per_graph",
     "temperature_per_graph",
+    "fire_step",
+    "fire_update",
+    "fire2_step_coord",
+    "fire2_step_coord_cell",
     "vv_position_update",
     "vv_velocity_finalize",
 ]
