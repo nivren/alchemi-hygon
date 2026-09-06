@@ -1580,7 +1580,7 @@
       },
       "gradient_level": "default_forward_only",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/dynamics/__init__.py",
           "test/dynamics/test_cell_utils.py",
@@ -1595,15 +1595,21 @@
           "test/dynamics/test_velocity_rescaling.py",
           "test/dynamics/test_velocity_verlet.py"
         ],
-        "dcu_tests": [],
-        "evidence": [
-          "reports/upstream_inventory.json"
+        "dcu_tests": [
+          "test/compatibility/test_dynamics_reference_velocity_verlet.py"
         ],
-        "environments": []
+        "evidence": [
+          "reports/upstream_inventory.json",
+          "reports/g2-dynamics-reference-velocity-verlet.md",
+          "reports/g2-dynamics-reference-kinetics.md"
+        ],
+        "environments": [
+          "project .venv + DTK 26.04 + BW200/gfx936"
+        ]
       },
       "limitations": [
-        "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "仅完成顶层 Warp-free velocity-Verlet、kinetic energy 和 temperature reference；Langevin/Nose-Hoover/NPT、完整 NVE/FusedStage 尚未接线",
+        "上游 Warp-backed dynamics API 和上游 dynamics 测试仍未解除导入阻断"
       ],
       "release_gate": "G1_then_G4"
     },

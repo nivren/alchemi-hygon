@@ -44,7 +44,9 @@
 - skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。Hook staging 已有自动容量处理，算子层仍保留显式 overflow 防御。
 - N1 staging 容量契约已完成窄 reference slice：Hook 支持 16 对齐 grow-and-retry、idle shrink、override floor、异构 Batch 和 6 次交替 skin rebuild；framework Hook 回归 `16 passed`，CPU/HCU probe 均退出码 `0`，报告见 `reports/g1-neighbor-capacity-reference.md`。算子层显式 `NeighborOverflowError` 仍保留。
 - 当前未完成：PBC 容量压力、周期 half-list、生产 cell-list、规模化性能和异步 rebuild；这些不因 N1 reference 通过而提前标记为 verified。
-- 当前下一步：进入 N2a，先建立不触发 `nvalchemi.dynamics` 导入链的 Warp-free dynamics reference，范围包括 velocity-Verlet、固定晶胞 FIRE/FIRE2、kinetic energy 和 temperature。
+- N2a 首个切片已完成：新增顶层 `nvalchemi._dynamics_reference.velocity_verlet`，不触发 `nvalchemi.dynamics` 或 Warp，覆盖原位 position/half-kick/final-kick、异构 per-system `dt`、float32/64 和显式输入检查。项目 `.venv` CPU 测试 `5 passed`；同一项目 `.venv` 在 source DTK 26.04、BW200/gfx936 HCU 探针退出码 `0`，最大位置误差 `6.94e-18`、final velocity 最大绝对值 `0.0`。证据见 `reports/g2-dynamics-reference-velocity-verlet.md`。
+- N2a 第二个切片已完成：新增顶层 `nvalchemi._dynamics_reference.kinetics`，用 Torch `index_add_` 实现异构 Batch 的 kinetic energy 和 `3N` temperature。项目 `.venv` CPU 回归 `7 passed`（含 VV 与 kinetics）；同一项目 `.venv` 在 source DTK 26.04、BW200/gfx936 HCU 探针退出码 `0`，动能 `[7.0, 6.0]`、温度 `[27077.2089507397, 46418.07248698234]`，无 Warp 导入。证据见 `reports/g2-dynamics-reference-kinetics.md`。
+- 本轮仍未改动上游 `nvalchemi.dynamics._ops.velocity_verlet.py`、`hooks/_utils.py` 或完整 `NVE`，默认 Warp 路径保持不变；下一步移植固定晶胞 FIRE/FIRE2 reference，随后由 N2b 接入公共 dynamics 后端委派和 hooks。
 
 ## 2026-09-05：G0 初始化审计
 
