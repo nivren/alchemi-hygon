@@ -3,7 +3,7 @@
 日期：2026-09-06  
 上游锁：framework `4dfe3723def34df3fadb245981081ccf8c94c257`，ops `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`。
 
-本报告验证缓存的用户认可 checkpoint `/home/wangleping/.cache/mace/MACE-OFF23_small.model` 经过正式 `MACEWrapper` 和 `compute_neighbors(backend="torch_reference")` 的路径。运行环境是已有探索环境 `/home/wangleping/codes/nvalchemi-toolkit/.venv`，不是项目 `.venv`；项目环境尚未安装 MACE/e3nn/ASE。
+本报告验证缓存的用户认可 checkpoint `/home/wangleping/.cache/mace/MACE-OFF23_small.model` 经过正式 `MACEWrapper` 和 `compute_neighbors(backend="torch_reference")` 的路径。证据覆盖已有探索环境 `/home/wangleping/codes/nvalchemi-toolkit/.venv` 和项目 `.venv`；项目环境的 MACE 组合为 `mace-torch 0.3.15/e3nn 0.4.4/ase 3.29.0/matscipy 1.1.1`，未安装 PhysicsNeMo。
 
 ## 代码修复
 
@@ -97,9 +97,9 @@ HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 180 \
   --cif /data/csp_data/perf_46/formal_c1_1_10_z1_46.cif
 ```
 
-设备为 `BW200, UBB BW1000`，46 原子、858 条边，energy 为 `-39190.8359375`，逐体系总力最大分量约 `3.6e-7`。原始输出：`artifacts/g1/mace_wrapper_perf46_10_hcu0.json`、`.stderr`、`.exit`。因此当前证据把问题收窄为两个 46 原子体系同时进入 HCU Batch 时的超时；单体系、H₂O 双体系和 `perf_46` CPU 双体系均可运行。
+设备为 `BW200, UBB BW1000`，46 原子、858 条边，energy 为 `-39190.8359375`，逐体系总力最大分量约 `3.6e-7`。原始输出：`artifacts/g1/mace_wrapper_perf46_10_hcu0.json`、`.stderr`、`.exit`。这是向量化前的单体系基线，用于和双体系超时阶段对比；当前向量化后的单/双体系结果见后文。
 
-将两个 `perf_46` 结构的 HCU 命令在同一张卡上再次重跑，仍在 180 秒退出 `124`，没有 JSON 输出。证据为 `artifacts/g1/mace_wrapper_perf46_batch2_hcu0_retry.json`、`.stderr`、`.exit`。这不是一次性冷启动/JIT 超时；当前不再通过增加 timeout 来掩盖问题。
+向量化前将两个 `perf_46` 结构的 HCU 命令在同一张卡上再次重跑，仍在 180 秒退出 `124`，没有 JSON 输出。证据为 `artifacts/g1/mace_wrapper_perf46_batch2_hcu0_retry.json`、`.stderr`、`.exit`。这是优化前的瓶颈定位证据，不能覆盖后文向量化后的通过结果。
 
 ## HCU 超时定位的最小诊断
 
@@ -124,7 +124,7 @@ HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 90 \
   > artifacts/g1/mace_wrapper_perf46_batch2_stages_hcu0.json
 ```
 
-该探针退出 `124`，在 90 秒内只完成 `model_loaded`（3.79 秒）和 `batch_built`（3.84 秒，`batch_ptr=[0,46,92]`），没有输出 `neighbors_built`，因此没有进入 MACE 原始 model forward。原始 stderr/stdout/退出码见 `artifacts/g1/mace_wrapper_perf46_batch2_stages_hcu0.{stderr,json,exit}`。当前结论是 reference 邻居路径在 HCU 上对两个 46 原子周期体系已超出小输入定位范围；需要后续基准和 Triton/HIP/cell-list 设计，不能靠延长 MACE timeout 解决。
+该向量化前探针退出 `124`，在 90 秒内只完成 `model_loaded`（3.79 秒）和 `batch_built`（3.84 秒，`batch_ptr=[0,46,92]`），没有输出 `neighbors_built`，因此没有进入 MACE 原始 model forward。原始 stderr/stdout/退出码见 `artifacts/g1/mace_wrapper_perf46_batch2_stages_hcu0.{stderr,json,exit}`。这次阶段定位说明旧 reference 邻居路径的瓶颈，促成后文向量化；需要后续基准和 Triton/HIP/cell-list 设计，不能靠延长 MACE timeout 解决。
 
 单个 `perf_46` 的正式阶段计时作为规模化基线：
 
@@ -147,3 +147,33 @@ HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 90 \
 - 两个体系逐体系总力最大分量约 `9.6e-7`。
 
 原始输出：`artifacts/g1/mace_wrapper_perf46_batch2_hcu0_vectorized.json`、`.stderr`、`.exit`。这验证了当前 Torch reference 在 G1 中等规模 PBC batching 上可用；更大体系、性能稳定性和生产 cell-list/Triton/HIP 仍需单独基准，不能把 reference fallback 当作最终优化后端。
+
+## 项目 `.venv` 复核
+
+环境加载：
+
+```bash
+source scripts/activate_hygon_env.sh project
+```
+
+版本核对保持海光 `torch 2.9.0+das.opt1.dtk2604`、`torch.version.hip=6.3.26093`、`triton 3.3.0+das.opt1.dtk2604.torch290`。PhysicsNeMo 没有安装；`hooks`、`training`、`dynamics hooks` 的可选 profiler/域并行导入已经延迟，单进程 wrapper 不再依赖该 NVIDIA/Warp 绑定包。
+
+项目环境 CPU H₂O wrapper 退出 `0`；项目环境 source DTK 26.04、`HIP_VISIBLE_DEVICES=0` 的 H₂O HCU wrapper 退出 `0`。两个真实 `perf_46` CIF 的项目环境 HCU Batch 退出 `0`：
+
+- `device=BW200, UBB BW1000`，`num_systems=2`，`natoms_per_system=[46,46]`，`batch_ptr=[0,46,92]`；
+- `neighbor_edges=1754`，`cross_system_edges=0`；
+- energy 为 `-39190.8359375`、`-39190.82421875`；
+- 逐体系总力最大分量约 `1.2e-6`。
+
+可重跑命令：
+
+```bash
+source scripts/activate_hygon_env.sh project
+HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 180 \
+  python probes/mace_wrapper_reference.py --device cuda \
+  --checkpoint /home/wangleping/.cache/mace/MACE-OFF23_small.model \
+  --cif /data/csp_data/perf_46/formal_c1_1_10_z1_46.cif \
+        /data/csp_data/perf_46/formal_c1_1_11_z1_46.cif
+```
+
+清洗后的 JSON、原始 stdout、stderr 和退出码分别为 `artifacts/g1/mace_wrapper_project_perf46_batch2_hcu0.{json,stdout,stderr,exit}`。stdout 中的 cuEquivariance 缺失提示不影响本次 reference 结果，但说明加速扩展未启用。这只是项目环境的中等规模 Batch/reference 证据，仍不覆盖完整 dynamics、训练混合二阶梯度、PhysicsNeMo 域并行或生产优化后端。

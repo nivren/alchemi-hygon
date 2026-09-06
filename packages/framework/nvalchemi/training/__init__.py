@@ -34,7 +34,6 @@ from nvalchemi.training._validation import (
     ValidationConfig,
     ValidationLoop,
 )
-from nvalchemi.training.finetune import FineTuningStrategy
 from nvalchemi.training.hooks import CheckpointHook, DDPHook, EMAHook
 from nvalchemi.training.losses import (
     BaseLossFunction,
@@ -72,7 +71,6 @@ from nvalchemi.training.runtime import (
     freeze_unconfigured_models,
     move_to_devices,
 )
-from nvalchemi.training.strategy import TrainingStrategy, default_training_fn
 
 __all__ = [
     "BaseLossFunction",
@@ -124,3 +122,27 @@ __all__ = [
     "step_optimizers",
     "zero_gradients",
 ]
+
+
+def __getattr__(name: str):
+    """Load training strategies only when a caller requests them.
+
+    Strategy construction pulls in the optional distributed/domain-parallel
+    stack. Checkpoint/spec and single-process model loading remain usable
+    without the NVIDIA PhysicsNeMo provider.
+    """
+    if name == "FineTuningStrategy":
+        from nvalchemi.training.finetune import FineTuningStrategy
+
+        return FineTuningStrategy
+    if name in {"TrainingStrategy", "default_training_fn"}:
+        from nvalchemi.training.strategy import (
+            TrainingStrategy,
+            default_training_fn,
+        )
+
+        return {
+            "TrainingStrategy": TrainingStrategy,
+            "default_training_fn": default_training_fn,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

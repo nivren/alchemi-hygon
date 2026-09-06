@@ -54,7 +54,6 @@ from nvalchemi.dynamics.hooks.logging import LoggingHook
 from nvalchemi.dynamics.hooks.monitors import EnergyDriftMonitorHook
 from nvalchemi.dynamics.hooks.safety import MaxForceClampHook, NaNDetectorHook
 from nvalchemi.dynamics.hooks.snapshot import ConvergedSnapshotHook, SnapshotHook
-from nvalchemi.hooks.physicsnemo_profiling import TorchProfilerHook
 from nvalchemi.hooks.stage_timing import StageTimingHook
 
 __all__ = [
@@ -74,7 +73,11 @@ _REMOVED_PROFILER_HOOKS = {"ProfilerHook"}
 
 
 def __getattr__(name: str) -> object:
-    """Raise a targeted import error for removed profiler hook names."""
+    """Load optional profiler support or reject removed hook names."""
+    if name == "TorchProfilerHook":
+        from nvalchemi.hooks.physicsnemo_profiling import TorchProfilerHook
+
+        return TorchProfilerHook
     if name in _REMOVED_PROFILER_HOOKS:
         raise ImportError(
             f"nvalchemi.dynamics.hooks.{name} was removed. "

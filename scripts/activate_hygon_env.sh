@@ -28,7 +28,7 @@ _hygon_project_root="$(CDPATH= cd -- "$(dirname -- "$_hygon_script_path")/.." &&
 _hygon_mode="${1:-project}"
 _hygon_dtk_env="${HYGON_DTK_ENV:-/opt/dtk-26.04/env.sh}"
 _hygon_uv_cache="${UV_CACHE_DIR:-/data/envs/uv-cache}"
-_hygon_pypi_index="https://mirrors.hust.edu.cn/pypi/web/simple"
+_hygon_pypi_index="https://mirrors.bfsu.edu.cn/pypi/web/simple"
 
 case "$_hygon_mode" in
     project)

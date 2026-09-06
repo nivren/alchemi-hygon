@@ -77,7 +77,8 @@
           "reports/upstream_inventory.json"
         ],
         "environments": [
-          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
         ]
       },
       "limitations": [
@@ -145,13 +146,14 @@
           "reports/g1-mace-wrapper-batch.md"
         ],
         "environments": [
-          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
         ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "周期 Torch reference 邻居已向量化；单个 perf_46 和两个 H₂O 的 HCU Batch 已通过，两个 perf_46 结构的 HCU batching 也已通过；更大规模和完整上游数据测试仍未验证"
+        "周期 Torch reference 邻居已向量化；探索环境和项目 .venv 的单个/两个 H₂O、单个 perf_46 与两个 perf_46 HCU Batch 已通过；更大规模和完整上游数据测试仍未验证"
       ],
       "release_gate": "G1"
     },
@@ -534,14 +536,15 @@
           "reports/g1-mace-wrapper-batch.md"
         ],
         "environments": [
-          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
         ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "项目环境尚未安装 MACE/e3nn/ASE",
-        "H₂O wrapper CPU/HCU、单个 perf_46 和两个 perf_46 的 HCU batching 已验证；向量化 reference 仍不是生产 cell-list/Triton/HIP 性能后端",
+        "项目环境已安装 MACE/e3nn/ASE 最小组合，但未安装 PhysicsNeMo/cuEquivariance",
+        "探索环境和项目 .venv 的 H₂O wrapper CPU/HCU、单个 perf_46 和两个 perf_46 的 HCU batching 已验证；向量化 reference 仍不是生产 cell-list/Triton/HIP 性能后端",
         "完整 dynamics、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
       ],
       "release_gate": "G2"
@@ -3235,6 +3238,124 @@
         "DCU 路径未提供；原版依赖错误不得包装为成功；恢复条件：独立依赖、数值和目标设备验证完成"
       ],
       "release_gate": "G6"
+    },
+    {
+      "id": "neighbors.skin_rebuild",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "cutoff skin、缓存邻居、位移阈值、cell/batch 变化和容量重建语义",
+      "source": {
+        "repository": "framework+ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257+26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemi/hooks/neighbor_list.py",
+          "nvalchemiops/torch_reference.py"
+        ],
+        "symbols": {
+          "nvalchemi/hooks/neighbor_list.py": ["NeighborListHook"],
+          "nvalchemiops/torch_reference.py": ["neighbor_list", "lj_energy_forces"]
+        }
+      },
+      "contract": {
+        "api": "explicit_backend_torch_reference_skin_cache",
+        "data": "full-list cutoff+skin cache; rebuild at raw displacement > skin/2, cell or batch layout change; physical cutoff filters energy",
+        "fallback": "unsupported half-list/method/scratch/per-system production rebuild must fail explicitly",
+        "details": "Reference cache is a correctness slice; it does not define production cell-list capacity growth or asynchronous rebuild scheduling."
+      },
+      "dependencies": ["torch", "nvalchemi.data.Batch", "NeighborListHook"],
+      "backends": {
+        "upstream": "Warp neighbor rebuild/cell-list",
+        "target": ["torch_reference", "triton", "hip", "dtk_scan_sort"]
+      },
+      "gradient_level": "positions_first; topology_discrete",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": ["test/hooks/test_neighbor_list_hook.py", "test/interactions/test_lj.py"],
+        "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
+        "evidence": ["reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md"],
+        "environments": ["project .venv + DTK 26.04 + BW200/gfx936", "exploration env + DTK 26.04 + BW200/gfx936"]
+      },
+      "limitations": [
+        "当前是整批缓存/整批重建的 Torch reference，不是 per-system cell-list 生产路径",
+        "周期 half-list、method/scratch、动态邻居容量扩容和长轨迹性能未验证",
+        "后续 G2 需独立完成 cell-list、容量重建和 Triton/HIP 基准"
+      ],
+      "roadmap": ["G1 partial: reference cache/rebuild correctness", "G2 planned: per-system cell-list and production rebuild"],
+      "release_gate": "G1"
+    },
+    {
+      "id": "interactions.lj_switching",
+      "category": "B",
+      "status": "planned",
+      "scenario": "LJ cutoff switching 的能量、力、连续性和 full/half 归约",
+      "source": {
+        "repository": "framework+ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257+26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemi/models/lj.py", "nvalchemiops/interactions/lj.py"],
+        "symbols": {
+          "nvalchemi/models/lj.py": ["LennardJonesModelWrapper"],
+          "nvalchemiops/interactions/lj.py": ["_switch_params", "lj_energy_forces_virial_matrix_kernel", "lj_energy_forces_virial_list_kernel"]
+        }
+      },
+      "contract": {
+        "api": "preserve_switch_width_and_cutoff_parameters",
+        "data": "energy/force units, cutoff continuity, full/half pair count and batch scatter",
+        "fallback": "nonzero switch_width currently rejected by torch_reference; no silent unswitched evaluation",
+        "details": "Implement analytic/Torch reference first, then register optimized backends only after force continuity and gradient tests."
+      },
+      "dependencies": ["torch", "neighbor topology", "cutoff/switch parameters"],
+      "backends": {
+        "upstream": "Warp LJ switching kernels",
+        "target": ["torch_reference", "triton", "hip"]
+      },
+      "gradient_level": "positions_first; mixed_second_required_for_force_loss",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": ["test/interactions/test_switching.py", "test/interactions/test_lj.py"],
+        "dcu_tests": [],
+        "evidence": ["reports/upstream_inventory.json"],
+        "environments": []
+      },
+      "limitations": ["Torch reference explicitly rejects nonzero switch_width", "no DCU numerical or HCU performance evidence"],
+      "roadmap": ["G1 scope: keep explicit failure", "G2: implement analytic/Torch switching and force continuity", "G3: Triton/HIP registration after benchmarks"],
+      "release_gate": "G2"
+    },
+    {
+      "id": "interactions.lj_virial_stress",
+      "category": "B",
+      "status": "planned",
+      "scenario": "LJ virial/stress、cell/position 梯度、符号、归一化和 batch 归约",
+      "source": {
+        "repository": "framework+ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257+26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemi/models/lj.py", "nvalchemiops/interactions/lj.py"],
+        "symbols": {
+          "nvalchemi/models/lj.py": ["LennardJonesModelWrapper"],
+          "nvalchemiops/interactions/lj.py": ["lj_energy_forces_virial_matrix_kernel", "lj_energy_forces_virial_list_kernel", "_batch_lj_energy_forces_virial_matrix_kernel"]
+        }
+      },
+      "contract": {
+        "api": "preserve_virial_stress_outputs_and_model_flags",
+        "data": "cell/position derivative convention, stress sign, volume normalization, units and per-system batch reduction",
+        "fallback": "virial/stress currently rejected by torch_reference; no silent zero or omitted output",
+        "details": "Requires independent FP64 cell-strain oracle and force/stress consistency before optimized backend selection."
+      },
+      "dependencies": ["torch", "cell", "neighbor_matrix_shifts", "volume/stress convention"],
+      "backends": {
+        "upstream": "Warp analytic virial/stress kernels",
+        "target": ["torch_reference", "triton", "hip"]
+      },
+      "gradient_level": "positions_and_cell_first; mixed_second_for_force_loss",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": ["test/interactions/test_lj.py", "test/distributed/model/test_electrostatics_stress_multigpu.py"],
+        "dcu_tests": [],
+        "evidence": ["reports/upstream_inventory.json"],
+        "environments": []
+      },
+      "limitations": ["Torch reference explicitly rejects virial/stress", "no DCU numerical or HCU performance evidence"],
+      "roadmap": ["G1 scope: keep explicit failure", "G2: implement cell-strain/virial/stress reference and FP64 oracle", "G3: Triton/HIP and distributed stress ownership"],
+      "release_gate": "G2"
     }
   ]
 }

@@ -32,10 +32,10 @@
 ## 当前快照（2026-09-06）
 
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
-- MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境 CPU/HCU 通过；H₂O 和两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在 CPU/HCU 通过。周期 reference 邻居向量化后，单个 perf_46 邻居约 5.33 秒、完整链约 9.76 秒。详细报告见 `reports/g1-mace-wrapper-batch.md`。
-- 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、项目 `.venv` 中的 MACE 依赖、cuEquivariance/Triton/HIP kernel 和多卡域分解。向量化前双 perf46 超时记录仍保留为优化前证据。
-- 依赖检查：项目 `.venv` 的在线 dry-run 因 HUST 镜像 TLS 提前关闭退出 `1`；离线 dry-run 因缓存的 `matscipy==1.2.0` 要求 `numpy>=2`、兼容 `numpy<2` 的 `matscipy<=1.1.1` wheel 不可用而退出 `1`。两次均未安装或替换 Torch/Triton，详见 `reports/g1-mace-dependency-audit.md`。
-- 当前下一步：先取得与 `numpy<2` 匹配的 `matscipy` wheel 或确定 MACE 版本方案，再在项目 `.venv` 做最小依赖安装和 wrapper 测试；同时保留更大规模邻居的 Triton/HIP/cell-list 评估，不把 reference fallback 当作最终性能后端。
+- MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境和项目 `.venv` 的 CPU/HCU 通过；两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在探索环境和项目 `.venv` 的 CPU/HCU 通过。项目环境批次为 `batch_ptr=[0,46,92]`、1754 条边、跨体系边 0。周期 reference 邻居向量化后，单个 perf_46 邻居约 5.33 秒、完整链约 9.76 秒。详细报告见 `reports/g1-mace-wrapper-batch.md`。
+- 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。向量化前双 perf46 超时记录仍保留为优化前证据。
+- 依赖检查：北外镜像 dry-run 解析到 `mace-torch==0.3.15`、`e3nn==0.4.4`、`matscipy==1.1.1`、`ase==3.29.0` 等 45 个包，随后安装到项目 `.venv`；另补齐 framework 基础依赖，Torch `2.9.0+das.opt1.dtk2604`、Triton `3.3.0+das.opt1.dtk2604.torch290` 未被替换。PhysicsNeMo 未安装，单进程路径由可选导入保持可用。
+- 当前下一步：按 ADR 0004 维护 Warp 默认与 reference 旁路的中央切换边界；将 `skin/rebuild`、`switching`、`virial/stress` 分别推进到独立契约和测试，再决定 Triton/HIP/cell-list 注册，不把 reference fallback 当作最终优化后端。
 
 ## 2026-09-05：G0 初始化审计
 
@@ -172,7 +172,7 @@
 
 - 当前暂停基线为 commit `4a7d0df`（`feat: add periodic torch reference neighbors`）；暂停前工作树干净。相关前置提交包括 `68433be`（隔离 `DynamicsStage`）和 `f5a4621`（记录数值验证策略）。
 - 已有真实证据：Torch reference 的 no-PBC 邻居→LJ 链在 CPU 与 BW200/gfx936 HCU 上通过；PBC full-list 邻居集合、MATRIX/COO 写回和 signed image shifts 在 CPU、framework 测试及 HCU 探针上通过。当前回归结果为 ops PBC `8 passed`，framework 邻居/Hook/LJ 组合 `16 passed`。证据见 [PBC 报告](../reports/g1-pbc-neighbor-reference.md) 和 `artifacts/g1/pbc_neighbor_reference_hcu0.json`。
-- 当前边界保持明确：PBC half-list、带 image shift 的 LJ energy/force、switching、virial/stress、skin/rebuild、NVE/轨迹、Triton/HIP kernel 和 Warp 生产默认路径仍未移植或验证；不得将邻居 PBC 通过写成完整周期物理链。项目 `.venv` 已记录 HUST PyPI 镜像和缓存位置，但仍缺少完整 framework 依赖（当前 HCU framework 探针复用 `/home/wangleping/codes/nvalchemi-toolkit/.venv`）。
+- 当前边界保持明确：PBC half-list、带 image shift 的 LJ energy/force、switching、virial/stress、skin/rebuild、NVE/轨迹、Triton/HIP kernel 和 Warp 生产默认路径仍未移植或验证；不得将邻居 PBC 通过写成完整周期物理链。项目 `.venv` 已记录北外 PyPI 镜像和缓存位置，但仍缺少完整 framework 依赖（当前 HCU framework 探针复用 `/home/wangleping/codes/nvalchemi-toolkit/.venv`）。
 - 下次第一条开发任务：实现并测试 `lj_energy_forces` 消费 `neighbor_matrix_shifts` 的 full-list 周期参考公式（先固定无 switching、无 stress、无 half-list），用独立 FP64 解析结果比较 energy/force；通过后再单独增加短 NVE/轨迹探针。开始前先重跑 `probes/pbc_neighbor_reference.py`，确认 DTK 26.04、gfx936 设备和当前环境仍可见。
 
 ### 2026-09-06：周期 LJ 与独立短 NVE reference 闭环
@@ -195,4 +195,8 @@
 - 修复 `MACEWrapper.from_checkpoint` 的本地 `Path | str` 处理：已有文件直接加载，命名 foundation checkpoint 仍走 MACE 下载器。上游 MACE 回归 `3 passed, 89 deselected`，退出码 `0`。
 - `probes/mace_probe.py` 的 direct model 在探索环境 CPU 和 source DTK 26.04 的 BW200/gfx936 HCU 均退出 `0`，能量 `-2077.7669553149117`、force loss `0.4526716740143`、26 个非零参数梯度。
 - `probes/mace_wrapper_reference.py` 的 H₂O wrapper CPU/HCU 均退出 `0`；两个 `perf_46` CIF 的 CPU batching 通过，`batch_ptr=[0,46,92]`、跨体系边 `0`、逐体系总力约 `1e-6`。详细命令和 SHA256 见 [wrapper/batch 报告](../reports/g1-mace-wrapper-batch.md)。
-- 向量化周期 reference 邻居后，单个 `perf_46` HCU 阶段从邻居约 `111.32` 秒降至约 `5.33` 秒，完整 wrapper 到同步约 `9.76` 秒；两个 `perf_46` CIF 的 HCU batching 退出 `0`，`batch_ptr=[0,46,92]`、1754 条边、跨体系边 `0`、逐体系总力最大分量约 `9.6e-7`。向量化前两次 180 秒超时和阶段定位仍保留在报告中，用于说明优化原因。项目 `.venv` 尚未安装 MACE/e3nn/ASE；下一步转向项目环境依赖 dry-run，同时单列更大规模 neighbor 性能和 Triton/HIP/cell-list 任务。
+- 向量化周期 reference 邻居后，单个 `perf_46` HCU 阶段从邻居约 `111.32` 秒降至约 `5.33` 秒，完整 wrapper 到同步约 `9.76` 秒；两个 `perf_46` CIF 的 HCU batching 退出 `0`，`batch_ptr=[0,46,92]`、1754 条边、跨体系边 `0`、逐体系总力最大分量约 `9.6e-7`。向量化前两次 180 秒超时和阶段定位仍保留在报告中，用于说明优化原因。
+- 北外镜像 dry-run 成功解析 45 个包，安装 `mace-torch==0.3.15`、`e3nn==0.4.4`、`ase==3.29.0`、`matscipy==1.1.1` 及其运行依赖；另补齐 `jaxtyping`、`periodictable`、`tensordict`、`pydantic`、`dm-tree`、`zarr`、`plotext`、`loguru`。项目 `.venv` 的 Torch/Triton 版本保持不变。
+- 为避免 HCU 单进程 MACE wrapper 被 NVIDIA 绑定阻断，`hooks`、`training`、`dynamics hooks` 的 PhysicsNeMo profiler 和域并行导入改为按需加载；PhysicsNeMo 未安装，新增 optional-import 回归。该改动保留显式 profiling/DomainParallel 名称，未宣称这些能力已在 HCU 可用。
+- 项目 `.venv` CPU H₂O wrapper 退出 `0`；source DTK 26.04、`HIP_VISIBLE_DEVICES=0` 的项目 `.venv` H₂O HCU wrapper 退出 `0`；同环境两个 `/data/csp_data/perf_46` CIF HCU batching 退出 `0`，`batch_ptr=[0,46,92]`、1754 条边、跨体系边 `0`、逐体系总力最大分量约 `1.2e-6`。artifact：`artifacts/g1/mace_wrapper_project_perf46_batch2_hcu0.{json,stderr,exit}`。
+- 默认 PyPI 源已从历史 HUST 尝试切换为 `https://mirrors.bfsu.edu.cn/pypi/web/simple`，脚本和当前环境文档已同步；HUST TLS 失败只作为历史 dry-run 记录。

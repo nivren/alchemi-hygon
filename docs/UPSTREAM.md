@@ -12,7 +12,7 @@ framework 0.2.0 要求 Python >=3.11,<3.14、torch>=2.8、ops>=0.4.1；ops 0.4.1
 
 两个根 LICENSE 均为 Apache-2.0；完整导入还保留 .licenses、内嵌第三方来源、SPDX、测试、CI 和文档。许可证清单记录于 lock/inventory，不将根许可证推广为所有第三方文件的许可证。
 
-依赖风险：Hooks 直接使用 physicsnemo.utils.profiling；分布式还含 vendored upstream 与 shard 包装；不能整体删除 PhysicsNeMo 能力。MACE extra 固定 mace-torch==0.3.15，与 UMA 的 e3nn 版本要求存在冲突；当前 MACE 证据使用独立探索环境中的 `mace-torch 0.3.16/e3nn 0.4.4`，项目 `.venv` 尚未安装，cuEquivariance/UMA/compile 单列 C。保留 upstream tests；未运行的测试均不算通过。
+依赖风险：Hooks 直接使用 physicsnemo.utils.profiling；分布式还含 vendored upstream 与 shard 包装；不能整体删除 PhysicsNeMo 能力。当前 HCU 项目环境不安装该 NVIDIA/Warp 绑定包，单进程 Torch/HCU 通过可选导入路径，域并行与 profiling 保留为显式能力。MACE extra 固定 mace-torch==0.3.15，与 UMA 的 e3nn 版本要求存在冲突；当前项目环境使用 `mace-torch 0.3.15/e3nn 0.4.4`，探索环境使用 `mace-torch 0.3.16/e3nn 0.4.4`，cuEquivariance/UMA/compile 单列 C。保留 upstream tests；未运行的测试均不算通过。
 
 旧探索 /home/wangleping/codes/nvalchemi-toolkit 和 /home/wangleping/codes/hyalchemi-ops 只读查阅了文件清单及后者 PROGRESS.md 的邻居/PBC/LJ 记录。其性能与数值记录未重跑、不纳入当前验证。后续按算子提取思路与测试案例，逐项检查来源、许可证和当前 SHA 语义后才移植。
 

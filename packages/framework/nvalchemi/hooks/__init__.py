@@ -21,7 +21,6 @@ from nvalchemi.hooks._protocol import CheckpointableHook, Hook
 from nvalchemi.hooks._registry import HookRegistryMixin
 from nvalchemi.hooks.bias import BiasedPotentialHook
 from nvalchemi.hooks.neighbor_list import NeighborListHook
-from nvalchemi.hooks.physicsnemo_profiling import TorchProfilerHook
 from nvalchemi.hooks.reporting import (
     BaseRichLayout,
     DynamicsRichLayout,
@@ -80,9 +79,13 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """Load Warp-backed periodic wrapping only when explicitly requested."""
+    """Load optional or Warp-backed hooks only when explicitly requested."""
     if name == "WrapPeriodicHook":
         from nvalchemi.hooks.periodic import WrapPeriodicHook
 
         return WrapPeriodicHook
+    if name == "TorchProfilerHook":
+        from nvalchemi.hooks.physicsnemo_profiling import TorchProfilerHook
+
+        return TorchProfilerHook
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
