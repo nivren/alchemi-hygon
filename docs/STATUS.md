@@ -31,16 +31,18 @@
 
 ## 当前快照（2026-09-06）
 
+- N0 能力探针已完成：主机单卡 Triton vector-add 通过（BW200/UBB BW1000，冷启动约 0.519 s，预热稳态约 24.6 μs/次）；主机双卡 RCCL/NCCL all-reduce 和双向 P2P 通过。证据见 `reports/g0-capability-probes.md`。这只解除 Triton 基础编译/执行和 RCCL 原语的架构未知，不代表生产 kernel、LJ ownership 或 DomainParallel 已验证。
+- 环境加载修正：`scripts/activate_hygon_env.sh` 在 bash 使用 `/opt/dtk-26.04/env.sh`，在 zsh 使用 `/opt/dtk-26.04/env.zsh`；沙箱内 `/dev/kfd` 不可见，GPU 结果均来自主机权限探针。
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
 - MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境和项目 `.venv` 的 CPU/HCU 通过；两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在探索环境和项目 `.venv` 的 CPU/HCU 通过。项目环境批次为 `batch_ptr=[0,46,92]`、1754 条边、跨体系边 0。周期 reference 邻居向量化后，单个 perf_46 邻居约 5.33 秒、完整链约 9.76 秒。详细报告见 `reports/g1-mace-wrapper-batch.md`。
-- 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。向量化前双 perf46 超时记录仍保留为优化前证据。
+- 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、生产 cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。向量化前双 perf46 超时记录仍保留为优化前证据。
 - 依赖检查：北外镜像 dry-run 解析到 `mace-torch==0.3.15`、`e3nn==0.4.4`、`matscipy==1.1.1`、`ase==3.29.0` 等 45 个包，随后安装到项目 `.venv`；另补齐 framework 基础依赖，Torch `2.9.0+das.opt1.dtk2604`、Triton `3.3.0+das.opt1.dtk2604.torch290` 未被替换。PhysicsNeMo 未安装，单进程路径由可选导入保持可用。
 - 环境规格已补齐：项目 `.venv` 现在包含 `pytest==8.4.2`、`pytest-asyncio==1.4.0`；直接输入见 `configs/hygon-reference.in`，当前主机精确冻结见 `configs/hygon-reference-lock.txt`，冻结脚本为 `scripts/freeze_hygon_env.sh`，报告快照见 `reports/probe-environment-freeze.txt`。冻结中的 Torch/Triton URI 是主机本地海光 wheel，换机时必须先提供同版本 wheel；PhysicsNeMo 不属于 Hygon reference 安装集。
 - 特性状态已复核：`status` 表示完整目标契约的实现阶段，`verification.dcu_status` 表示已列出的 HCU 证据范围；因此 MACE、LJ、neighbors.topology 的完整条目仍是 `planned`，但其 reference 子路径为 `partial`，`neighbors.skin_rebuild` 为 `implemented/partial`。本轮纠正了 neighbors.topology 的 HCU 状态，并在 `FEATURE_COMPATIBILITY.yaml` 写明两轴语义，避免把窄 reference slice 写成完整特性通过。
 - 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `11 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
 - 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
 - skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。容量不足仍显式报错，尚未做动态扩容或 cell-list。
-- 当前下一步：先完成 skin/rebuild 的容量扩展/溢出契约和小型性能探针，再分别推进 switching、virial/stress，最后依据基准决定 Triton/HIP/cell-list 注册，不把 reference fallback 当作最终优化后端。
+- 当前下一步：进入 N1，完成 skin/rebuild staging K 维的 grow/shrink/floor/retry 契约；同步 ADR 0002 边界和 ADR 0004 宽度门，不把 reference fallback 当作最终优化后端。
 
 ## 2026-09-05：G0 初始化审计
 

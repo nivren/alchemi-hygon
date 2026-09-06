@@ -25,7 +25,9 @@ source scripts/activate_hygon_env.sh project       # 项目 .venv
 source scripts/activate_hygon_env.sh exploration   # 已验证的探索环境
 ```
 
-脚本只加载 `/opt/dtk-26.04/env.sh`、激活选定 Python 环境，并设置项目 `PYTHONPATH`、北外 PyPI 镜像和 `/data/envs/uv-cache`；GPU 可见性、线程数和超时仍需由探针或作业命令显式指定。
+`activate_hygon_env.sh` 会根据当前 shell 自动选择 DTK 脚本：bash 使用 `/opt/dtk-26.04/env.sh`，zsh 使用 `/opt/dtk-26.04/env.zsh`。也可以直接加载对应脚本，但不能在 zsh 中直接 source 只适合 bash 的 `env.sh`。脚本还会激活选定 Python 环境，并设置项目 `PYTHONPATH`、北外 PyPI 镜像和 `/data/envs/uv-cache`；GPU 可见性、线程数和超时仍需由探针或作业命令显式指定。
+
+2026-09-06 主机能力探针已确认：单卡 Triton 基础向量 kernel 和双卡 RCCL/NCCL all-reduce/P2P 均通过；这不等于生产 Triton/HIP kernel、LJ ownership 或 DomainParallel 已完成。沙箱内 `/dev/kfd` 不可见，GPU 探针必须在具备设备节点访问权限的主机终端运行。
 
 项目环境的可重建规格：
 

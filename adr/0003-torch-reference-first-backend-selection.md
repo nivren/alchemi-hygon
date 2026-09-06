@@ -17,6 +17,14 @@ Triton 和 HIP 暂不作为本阶段的实现前提。只有当 reference 语义
 
 `backend="torch_reference"` 是当前唯一实现的显式选择；未来的 `triton`、`hip` 和 `auto` 必须在同一算子契约下接入。`auto` 需要返回或记录实际后端、设备、输入特征、能力探针版本和选择原因。优化后端不满足能力或梯度条件时，只有明确配置允许的 reference 回退可以发生；不得静默改变设备、精度、邻居集合或梯度等级。
 
+## N0 能力探针证据（2026-09-06）
+
+在主机设备节点可见的环境中，gfx936 目标 BW200/UBB BW1000 完成了单卡 Triton 向量加法探针：1025 个 FP32 元素、tail mask、5 次预热和 20 次稳态调用通过，冷启动约 0.519 秒，稳态 host-loop 约 24.6 微秒/次。该结果确认“规则 tile → Triton”具备基础运行能力，但不构成任何生产算子进入 registry 的依据。
+
+双卡探针使用 PyTorch `nccl` backend（DTK 环境下对应 RCCL），all-reduce 和双向 P2P 均通过，退出码为 0。该结果只解除通信原语的架构未知，不代表 DomainParallel、LJ ownership 或跨卡原子归属已经实现。
+
+沙箱内 `/dev/kfd` 不可见，沙箱中的 `torch.cuda.is_available()` 失败不作为设备能力结论。可重跑命令、退出码和原始摘要见 `reports/g0-capability-probes.md`。
+
 ## 分步实施
 
 1. 为一个纵向链路建立 Torch reference（当前为 no-PBC neighbors → LJ energy/force），覆盖 full/half、异构 batch、容量溢出和一/二阶梯度检查。

@@ -26,7 +26,13 @@ _hygon_fail() {
 
 _hygon_project_root="$(CDPATH= cd -- "$(dirname -- "$_hygon_script_path")/.." && pwd)"
 _hygon_mode="${1:-project}"
-_hygon_dtk_env="${HYGON_DTK_ENV:-/opt/dtk-26.04/env.sh}"
+if [[ -n ${HYGON_DTK_ENV:-} ]]; then
+    _hygon_dtk_env="$HYGON_DTK_ENV"
+elif [[ -n ${ZSH_VERSION:-} ]]; then
+    _hygon_dtk_env="/opt/dtk-26.04/env.zsh"
+else
+    _hygon_dtk_env="/opt/dtk-26.04/env.sh"
+fi
 _hygon_uv_cache="${UV_CACHE_DIR:-/data/envs/uv-cache}"
 _hygon_pypi_index="https://mirrors.bfsu.edu.cn/pypi/web/simple"
 
