@@ -1601,7 +1601,8 @@
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g2-dynamics-reference-velocity-verlet.md",
-          "reports/g2-dynamics-reference-kinetics.md"
+          "reports/g2-dynamics-reference-kinetics.md",
+          "reports/g2-dynamics-public-boundary.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"
@@ -1712,7 +1713,8 @@
         ],
         "evidence": [
           "reports/upstream_inventory.json",
-          "reports/g2-dynamics-reference-fire.md"
+          "reports/g2-dynamics-reference-fire.md",
+          "reports/g2-dynamics-public-boundary.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"

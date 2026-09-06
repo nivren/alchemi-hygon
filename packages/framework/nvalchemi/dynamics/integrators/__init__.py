@@ -12,13 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""MD integrators: NVE, NVT (Langevin, Nosé-Hoover), NPH, NPT."""
+"""MD integrators with lazy imports across optional backend boundaries."""
 
-from nvalchemi.dynamics.integrators.nph import NPH
-from nvalchemi.dynamics.integrators.npt import NPT
-from nvalchemi.dynamics.integrators.nve import NVE
-from nvalchemi.dynamics.integrators.nvt_langevin import NVTLangevin
-from nvalchemi.dynamics.integrators.nvt_nose_hoover import NVTNoseHoover
+from importlib import import_module
+
+_EXPORTS = {
+    "NPH": ("nvalchemi.dynamics.integrators.nph", "NPH"),
+    "NPT": ("nvalchemi.dynamics.integrators.npt", "NPT"),
+    "NVE": ("nvalchemi.dynamics.integrators.nve", "NVE"),
+    "NVTLangevin": ("nvalchemi.dynamics.integrators.nvt_langevin", "NVTLangevin"),
+    "NVTNoseHoover": (
+        "nvalchemi.dynamics.integrators.nvt_nose_hoover",
+        "NVTNoseHoover",
+    ),
+}
 
 __all__ = [
     "NPH",
@@ -27,3 +34,12 @@ __all__ = [
     "NVTLangevin",
     "NVTNoseHoover",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, symbol = _EXPORTS[name]
+    value = getattr(import_module(module_name), symbol)
+    globals()[name] = value
+    return value

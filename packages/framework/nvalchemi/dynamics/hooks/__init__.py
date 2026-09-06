@@ -48,13 +48,26 @@ a :class:`~nvalchemi.hooks.DynamicsContext` plus a stage enum in their
 
 from __future__ import annotations
 
-from nvalchemi.dynamics.hooks.cell_align import AlignCellHook
-from nvalchemi.dynamics.hooks.freeze import FreezeAtomsHook
-from nvalchemi.dynamics.hooks.logging import LoggingHook
-from nvalchemi.dynamics.hooks.monitors import EnergyDriftMonitorHook
-from nvalchemi.dynamics.hooks.safety import MaxForceClampHook, NaNDetectorHook
-from nvalchemi.dynamics.hooks.snapshot import ConvergedSnapshotHook, SnapshotHook
-from nvalchemi.hooks.stage_timing import StageTimingHook
+from importlib import import_module
+
+
+_EXPORTS = {
+    "AlignCellHook": ("nvalchemi.dynamics.hooks.cell_align", "AlignCellHook"),
+    "FreezeAtomsHook": ("nvalchemi.dynamics.hooks.freeze", "FreezeAtomsHook"),
+    "LoggingHook": ("nvalchemi.dynamics.hooks.logging", "LoggingHook"),
+    "EnergyDriftMonitorHook": (
+        "nvalchemi.dynamics.hooks.monitors",
+        "EnergyDriftMonitorHook",
+    ),
+    "MaxForceClampHook": ("nvalchemi.dynamics.hooks.safety", "MaxForceClampHook"),
+    "NaNDetectorHook": ("nvalchemi.dynamics.hooks.safety", "NaNDetectorHook"),
+    "ConvergedSnapshotHook": (
+        "nvalchemi.dynamics.hooks.snapshot",
+        "ConvergedSnapshotHook",
+    ),
+    "SnapshotHook": ("nvalchemi.dynamics.hooks.snapshot", "SnapshotHook"),
+    "StageTimingHook": ("nvalchemi.hooks.stage_timing", "StageTimingHook"),
+}
 
 __all__ = [
     "AlignCellHook",
@@ -74,6 +87,11 @@ _REMOVED_PROFILER_HOOKS = {"ProfilerHook"}
 
 def __getattr__(name: str) -> object:
     """Load optional profiler support or reject removed hook names."""
+    if name in _EXPORTS:
+        module_name, symbol = _EXPORTS[name]
+        value = getattr(import_module(module_name), symbol)
+        globals()[name] = value
+        return value
     if name == "TorchProfilerHook":
         from nvalchemi.hooks.physicsnemo_profiling import TorchProfilerHook
 

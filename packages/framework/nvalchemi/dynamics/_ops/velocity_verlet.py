@@ -34,15 +34,6 @@ from __future__ import annotations
 
 import torch
 import torch.library
-import warp as wp
-from nvalchemiops.dynamics.integrators import (
-    velocity_verlet_position_update as _vv_pos_update,
-)
-from nvalchemiops.dynamics.integrators import (
-    velocity_verlet_velocity_finalize as _vv_vel_finalize,
-)
-
-from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
 
 __all__ = ["vv_position_update", "vv_velocity_finalize"]
 
@@ -50,7 +41,7 @@ __all__ = ["vv_position_update", "vv_velocity_finalize"]
 @torch.library.custom_op(
     "nvalchemi::vv_position_update", mutates_args={"positions", "velocities"}
 )
-def vv_position_update(
+def _vv_position_update_warp(
     positions: torch.Tensor,
     velocities: torch.Tensor,
     forces: torch.Tensor,
@@ -79,6 +70,12 @@ def vv_position_update(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        velocity_verlet_position_update as _vv_pos_update,
+    )
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = positions.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -92,7 +89,7 @@ def vv_position_update(
     )
 
 
-@vv_position_update.register_fake
+@_vv_position_update_warp.register_fake
 def _vv_position_update_fake(
     positions, velocities, forces, masses, dt, batch_idx
 ) -> None:
@@ -100,7 +97,7 @@ def _vv_position_update_fake(
 
 
 @torch.library.custom_op("nvalchemi::vv_velocity_finalize", mutates_args={"velocities"})
-def vv_velocity_finalize(
+def _vv_velocity_finalize_warp(
     velocities: torch.Tensor,
     forces_new: torch.Tensor,
     masses: torch.Tensor,
@@ -126,6 +123,12 @@ def vv_velocity_finalize(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        velocity_verlet_velocity_finalize as _vv_vel_finalize,
+    )
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -138,6 +141,56 @@ def vv_velocity_finalize(
     )
 
 
-@vv_velocity_finalize.register_fake
+@_vv_velocity_finalize_warp.register_fake
 def _vv_velocity_finalize_fake(velocities, forces_new, masses, dt, batch_idx) -> None:
     pass
+
+
+def _select_backend(backend: str | None) -> str:
+    if backend is None or backend == "warp":
+        return "warp"
+    if backend in {"auto", "torch_reference"}:
+        return "torch_reference"
+    raise ValueError(
+        "velocity-Verlet backend must be one of None, 'warp', 'auto', "
+        f"'torch_reference'; got {backend!r}"
+    )
+
+
+def vv_position_update(
+    positions: torch.Tensor,
+    velocities: torch.Tensor,
+    forces: torch.Tensor,
+    masses: torch.Tensor,
+    dt: torch.Tensor,
+    batch_idx: torch.Tensor,
+    *,
+    backend: str | None = None,
+) -> None:
+    """Dispatch velocity-Verlet position update to the explicit backend."""
+    if _select_backend(backend) == "torch_reference":
+        from nvalchemi._dynamics_reference.velocity_verlet import vv_position_update as ref
+
+        return ref(positions, velocities, forces, masses, dt, batch_idx)
+    return _vv_position_update_warp(
+        positions, velocities, forces, masses, dt, batch_idx
+    )
+
+
+def vv_velocity_finalize(
+    velocities: torch.Tensor,
+    forces_new: torch.Tensor,
+    masses: torch.Tensor,
+    dt: torch.Tensor,
+    batch_idx: torch.Tensor,
+    *,
+    backend: str | None = None,
+) -> None:
+    """Dispatch velocity-Verlet velocity finalize to the explicit backend."""
+    if _select_backend(backend) == "torch_reference":
+        from nvalchemi._dynamics_reference.velocity_verlet import vv_velocity_finalize as ref
+
+        return ref(velocities, forces_new, masses, dt, batch_idx)
+    return _vv_velocity_finalize_warp(
+        velocities, forces_new, masses, dt, batch_idx
+    )

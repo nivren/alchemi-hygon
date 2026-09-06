@@ -23,7 +23,6 @@ from torch dtypes.
 from __future__ import annotations
 
 import torch
-import warp as wp
 
 from nvalchemi.data import Batch
 from nvalchemi.data.level_storage import MultiLevelStorage, UniformLevelStorage
@@ -115,6 +114,8 @@ def _vec_type(dtype: torch.dtype) -> type:
     type
         The corresponding Warp 3-vector type.
     """
+    import warp as wp
+
     return wp.vec3d if dtype == torch.float64 else wp.vec3f
 
 
@@ -131,6 +132,8 @@ def _mat_type(dtype: torch.dtype) -> type:
     type
         The corresponding Warp :math:`3 \times 3` matrix type.
     """
+    import warp as wp
+
     return wp.mat33d if dtype == torch.float64 else wp.mat33f
 
 
@@ -147,4 +150,6 @@ def _scalar_type(dtype: torch.dtype) -> type:
     type
         The corresponding Warp scalar type.
     """
+    import warp as wp
+
     return wp.float64 if dtype == torch.float64 else wp.float32

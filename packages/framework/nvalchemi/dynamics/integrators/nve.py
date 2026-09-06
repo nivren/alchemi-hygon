@@ -100,6 +100,7 @@ class NVE(BaseDynamics):
         n_steps: int | None = None,
         hooks: list[Hook] | None = None,
         convergence_hook: ConvergenceHook | dict | None = None,
+        backend: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -110,6 +111,7 @@ class NVE(BaseDynamics):
             **kwargs,
         )
         self._dt_init = fs_to_internal_time(dt)
+        self.backend = backend
 
     def _init_state(self, batch: Batch) -> None:
         """Allocate per-system timestep tensor.
@@ -159,6 +161,7 @@ class NVE(BaseDynamics):
             batch.atomic_masses,
             self._state.dt,
             batch.batch_idx.int(),
+            backend=self.backend,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -175,4 +178,5 @@ class NVE(BaseDynamics):
             batch.atomic_masses,
             self._state.dt,
             batch.batch_idx.int(),
+            backend=self.backend,
         )

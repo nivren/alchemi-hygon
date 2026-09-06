@@ -47,21 +47,6 @@ from __future__ import annotations
 
 import torch
 import torch.library
-import warp as wp
-from nvalchemiops.dynamics.optimizers.fire import (
-    fire_step as _fire_step,
-)
-from nvalchemiops.dynamics.optimizers.fire import (
-    fire_update as _fire_update,
-)
-from nvalchemiops.torch.fire2 import (
-    fire2_step_coord as _fire2_coord,
-)
-from nvalchemiops.torch.fire2 import (
-    fire2_step_coord_cell as _fire2_coord_cell,
-)
-
-from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
 
 __all__ = [
     "fire_step",
@@ -69,6 +54,17 @@ __all__ = [
     "fire2_step_coord",
     "fire2_step_coord_cell",
 ]
+
+
+def _select_backend(backend: str | None) -> str:
+    if backend is None or backend == "warp":
+        return "warp"
+    if backend in {"auto", "torch_reference"}:
+        return "torch_reference"
+    raise ValueError(
+        "FIRE backend must be one of None, 'warp', 'auto', 'torch_reference'; "
+        f"got {backend!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +108,10 @@ def _fire_step_op(
     batch_idx: torch.Tensor,
     compute_reductions: bool = True,
 ) -> None:
+    import warp as wp
+    from nvalchemiops.dynamics.optimizers.fire import fire_step as _fire_step
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = positions.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -190,6 +190,10 @@ def _fire_update_op(
     batch_idx: torch.Tensor,
     compute_reductions: bool = True,
 ) -> None:
+    import warp as wp
+    from nvalchemiops.dynamics.optimizers.fire import fire_update as _fire_update
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -265,6 +269,7 @@ def fire_step(
     ff: torch.Tensor | None = None,
     batch_idx: torch.Tensor | None = None,
     compute_reductions: bool = True,
+    backend: str | None = None,
 ) -> None:
     r"""Full FIRE optimization step.
 
@@ -326,6 +331,33 @@ def fire_step(
         caller has already filled them with the desired — e.g. mesh-global —
         values); only the per-atom revert still runs.
     """
+    if _select_backend(backend) == "torch_reference":
+        from nvalchemi._dynamics_reference.fire import fire_step as reference_step
+
+        return reference_step(
+            positions,
+            velocities,
+            forces,
+            masses,
+            alpha,
+            dt,
+            n_steps_positive,
+            alpha_start,
+            f_alpha,
+            dt_min,
+            dt_max,
+            maxstep,
+            n_min,
+            f_dec,
+            f_inc,
+            uphill_flag,
+            vf=vf,
+            vv=vv,
+            ff=ff,
+            batch_idx=batch_idx,
+            compute_reductions=compute_reductions,
+        )
+
     M = alpha.shape[0]
     dtype = positions.dtype
     device = positions.device
@@ -381,6 +413,7 @@ def fire_update(
     ff: torch.Tensor | None = None,
     batch_idx: torch.Tensor | None = None,
     compute_reductions: bool = True,
+    backend: str | None = None,
 ) -> None:
     r"""FIRE velocity mixing and parameter update (no MD integration).
 
@@ -427,6 +460,29 @@ def fire_update(
         caller has already filled them with the desired — e.g. mesh-global —
         values).
     """
+    if _select_backend(backend) == "torch_reference":
+        from nvalchemi._dynamics_reference.fire import fire_update as reference_update
+
+        return reference_update(
+            velocities,
+            forces,
+            alpha,
+            dt,
+            n_steps_positive,
+            alpha_start,
+            f_alpha,
+            dt_min,
+            dt_max,
+            n_min,
+            f_dec,
+            f_inc,
+            vf=vf,
+            vv=vv,
+            ff=ff,
+            batch_idx=batch_idx,
+            compute_reductions=compute_reductions,
+        )
+
     M = alpha.shape[0]
     dtype = velocities.dtype
     device = velocities.device
@@ -485,6 +541,7 @@ def fire2_step_coord(
     tmax: float = 0.08,
     tmin: float = 0.005,
     maxstep: float = 0.1,
+    backend: str | None = None,
 ) -> None:
     r"""Full FIRE2 coordinate-only optimization step.
 
@@ -533,6 +590,32 @@ def fire2_step_coord(
     maxstep : float
         Maximum displacement per step.  Default 0.1.
     """
+    if _select_backend(backend) == "torch_reference":
+        from nvalchemi._dynamics_reference.fire import fire2_step_coord as reference_step
+
+        return reference_step(
+            positions,
+            velocities,
+            forces,
+            batch_idx,
+            alpha,
+            dt,
+            nsteps_inc,
+            vf=vf,
+            v_sumsq=v_sumsq,
+            f_sumsq=f_sumsq,
+            max_norm=max_norm,
+            delaystep=delaystep,
+            dtgrow=dtgrow,
+            dtshrink=dtshrink,
+            alphashrink=alphashrink,
+            alpha0=alpha0,
+            tmax=tmax,
+            tmin=tmin,
+            maxstep=maxstep,
+        )
+    from nvalchemiops.torch.fire2 import fire2_step_coord as _fire2_coord
+
     _fire2_coord(
         positions,
         velocities,
@@ -580,6 +663,7 @@ def fire2_step_coord_cell(
     tmax: float = 0.08,
     tmin: float = 0.005,
     maxstep: float = 0.1,
+    backend: str | None = None,
 ) -> None:
     r"""Full FIRE2 variable-cell optimization step.
 
@@ -622,6 +706,37 @@ def fire2_step_coord_cell(
     delaystep, dtgrow, dtshrink, alphashrink, alpha0, tmax, tmin, maxstep
         FIRE2 hyperparameters (same semantics as :func:`fire2_step_coord`).
     """
+    if _select_backend(backend) == "torch_reference":
+        from nvalchemi._dynamics_reference.fire import (
+            fire2_step_coord_cell as reference_step,
+        )
+
+        return reference_step(
+            positions,
+            velocities,
+            forces,
+            cell,
+            cell_velocities,
+            cell_force,
+            batch_idx,
+            alpha,
+            dt,
+            nsteps_inc,
+            vf=vf,
+            v_sumsq=v_sumsq,
+            f_sumsq=f_sumsq,
+            max_norm=max_norm,
+            delaystep=delaystep,
+            dtgrow=dtgrow,
+            dtshrink=dtshrink,
+            alphashrink=alphashrink,
+            alpha0=alpha0,
+            tmax=tmax,
+            tmin=tmin,
+            maxstep=maxstep,
+        )
+    from nvalchemiops.torch.fire2 import fire2_step_coord_cell as _fire2_coord_cell
+
     _fire2_coord_cell(
         positions,
         velocities,

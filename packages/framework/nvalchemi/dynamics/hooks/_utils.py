@@ -31,15 +31,7 @@ from __future__ import annotations
 from typing import Literal
 
 import torch
-import warp as wp
 from jaxtyping import Float
-from nvalchemiops.dynamics.utils import compute_kinetic_energy
-from nvalchemiops.segment_ops import (
-    segmented_max,
-    segmented_mean,
-    segmented_min,
-    segmented_sum,
-)
 
 # Boltzmann constant in eV/K (NIST 2018 CODATA value).
 KB_EV: float = 8.617333262e-5
@@ -59,6 +51,9 @@ ScatterReduce = Literal["amax", "sum", "amin", "mean"]
 def _segmented_sum(
     values: torch.Tensor, idx: torch.Tensor, num_segments: int
 ) -> torch.Tensor:
+    import warp as wp
+    from nvalchemiops.segment_ops import segmented_sum
+
     out = torch.zeros(num_segments, device=values.device, dtype=values.dtype)
     segmented_sum(
         wp.from_torch(values.contiguous()),
@@ -77,6 +72,9 @@ def _(values: torch.Tensor, idx: torch.Tensor, num_segments: int) -> torch.Tenso
 def _segmented_max(
     values: torch.Tensor, idx: torch.Tensor, num_segments: int
 ) -> torch.Tensor:
+    import warp as wp
+    from nvalchemiops.segment_ops import segmented_max
+
     out = torch.full(
         (num_segments,), float("-inf"), device=values.device, dtype=values.dtype
     )
@@ -97,6 +95,9 @@ def _(values: torch.Tensor, idx: torch.Tensor, num_segments: int) -> torch.Tenso
 def _segmented_min(
     values: torch.Tensor, idx: torch.Tensor, num_segments: int
 ) -> torch.Tensor:
+    import warp as wp
+    from nvalchemiops.segment_ops import segmented_min
+
     out = torch.full(
         (num_segments,), float("inf"), device=values.device, dtype=values.dtype
     )
@@ -117,6 +118,9 @@ def _(values: torch.Tensor, idx: torch.Tensor, num_segments: int) -> torch.Tenso
 def _segmented_mean(
     values: torch.Tensor, idx: torch.Tensor, num_segments: int
 ) -> torch.Tensor:
+    import warp as wp
+    from nvalchemiops.segment_ops import segmented_mean
+
     sums = torch.zeros(num_segments, device=values.device, dtype=values.dtype)
     counts = torch.zeros(num_segments, device=values.device, dtype=torch.int32)
     out = torch.zeros(num_segments, device=values.device, dtype=values.dtype)
@@ -142,6 +146,9 @@ def _compute_ke(
     batch_idx: torch.Tensor,
     num_graphs: int,
 ) -> torch.Tensor:
+    import warp as wp
+    from nvalchemiops.dynamics.utils import compute_kinetic_energy
+
     ke = torch.zeros(num_graphs, device=velocities.device, dtype=velocities.dtype)
     vec_dtype = wp.vec3d if velocities.dtype == torch.float64 else wp.vec3f
     compute_kinetic_energy(
@@ -217,6 +224,7 @@ def kinetic_energy_per_graph(
     masses: Float[torch.Tensor, "V ..."],
     batch_idx: torch.Tensor,
     num_graphs: int,
+    backend: str | None = None,
 ) -> Float[torch.Tensor, "B 1"]:
     """Compute ``0.5 * sum(m_i * ||v_i||^2)`` per graph.
 
@@ -238,6 +246,14 @@ def kinetic_energy_per_graph(
     Float[Tensor, "B 1"]
         Kinetic energy per graph.
     """
+    if backend not in (None, "warp", "auto", "torch_reference"):
+        raise ValueError(f"unsupported kinetic backend: {backend!r}")
+    if backend in ("auto", "torch_reference"):
+        from nvalchemi._dynamics_reference.kinetics import (
+            kinetic_energy_per_graph as reference_kinetic_energy,
+        )
+
+        return reference_kinetic_energy(velocities, masses, batch_idx, num_graphs)
     m = masses.squeeze(-1) if masses.dim() > 1 else masses
     ke = _compute_ke(velocities, m, batch_idx, num_graphs)
     return ke.unsqueeze(-1)  # (B, 1)
@@ -250,6 +266,7 @@ def temperature_per_graph(
     num_graphs: int,
     atoms_per_graph: torch.Tensor,
     conversion_factor: float = KB_EV,
+    backend: str | None = None,
 ) -> Float[torch.Tensor, "B"]:
     """Compute instantaneous kinetic temperature per graph.
 
@@ -283,8 +300,8 @@ def temperature_per_graph(
     Float[Tensor, "B"]
         Instantaneous kinetic temperature per graph in Kelvin.
     """
-    ke = kinetic_energy_per_graph(velocities, masses, batch_idx, num_graphs).squeeze(
-        -1
-    )  # (B,)
+    ke = kinetic_energy_per_graph(
+        velocities, masses, batch_idx, num_graphs, backend=backend
+    ).squeeze(-1)  # (B,)
     n_atoms = atoms_per_graph.float()  # (B,)
     return (2.0 * ke) / (3.0 * n_atoms * conversion_factor)

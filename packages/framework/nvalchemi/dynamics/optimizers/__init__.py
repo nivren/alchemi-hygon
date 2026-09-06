@@ -12,10 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Geometry optimizers: FIRE and FIRE2 (fixed-cell and variable-cell)."""
+"""Geometry optimizers with lazy imports across optional backend boundaries."""
 
-from nvalchemi.dynamics.optimizers.fire import FIRE, FIREVariableCell
-from nvalchemi.dynamics.optimizers.fire2 import FIRE2, FIRE2VariableCell
+from importlib import import_module
+
+_EXPORTS = {
+    "FIRE": ("nvalchemi.dynamics.optimizers.fire", "FIRE"),
+    "FIREVariableCell": ("nvalchemi.dynamics.optimizers.fire", "FIREVariableCell"),
+    "FIRE2": ("nvalchemi.dynamics.optimizers.fire2", "FIRE2"),
+    "FIRE2VariableCell": ("nvalchemi.dynamics.optimizers.fire2", "FIRE2VariableCell"),
+}
 
 __all__ = [
     "FIRE",
@@ -23,3 +29,12 @@ __all__ = [
     "FIRE2",
     "FIRE2VariableCell",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, symbol = _EXPORTS[name]
+    value = getattr(import_module(module_name), symbol)
+    globals()[name] = value
+    return value
