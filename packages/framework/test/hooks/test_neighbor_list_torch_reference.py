@@ -127,22 +127,52 @@ def test_reference_hook_rejects_method_selection():
         _call_eager(hook, _batch())
 
 
-@pytest.mark.parametrize(
-    "config_kwargs, batch_kwargs, message",
-    [
-        ({"skin": 0.5}, {}, "requires skin=0"),
-    ],
-)
-def test_reference_hook_rejects_unsupported_state(
-    config_kwargs: dict[str, object],
-    batch_kwargs: dict[str, object],
-    message: str,
-):
+def test_reference_hook_rejects_negative_skin():
+    with pytest.raises(ValueError, match="skin must be non-negative"):
+        NeighborListHook(NeighborConfig(cutoff=2.0), backend="torch_reference", skin=-1.0)
+
+
+def test_reference_hook_reuses_skin_cache_until_displacement_threshold():
     hook = NeighborListHook(
-        NeighborConfig(cutoff=2.0, **config_kwargs),
+        NeighborConfig(cutoff=2.0),
         backend="torch_reference",
-        skin=float(config_kwargs.get("skin", 0.0)),
+        skin=0.5,
     )
     batch = _batch()
-    with pytest.raises(NotImplementedError, match=message):
-        _call_eager(hook, batch)
+    _call_eager(hook, batch)
+    first_reference = hook._ref_positions.clone()
+
+    batch.positions[0, 0] += 0.1
+    _call_eager(hook, batch)
+    assert torch.equal(hook._ref_positions, first_reference)
+
+    batch.positions[0, 0] += 0.2
+    _call_eager(hook, batch)
+    assert torch.equal(hook._ref_positions, batch.positions)
+
+
+def test_reference_hook_rebuilds_when_periodic_cell_changes():
+    hook = NeighborListHook(
+        NeighborConfig(cutoff=0.5, format=NeighborListFormat.MATRIX),
+        backend="torch_reference",
+        skin=0.5,
+    )
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
+    _call_eager(hook, batch)
+    first_reference = hook._ref_cell.clone()
+    batch.cell[0, 0, 0] = 2.2
+    _call_eager(hook, batch)
+    assert not torch.equal(hook._ref_cell, first_reference)

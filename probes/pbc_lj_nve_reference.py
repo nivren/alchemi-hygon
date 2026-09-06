@@ -46,7 +46,9 @@ def _evaluate(
     return output["energy"].sum(), output["forces"]
 
 
-def run(device: torch.device, steps: int, dt: float) -> dict[str, object]:
+def run(device: torch.device, steps: int, dt: float, skin: float) -> dict[str, object]:
+    if skin < 0.0:
+        raise ValueError("skin must be non-negative")
     dtype = torch.float64
     cell = torch.diag(torch.tensor([3.0, 10.0, 10.0], dtype=dtype, device=device))
     positions = torch.tensor(
@@ -68,6 +70,7 @@ def run(device: torch.device, steps: int, dt: float) -> dict[str, object]:
     hook = NeighborListHook(
         NeighborConfig(cutoff=1.5, format=NeighborListFormat.MATRIX),
         backend="torch_reference",
+        skin=skin,
     )
 
     potential, forces = _evaluate(positions, cell, model, hook)
@@ -112,6 +115,7 @@ def run(device: torch.device, steps: int, dt: float) -> dict[str, object]:
         "backend": model.backend,
         "steps": steps,
         "dt": dt,
+        "skin": skin,
         "initial_total": float(initial_total.item()),
         "final_total": float(final_total.item()),
         "max_drift": max_drift,
@@ -126,13 +130,14 @@ def main() -> None:
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--steps", type=int, default=1200)
     parser.add_argument("--dt", type=float, default=1.0e-4)
+    parser.add_argument("--skin", type=float, default=0.0)
     args = parser.parse_args()
     if args.steps <= 0 or args.dt <= 0:
         raise ValueError("steps and dt must be positive")
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA/HIP device requested but unavailable")
-    result = run(device, args.steps, args.dt)
+    result = run(device, args.steps, args.dt, args.skin)
     if result["max_drift"] > 1.0e-8:
         raise RuntimeError(f"NVE energy drift exceeded tolerance: {result['max_drift']}")
     if not result["wrapped_steps"]:

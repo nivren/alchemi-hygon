@@ -1210,7 +1210,7 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "当前 PBC 证据仅覆盖 full-list、小输入、显式 Torch reference；默认生产路径仍依赖 Warp，PBC half-list、skin/rebuild、cell-list、动态溢出扩容和性能路径尚未接入"
+        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 或 cell/batch 结构变化时重建整批；默认生产路径仍依赖 Warp，PBC half-list、method/scratch、per-system rebuild、cell-list、动态溢出扩容和性能路径尚未接入"
       ],
       "release_gate": "G1"
     },
@@ -1292,7 +1292,7 @@
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "当前证据覆盖 Torch reference 的 no-PBC 与 full-list PBC 小输入；生产 Warp LJ API 仍保留且未在 HCU 本轮对拍",
-        "Torch reference 尚未覆盖 switching、virial/stress、周期 half-list、skin/rebuild 或 domain decomposition",
+        "Torch reference 尚未覆盖 switching、virial/stress、周期 half-list、生产级 per-system skin/rebuild 或 domain decomposition",
         "短 NVE 证据来自独立 Torch velocity-Verlet 探针，不等同于完整 Warp-backed nvalchemi.dynamics.NVE 公共 API"
       ],
       "release_gate": "G1"

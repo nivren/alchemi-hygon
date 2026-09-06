@@ -207,9 +207,9 @@ class NeighborListHook:
         and periodic-cell metadata.
     backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
         Execution backend. ``None`` preserves the upstream Warp path. The
-        explicit Torch reference path supports full periodic lists with
-        ``skin=0`` and no method selection; periodic half lists and other
-        unsupported combinations fail explicitly.
+        explicit Torch reference path supports full periodic lists and a
+        small-input cached skin path with no method selection; periodic half
+        lists and other unsupported combinations fail explicitly.
     """
 
     def __init__(
@@ -229,6 +229,8 @@ class NeighborListHook:
             )
         if selected_backend == "warp":
             _initialize_warp_dependencies()
+        if skin < 0.0:
+            raise ValueError("skin must be non-negative")
 
         self.config = config
         self.skin = skin
@@ -242,6 +244,10 @@ class NeighborListHook:
         # Skin-buffer state: populated after the first build.
         self._ref_positions: torch.Tensor | None = None
         self._rebuild_flags: torch.Tensor | None = None
+        self._ref_cell: torch.Tensor | None = None
+        self._ref_pbc: torch.Tensor | None = None
+        self._ref_batch_idx: torch.Tensor | None = None
+        self._ref_batch_ptr: torch.Tensor | None = None
 
         # Neighbor Matrix state: populated after the first build.
         self._neighbor_matrix: torch.Tensor | None = None
@@ -296,10 +302,6 @@ class NeighborListHook:
     @torch.compiler.disable
     def _rebuild_reference(self, batch: Batch) -> None:
         """Run the restricted Warp-independent reference neighbor path."""
-        if self.skin != 0.0:
-            raise NotImplementedError(
-                "Torch reference NeighborListHook currently requires skin=0"
-            )
         if self.method is not None:
             raise NotImplementedError(
                 "Torch reference NeighborListHook does not support method selection"
@@ -311,12 +313,28 @@ class NeighborListHook:
             pbc = None
             cell = None
 
+        if self.skin > 0.0 and not self._reference_needs_rebuild(
+            batch, cell=cell, pbc=pbc
+        ):
+            if self._neighbor_matrix is None or self._num_neighbors is None:
+                raise RuntimeError("reference neighbor cache is incomplete")
+            _write_neighbor_data_to_batch(
+                batch=batch,
+                neighbor_matrix=self._neighbor_matrix,
+                num_neighbors=self._num_neighbors,
+                neighbor_matrix_shifts=self._neighbor_matrix_shifts,
+                format=self.config.format,
+                cutoff=self.config.cutoff,
+                backend=self.backend,
+            )
+            return
+
         max_neighbors = self._max_neighbors_override
         if max_neighbors is None and pbc is None:
             max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
         result = dispatch_neighbor_list(
             positions=batch.positions,
-            cutoff=self.config.cutoff,
+            cutoff=self.config.cutoff + self.skin,
             cell=cell,
             pbc=pbc,
             batch_idx=batch.batch_idx,
@@ -330,6 +348,15 @@ class NeighborListHook:
             neighbor_matrix_shifts = None
         else:
             neighbor_matrix, num_neighbors, neighbor_matrix_shifts = result
+        self._neighbor_matrix = neighbor_matrix
+        self._num_neighbors = num_neighbors
+        self._neighbor_matrix_shifts = neighbor_matrix_shifts
+        if self.skin > 0.0:
+            self._ref_positions = batch.positions.detach().clone()
+            self._ref_cell = None if cell is None else cell.detach().clone()
+            self._ref_pbc = None if pbc is None else pbc.detach().clone()
+            self._ref_batch_idx = batch.batch_idx.detach().clone()
+            self._ref_batch_ptr = batch.batch_ptr.detach().clone()
         _write_neighbor_data_to_batch(
             batch=batch,
             neighbor_matrix=neighbor_matrix,
@@ -339,6 +366,53 @@ class NeighborListHook:
             cutoff=self.config.cutoff,
             backend=self.backend,
         )
+
+    @torch.compiler.disable
+    def _reference_needs_rebuild(
+        self,
+        batch: Batch,
+        *,
+        cell: torch.Tensor | None,
+        pbc: torch.Tensor | None,
+    ) -> bool:
+        """Return whether the cached reference list is stale.
+
+        The small reference path rebuilds the whole batch when any system
+        crosses the displacement threshold.  This preserves correctness
+        without claiming the upstream per-system GPU rebuild optimization.
+        """
+        if self._ref_positions is None or self._neighbor_matrix is None:
+            return True
+        if self._ref_positions.shape != batch.positions.shape:
+            return True
+        if self._ref_positions.device != batch.positions.device:
+            return True
+        if self._ref_batch_idx is None or not torch.equal(
+            self._ref_batch_idx, batch.batch_idx
+        ):
+            return True
+        if self._ref_batch_ptr is None or not torch.equal(
+            self._ref_batch_ptr, batch.batch_ptr
+        ):
+            return True
+        if (self._ref_cell is None) != (cell is None) or (self._ref_pbc is None) != (
+            pbc is None
+        ):
+            return True
+        if cell is not None and not torch.equal(self._ref_cell, cell):
+            return True
+        if pbc is not None and not torch.equal(self._ref_pbc, pbc):
+            return True
+        displacement = batch.positions - self._ref_positions
+        threshold_sq = (self.skin / 2.0) ** 2
+        for system in range(batch.num_graphs):
+            start = int(batch.batch_ptr[system].item())
+            end = int(batch.batch_ptr[system + 1].item())
+            if end > start and bool(
+                torch.any(displacement[start:end].square().sum(dim=1) > threshold_sq)
+            ):
+                return True
+        return False
 
     @torch.compiler.disable
     def _init_ref_positions(self, positions: torch.Tensor) -> None:

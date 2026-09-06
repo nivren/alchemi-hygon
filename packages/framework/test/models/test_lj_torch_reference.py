@@ -23,8 +23,9 @@ import pytest
 import torch
 
 from nvalchemi.data import AtomicData, Batch
+from nvalchemi.hooks import NeighborListHook
 from nvalchemi.hooks._context import HookContext
-from nvalchemi.models.base import NeighborListFormat
+from nvalchemi.models.base import NeighborConfig, NeighborListFormat
 from nvalchemi.models.lj import LennardJonesModelWrapper
 from nvalchemi.neighbors import compute_neighbors
 
@@ -212,3 +213,26 @@ def test_reference_neighbor_hook_and_lj_wrapper_form_one_chain():
     assert torch.allclose(
         output["forces"].sum(dim=0), torch.zeros(3, dtype=torch.float64), atol=1e-12
     )
+
+
+def test_lj_reference_ignores_pairs_kept_only_by_neighbor_skin():
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.0, 0.0, 0.0], [2.2, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+            )
+        ]
+    )
+    hook = NeighborListHook(
+        NeighborConfig(cutoff=2.0, format=NeighborListFormat.MATRIX),
+        backend="torch_reference",
+        skin=0.5,
+    )
+    NeighborListHook.__call__.__wrapped__(hook, HookContext(batch=batch), None)
+    model = LennardJonesModelWrapper(1.0, 1.0, 2.0, backend="torch_reference")
+    output = model(batch)
+    assert torch.allclose(output["energy"], torch.zeros(1, 1, dtype=torch.float64))
+    assert torch.allclose(output["forces"], torch.zeros(2, 3, dtype=torch.float64))

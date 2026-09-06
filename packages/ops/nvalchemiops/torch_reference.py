@@ -516,9 +516,14 @@ def lj_energy_forces(
             shifts = neighbor_matrix_shifts[i, :count].to(dtype=positions.dtype)
             rij = rij - shifts @ cells[atom_systems[i]]
         distance = torch.linalg.vector_norm(rij, dim=1)
-        if torch.any(distance < 1e-5) or torch.any(distance >= cutoff):
-            raise ValueError("active neighbor distances must lie in [1e-5, cutoff)")
-        sr = sigma / distance
+        active = distance < cutoff
+        if torch.any(distance[active] < 1e-5):
+            raise ValueError("active neighbor distances must be at least 1e-5")
+        if not torch.any(active):
+            continue
+        active_neighbors = neighbors[active]
+        active_distance = distance[active]
+        sr = sigma / active_distance
         pair_energy = 4.0 * epsilon * (sr.pow(12) - sr.pow(6))
         total_energy = total_energy + weight * pair_energy.sum()
         # Upstream assigns half of each pair energy to every endpoint.  In a
@@ -526,7 +531,7 @@ def lj_energy_forces(
         # half list the reverse endpoint is added explicitly below.
         atomic_energies[i] = atomic_energies[i] + (0.5 * pair_energy).sum()
         if half_list:
-            atomic_energies.index_add_(0, neighbors, 0.5 * pair_energy)
+            atomic_energies.index_add_(0, active_neighbors, 0.5 * pair_energy)
 
     (gradient,) = torch.autograd.grad(total_energy, positions, create_graph=True)
     return atomic_energies, -gradient

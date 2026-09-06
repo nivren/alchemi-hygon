@@ -173,3 +173,10 @@
 - 周期邻居不再静默丢弃重叠 active pair；新增不可逆 cell、multi-image、批量/部分 PBC、容量溢出和周期 LJ 独立 FP64 对照测试。ops `10 passed`，framework 邻居/Hook/LJ `16 passed`。
 - 新增 `probes/pbc_lj_nve_reference.py`：使用 Batch、reference NeighborListHook/LJ 与独立 Torch velocity-Verlet，不改完整 Warp-backed `nvalchemi.dynamics.NVE`。CPU 与 source DTK 26.04 后 BW200/gfx936 HCU 均通过，1200 步、`dt=1e-4`、周期 wrap 第 `1079` 步发生，最大总能漂移 `5.373538503050668e-09`，总力 `[0, 0, 0]`。证据见 [reports/g1-pbc-lj-nve-reference.md](../reports/g1-pbc-lj-nve-reference.md)。HCU 运行 stderr 仍有 DTK 环境的 `clang++`/`hipconfig` 提示，但退出码为 0，设备运行结果有效。
 - 本轮仍未实现周期 half-list、skin/rebuild、switching、virial/stress、完整 dynamics NVE API、Triton/HIP 或两卡 ownership。下一步应先整理本轮 diff/兼容清单并提交，再决定是否进入 skin/rebuild 或真实 MLIP 链；不把独立 NVE 探针写成完整 NVE API 已支持。
+
+### 2026-09-06：Torch reference cached skin/rebuild
+
+- `NeighborListHook(backend="torch_reference", skin>0)` 现在缓存以 `cutoff + skin` 构建的 full-list 邻居；raw Cartesian 位移超过 `skin/2`、cell 改变或 batch 结构改变时重建整批，否则复用缓存。周期 half-list、method/scratch、生产级 per-system rebuild 和 cell-list 仍显式不支持。
+- `lj_energy_forces` 会过滤 cached skin 中距离达到实际 cutoff 的 pair，避免邻居缓存范围被误算为物理 cutoff；负 skin、跨体系 active pair 和重叠 active pair 显式失败。
+- framework Hook/LJ reference 回归 `15 passed`，ops reference 回归 `10 passed`；短 NVE `skin=0.5` 在 CPU 与 BW200/gfx936 HCU 通过，1200 步、`dt=1e-4`、第 1079 步 wrap，最大总能漂移仍为 `5.373538503050668e-09`。报告见 [reports/g1-pbc-lj-nve-reference.md](../reports/g1-pbc-lj-nve-reference.md)。
+- 这一步是正式 framework/ops reference 实现和测试；探针只负责跨设备证据。下一小步可独立加入环境加载脚本，然后再评估真实 MLIP 依赖和 MACE 前向/力梯度链；不宣称完整 dynamics NVE 或生产 Warp skin/rebuild 已支持。
