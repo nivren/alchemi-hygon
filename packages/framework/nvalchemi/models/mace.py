@@ -1065,7 +1065,15 @@ class MACEWrapper(nn.Module, BaseModelMixin):
             from mace.calculators.foundations_models import download_mace_mp_checkpoint
 
         target_device = torch.device(device)
-        cached_path = download_mace_mp_checkpoint(checkpoint_path)
+        # ``mace-torch``'s downloader accepts named foundation checkpoints, but
+        # it treats an arbitrary string as a URL and does not handle ``Path``
+        # objects.  The wrapper API also promises local ``Path | str`` support,
+        # so resolve an existing file locally before entering the downloader.
+        local_checkpoint = Path(checkpoint_path).expanduser()
+        if local_checkpoint.is_file():
+            cached_path = local_checkpoint
+        else:
+            cached_path = download_mace_mp_checkpoint(str(checkpoint_path))
         model: nn.Module = torch.load(
             cached_path, weights_only=False, map_location=target_device
         )

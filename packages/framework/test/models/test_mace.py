@@ -994,6 +994,35 @@ class TestFromCheckpointErrors:
         assert load_map_locations == [torch.device("cpu")]
         assert to_devices == [torch.device("cpu")]
 
+    def test_from_checkpoint_uses_existing_local_path(
+        self, monkeypatch, mock_model, tmp_path
+    ):
+        """An existing local checkpoint bypasses MACE's named-model downloader."""
+        checkpoint = tmp_path / "cached.model"
+        checkpoint.touch()
+        downloader_calls = []
+        load_paths = []
+
+        def unexpected_download(path):
+            downloader_calls.append(path)
+            raise AssertionError("local checkpoints must bypass the downloader")
+
+        def fake_load(path, **kwargs):
+            load_paths.append(path)
+            return mock_model
+
+        monkeypatch.setattr(
+            "mace.calculators.foundations_models.download_mace_mp_checkpoint",
+            unexpected_download,
+        )
+        monkeypatch.setattr("torch.load", fake_load)
+
+        wrapper = MACEWrapper.from_checkpoint(checkpoint, device="cpu")
+
+        assert wrapper.model is mock_model
+        assert downloader_calls == []
+        assert load_paths == [checkpoint]
+
     def test_cueq_conversion_uses_active_cuda_context(self, monkeypatch, mock_model):
         """Explicit CUDA indices are preserved via the active CUDA context."""
         import sys

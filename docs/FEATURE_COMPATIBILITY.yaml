@@ -133,19 +133,25 @@
       },
       "gradient_level": "continuous_fields_first_and_second",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/data/test_batch.py"
         ],
-        "dcu_tests": [],
-        "evidence": [
-          "reports/upstream_inventory.json"
+        "dcu_tests": [
+          "probes/mace_wrapper_reference.py"
         ],
-        "environments": []
+        "evidence": [
+          "reports/upstream_inventory.json",
+          "reports/g1-mace-wrapper-batch.md"
+        ],
+        "environments": [
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线运行",
+        "两个 perf_46 结构的 HCU batching 探针 180 秒超时，未验证完整 HCU 多体系路径"
       ],
       "release_gate": "G1"
     },
@@ -514,19 +520,29 @@
       },
       "gradient_level": "first_and_mixed_second",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/models/test_mace.py"
         ],
-        "dcu_tests": [],
-        "evidence": [
-          "reports/upstream_inventory.json"
+        "dcu_tests": [
+          "probes/mace_probe.py",
+          "probes/mace_wrapper_reference.py"
         ],
-        "environments": []
+        "evidence": [
+          "reports/upstream_inventory.json",
+          "reports/g1-mace-dependency-audit.md",
+          "reports/g1-mace-wrapper-batch.md"
+        ],
+        "environments": [
+          "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线运行",
+        "项目环境尚未安装 MACE/e3nn/ASE",
+        "H₂O wrapper CPU/HCU 与 perf_46 CPU batching 已验证；perf_46 HCU batching 超时",
+        "完整 dynamics、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
       ],
       "release_gate": "G2"
     },

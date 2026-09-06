@@ -14,6 +14,19 @@ source scripts/activate_hygon_env.sh project
 source scripts/activate_hygon_env.sh exploration
 ```
 
+`exploration` 只指向前期探索仓库的只读环境，用于复现已有依赖和对照结果；正式安装目标仍是 `project`。当前缓存 MACE 的最小 wrapper/batching smoke 可这样运行：
+
+```sh
+source scripts/activate_hygon_env.sh exploration
+python probes/mace_wrapper_reference.py \
+  --device cpu \
+  --checkpoint /home/wangleping/.cache/mace/MACE-OFF23_small.model \
+  --cif /data/csp_data/perf_46/formal_c1_1_10_z1_46.cif \
+        /data/csp_data/perf_46/formal_c1_1_11_z1_46.cif
+```
+
+HCU 运行必须在 DTK 已加载且设备节点可见的主机环境中显式设置 `HIP_VISIBLE_DEVICES`；结果和超时退出码写入 `artifacts/g1`，详见 `docs/PROBE_PLAN.md` 与 `reports/g1-mace-wrapper-batch.md`。
+
 脚本会加载 DTK 26.04、设置项目 `PYTHONPATH`、HUST PyPI 镜像和 `/data/envs/uv-cache`。`HIP_VISIBLE_DEVICES`、`OMP_NUM_THREADS`、超时和探针参数仍由每条命令显式设置。
 
 ```sh
