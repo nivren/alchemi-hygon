@@ -166,3 +166,10 @@
 - 已有真实证据：Torch reference 的 no-PBC 邻居→LJ 链在 CPU 与 BW200/gfx936 HCU 上通过；PBC full-list 邻居集合、MATRIX/COO 写回和 signed image shifts 在 CPU、framework 测试及 HCU 探针上通过。当前回归结果为 ops PBC `8 passed`，framework 邻居/Hook/LJ 组合 `16 passed`。证据见 [PBC 报告](../reports/g1-pbc-neighbor-reference.md) 和 `artifacts/g1/pbc_neighbor_reference_hcu0.json`。
 - 当前边界保持明确：PBC half-list、带 image shift 的 LJ energy/force、switching、virial/stress、skin/rebuild、NVE/轨迹、Triton/HIP kernel 和 Warp 生产默认路径仍未移植或验证；不得将邻居 PBC 通过写成完整周期物理链。项目 `.venv` 已记录 HUST PyPI 镜像和缓存位置，但仍缺少完整 framework 依赖（当前 HCU framework 探针复用 `/home/wangleping/codes/nvalchemi-toolkit/.venv`）。
 - 下次第一条开发任务：实现并测试 `lj_energy_forces` 消费 `neighbor_matrix_shifts` 的 full-list 周期参考公式（先固定无 switching、无 stress、无 half-list），用独立 FP64 解析结果比较 energy/force；通过后再单独增加短 NVE/轨迹探针。开始前先重跑 `probes/pbc_neighbor_reference.py`，确认 DTK 26.04、gfx936 设备和当前环境仍可见。
+
+### 2026-09-06：周期 LJ 与独立短 NVE reference 闭环
+
+- `torch_reference.lj_energy_forces` 与 dispatcher 现在消费批量 `cell`、`batch_idx` 和 `neighbor_matrix_shifts`，沿用 `r_ij = r_i - r_j - shift @ cell`；只支持 full-list、无 switching、无 virial/stress，周期 half-list 和跨体系 active pair 继续显式失败。
+- 周期邻居不再静默丢弃重叠 active pair；新增不可逆 cell、multi-image、批量/部分 PBC、容量溢出和周期 LJ 独立 FP64 对照测试。ops `10 passed`，framework 邻居/Hook/LJ `16 passed`。
+- 新增 `probes/pbc_lj_nve_reference.py`：使用 Batch、reference NeighborListHook/LJ 与独立 Torch velocity-Verlet，不改完整 Warp-backed `nvalchemi.dynamics.NVE`。CPU 与 source DTK 26.04 后 BW200/gfx936 HCU 均通过，1200 步、`dt=1e-4`、周期 wrap 第 `1079` 步发生，最大总能漂移 `5.373538503050668e-09`，总力 `[0, 0, 0]`。证据见 [reports/g1-pbc-lj-nve-reference.md](../reports/g1-pbc-lj-nve-reference.md)。HCU 运行 stderr 仍有 DTK 环境的 `clang++`/`hipconfig` 提示，但退出码为 0，设备运行结果有效。
+- 本轮仍未实现周期 half-list、skin/rebuild、switching、virial/stress、完整 dynamics NVE API、Triton/HIP 或两卡 ownership。下一步应先整理本轮 diff/兼容清单并提交，再决定是否进入 skin/rebuild 或真实 MLIP 链；不把独立 NVE 探针写成完整 NVE API 已支持。

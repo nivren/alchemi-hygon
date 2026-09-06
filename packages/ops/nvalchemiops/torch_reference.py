@@ -80,7 +80,10 @@ def _periodic_neighbor_rows(
         end = int(ptr[system + 1].item())
         cell_s = cells[system]
         pbc_s = pbc[system]
-        inv_cell = torch.linalg.inv(cell_s)
+        try:
+            inv_cell = torch.linalg.inv(cell_s)
+        except RuntimeError as exc:
+            raise ValueError("periodic cell must be invertible") from exc
         bounds = torch.ceil(
             cutoff * torch.linalg.vector_norm(inv_cell, dim=0)
         ).to(torch.int64) + 1
@@ -109,7 +112,12 @@ def _periodic_neighbor_rows(
                             )
                             vector = delta - shift_tensor @ cell_s
                             distance_sq = vector.square().sum()
-                            if distance_sq < cutoff_sq and distance_sq >= 1e-10:
+                            if distance_sq < cutoff_sq:
+                                if distance_sq == 0:
+                                    raise ValueError(
+                                        "periodic neighbor list contains an "
+                                        "overlapping active pair"
+                                    )
                                 rows[i].append((j, shift, distance_sq, vector))
     return rows
 
@@ -348,8 +356,11 @@ def neighbor_list(
                 continue
             rij = positions[i].unsqueeze(0) - positions.index_select(0, candidates)
             d2 = rij.square().sum(dim=1)
-            selected = candidates[(d2 < cutoff_sq) & (d2 >= 1e-10)]
-            selected_d2 = d2[(d2 < cutoff_sq) & (d2 >= 1e-10)]
+            active = d2 < cutoff_sq
+            if torch.any(d2[active] == 0):
+                raise ValueError("neighbor list contains an overlapping active pair")
+            selected = candidates[active]
+            selected_d2 = d2[active]
             count = int(selected.numel())
             if count > max_neighbors:
                 raise NeighborOverflowError(
@@ -398,8 +409,18 @@ def lj_energy_forces(
     half_list: bool = False,
     fill_value: int | None = None,
     switch_width: float = 0.0,
+    cell: torch.Tensor | None = None,
+    batch_idx: torch.Tensor | None = None,
+    neighbor_matrix_shifts: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Compute per-atom LJ energies and differentiable forces from a matrix."""
+    """Compute per-atom LJ energies and differentiable forces from a matrix.
+
+    When ``cell`` and ``neighbor_matrix_shifts`` are supplied, the active
+    pair displacement follows the framework's periodic convention
+    ``r_ij = r_i - r_j - shift @ cell``.  This reference path intentionally
+    supports only full periodic lists; periodic half-list ownership, switching
+    and virial/stress remain outside this slice.
+    """
     _validate_positions(positions)
     if not positions.requires_grad:
         raise ValueError("positions must require gradients for Torch reference forces")
@@ -415,10 +436,65 @@ def lj_energy_forces(
         raise ValueError("cutoff must be positive, epsilon non-negative, sigma positive")
     if switch_width != 0.0:
         raise NotImplementedError("Torch reference LJ switching is not implemented yet")
+    if half_list and neighbor_matrix_shifts is not None:
+        raise NotImplementedError(
+            "Torch reference periodic LJ currently requires half_list=False"
+        )
     if fill_value is None:
         fill_value = positions.shape[0]
     if fill_value < positions.shape[0]:
         raise ValueError("fill_value must be >= num atoms so it cannot collide with an index")
+
+    cells: torch.Tensor | None = None
+    atom_systems: torch.Tensor | None = None
+    if cell is not None:
+        if cell.ndim == 2:
+            cells = cell.unsqueeze(0)
+        elif cell.ndim == 3:
+            cells = cell
+        else:
+            raise ValueError(
+                f"cell must have shape (3, 3) or (B, 3, 3), got {tuple(cell.shape)}"
+            )
+        if cells.shape[1:] != (3, 3):
+            raise ValueError(
+                f"cell must have shape (3, 3) or (B, 3, 3), got {tuple(cell.shape)}"
+            )
+        cells = cells.to(dtype=positions.dtype, device=positions.device)
+        if not torch.isfinite(cells).all():
+            raise ValueError("cell must contain finite values")
+        try:
+            torch.linalg.inv(cells)
+        except RuntimeError as exc:
+            raise ValueError("periodic cell must be invertible") from exc
+        if batch_idx is None:
+            if cells.shape[0] != 1:
+                raise ValueError("batch_idx is required when cell has more than one system")
+            atom_systems = torch.zeros(
+                positions.shape[0], dtype=torch.long, device=positions.device
+            )
+        else:
+            if batch_idx.shape != (positions.shape[0],):
+                raise ValueError("batch_idx must have shape (N,)")
+            if batch_idx.dtype not in (torch.int32, torch.int64):
+                raise TypeError("batch_idx must have an integer dtype")
+            atom_systems = batch_idx.to(device=positions.device, dtype=torch.long)
+            if torch.any(atom_systems < 0) or torch.any(atom_systems >= cells.shape[0]):
+                raise ValueError("batch_idx contains an invalid system index")
+    elif batch_idx is not None:
+        if batch_idx.shape != (positions.shape[0],):
+            raise ValueError("batch_idx must have shape (N,)")
+
+    if neighbor_matrix_shifts is not None:
+        if neighbor_matrix_shifts.shape != (*neighbor_matrix.shape, 3):
+            raise ValueError("neighbor_matrix_shifts must have shape (N, K, 3)")
+        if neighbor_matrix_shifts.dtype not in (torch.int32, torch.int64):
+            raise TypeError("neighbor_matrix_shifts must have an integer dtype")
+        neighbor_matrix_shifts = neighbor_matrix_shifts.to(
+            device=positions.device, dtype=torch.int32
+        )
+        if cells is None and torch.any(neighbor_matrix_shifts != 0):
+            raise ValueError("cell is required when neighbor_matrix_shifts are nonzero")
 
     atomic_energies = positions.new_zeros((positions.shape[0],))
     total_energy = positions.sum() * 0.0
@@ -431,6 +507,14 @@ def lj_energy_forces(
         if torch.any(neighbors < 0) or torch.any(neighbors >= positions.shape[0]):
             raise ValueError("neighbor_matrix contains an invalid active index")
         rij = positions[i].unsqueeze(0) - positions.index_select(0, neighbors)
+        if atom_systems is not None:
+            if torch.any(atom_systems.index_select(0, neighbors) != atom_systems[i]):
+                raise ValueError("active neighbor pairs must remain within one system")
+        if neighbor_matrix_shifts is not None:
+            if cells is None:
+                raise AssertionError("validated nonzero shifts require a periodic cell")
+            shifts = neighbor_matrix_shifts[i, :count].to(dtype=positions.dtype)
+            rij = rij - shifts @ cells[atom_systems[i]]
         distance = torch.linalg.vector_norm(rij, dim=1)
         if torch.any(distance < 1e-5) or torch.any(distance >= cutoff):
             raise ValueError("active neighbor distances must lie in [1e-5, cutoff)")

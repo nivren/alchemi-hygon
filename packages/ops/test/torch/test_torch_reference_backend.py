@@ -192,6 +192,103 @@ def test_periodic_triclinic_cell_preserves_shift_contract():
     assert shifts.tolist() == [[[0, -1, 0]], [[0, 1, 0]]]
 
 
+def test_periodic_neighbor_contract_covers_images_batches_and_boundaries():
+    """Periodic topology keeps all valid images and rejects invalid rows."""
+    from nvalchemiops.torch_reference import (  # noqa: PLC0415
+        NeighborOverflowError,
+        neighbor_list,
+    )
+
+    single_atom = torch.zeros((1, 3), dtype=torch.float64)
+    matrix, counts, shifts = neighbor_list(
+        single_atom,
+        1.1,
+        cell=torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, False, False]),
+    )
+    assert matrix.tolist() == [[0, 0]]
+    assert counts.tolist() == [2]
+    assert {tuple(shift) for shift in shifts[0].tolist()} == {(-1, 0, 0), (1, 0, 0)}
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+    matrix, counts, shifts = neighbor_list(
+        positions,
+        1.0,
+        cell=torch.stack((torch.eye(3), torch.eye(3))).to(torch.float64) * 10.0,
+        pbc=torch.tensor([[True, False, False], [False, False, False]]),
+        batch_ptr=torch.tensor([0, 2, 3]),
+    )
+    assert counts.tolist() == [0, 0, 0]
+    assert matrix.shape == (3, 0)
+    assert shifts.shape == (3, 0, 3)
+
+    with pytest.raises(NeighborOverflowError):
+        neighbor_list(
+            single_atom,
+            1.1,
+            cell=torch.eye(3),
+            pbc=torch.tensor([True, False, False]),
+            max_neighbors=1,
+        )
+    with pytest.raises(ValueError, match="overlapping active pair"):
+        neighbor_list(
+            torch.zeros((2, 3)),
+            1.0,
+            cell=torch.eye(3),
+            pbc=torch.tensor([True, False, False]),
+        )
+
+
+def test_periodic_lj_matches_independent_fp64_pair_oracle():
+    """Periodic LJ consumes signed shifts without changing force semantics."""
+    from nvalchemiops.torch_reference import (  # noqa: PLC0415
+        lj_energy_forces,
+        neighbor_list,
+    )
+
+    epsilon = 1.0
+    sigma = 1.0
+    positions = torch.tensor(
+        [[0.1, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=torch.float64
+    )
+    cell = torch.diag(torch.tensor([3.0, 10.0, 10.0], dtype=torch.float64))
+    matrix, counts, shifts = neighbor_list(
+        positions,
+        1.5,
+        cell=cell,
+        pbc=torch.tensor([True, False, False]),
+    )
+    coordinates = positions.clone().requires_grad_()
+    atomic, forces = lj_energy_forces(
+        coordinates,
+        matrix,
+        counts,
+        epsilon=epsilon,
+        sigma=sigma,
+        cutoff=1.5,
+        cell=cell,
+        batch_idx=torch.zeros(2, dtype=torch.int32),
+        neighbor_matrix_shifts=shifts,
+    )
+
+    distance = torch.tensor(1.1, dtype=torch.float64)
+    inverse_r = 1.0 / distance
+    expected_energy = 4.0 * (inverse_r.pow(12) - inverse_r.pow(6))
+    expected_force_x = 24.0 / distance * (2.0 * inverse_r.pow(12) - inverse_r.pow(6))
+    expected_forces = torch.tensor(
+        [[expected_force_x, 0.0, 0.0], [-expected_force_x, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+    assert torch.allclose(atomic.sum(), expected_energy, rtol=1e-12, atol=1e-12)
+    assert torch.allclose(forces, expected_forces, rtol=1e-12, atol=1e-12)
+    assert torch.allclose(forces.sum(dim=0), torch.zeros(3, dtype=torch.float64), atol=1e-12)
+    (gradient,) = torch.autograd.grad(atomic.sum(), coordinates)
+    assert torch.allclose(gradient, -forces, rtol=1e-12, atol=1e-12)
+
+
 def test_single_atom_zero_capacity_is_valid():
     """An isolated one-atom system has a valid zero-width neighbor matrix."""
     from nvalchemiops.torch_reference import neighbor_list  # noqa: PLC0415

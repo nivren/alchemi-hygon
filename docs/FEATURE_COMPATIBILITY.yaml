@@ -56,7 +56,7 @@
       },
       "gradient_level": "continuous_fields_first_and_second",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/data/__init__.py",
           "test/data/test_atomic_data.py",
@@ -1191,13 +1191,15 @@
           "packages/framework/test/models/test_neighbors_torch_reference.py",
           "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
           "probes/neighbor_lj_reference.py",
-          "probes/pbc_neighbor_reference.py"
+          "probes/pbc_neighbor_reference.py",
+          "probes/pbc_lj_nve_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-lj-reference.md",
           "reports/g1-torch-reference-backend.md",
           "reports/g1-pbc-neighbor-reference.md",
+          "reports/g1-pbc-lj-nve-reference.md",
           "artifacts/g1/pbc_neighbor_reference_hcu0.json"
         ],
         "environments": [
@@ -1264,7 +1266,7 @@
       },
       "gradient_level": "forward_and_required_derivatives_to_audit",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/interactions/test_lj.py"
         ],
@@ -1272,13 +1274,15 @@
           "packages/ops/test/torch/test_torch_reference_backend.py",
           "probes/neighbor_lj_reference.py",
           "packages/framework/test/models/test_lj_torch_reference.py",
-          "probes/framework_neighbor_lj_reference.py"
+          "probes/framework_neighbor_lj_reference.py",
+          "probes/pbc_lj_nve_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-lj-reference.md",
           "reports/g1-neighbor-hook-lj-audit.md",
-          "artifacts/g1/framework_neighbor_lj_reference_hcu0.json"
+          "artifacts/g1/framework_neighbor_lj_reference_hcu0.json",
+          "reports/g1-pbc-lj-nve-reference.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
@@ -1287,9 +1291,9 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "当前证据仅覆盖 Torch reference 的无 PBC 小输入；生产 LJ API 仍依赖 Warp",
-        "LennardJonesModelWrapper 当前在模块导入时依赖 Warp；Torch reference 尚未覆盖 switching、virial/stress 或解析力接口",
-        "framework wrapper reference 已覆盖 CPU 与 HCU 上由动态 Hook 写入的 no-PBC MATRIX 邻居；PBC、switching、virial/stress 和生产 Warp API 仍未验证"
+        "当前证据覆盖 Torch reference 的 no-PBC 与 full-list PBC 小输入；生产 Warp LJ API 仍保留且未在 HCU 本轮对拍",
+        "Torch reference 尚未覆盖 switching、virial/stress、周期 half-list、skin/rebuild 或 domain decomposition",
+        "短 NVE 证据来自独立 Torch velocity-Verlet 探针，不等同于完整 Warp-backed nvalchemi.dynamics.NVE 公共 API"
       ],
       "release_gate": "G1"
     },

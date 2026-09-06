@@ -120,8 +120,8 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         :class:`~nvalchemi.hooks.NeighborListHook`.
     backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
         Execution backend. ``None`` preserves the Warp custom-op path. The
-        explicit Torch reference path currently supports no-PBC, no-switching
-        energy/force evaluation without virial/stress.
+        explicit Torch reference path supports full-list PBC with integer
+        image shifts, no switching, and no virial/stress.
 
     Attributes
     ----------
@@ -409,18 +409,14 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
             )
 
         pbc = getattr(data, "pbc", None)
-        if pbc is not None and bool(pbc.any()):
-            raise NotImplementedError(
-                "Torch reference Lennard-Jones currently does not support PBC"
-            )
-
+        cells = inp.get("cells")
         neighbor_matrix_shifts = inp.get("neighbor_matrix_shifts")
-        if neighbor_matrix_shifts is not None and bool(
-            torch.any(neighbor_matrix_shifts != 0)
-        ):
-            raise NotImplementedError(
-                "Torch reference Lennard-Jones does not support neighbor shifts"
-            )
+        if pbc is not None and bool(pbc.any()):
+            if cells is None or neighbor_matrix_shifts is None:
+                raise ValueError(
+                    "periodic Torch reference Lennard-Jones requires cell and "
+                    "neighbor_matrix_shifts"
+                )
 
         positions = inp["positions"]
         if not positions.requires_grad:
@@ -438,6 +434,9 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
             cutoff=self.cutoff,
             half_list=self.half_list,
             switch_width=self.switch_width,
+            cell=cells,
+            batch_idx=inp["batch_idx"],
+            neighbor_matrix_shifts=neighbor_matrix_shifts,
             backend=self.backend,
         )
         batch_idx = inp["batch_idx"].to(torch.long)

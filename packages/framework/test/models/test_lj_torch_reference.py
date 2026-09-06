@@ -148,18 +148,41 @@ def test_lj_reference_rejects_switch_stress_and_domain_parallel():
         stress.distribution_spec()
 
 
-def test_lj_reference_rejects_periodic_batch():
-    batch = _batch()
+def test_lj_reference_supports_full_periodic_batch_with_shifts():
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([3.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
     compute_neighbors(
         batch,
-        cutoff=2.0,
+        cutoff=1.5,
         format=NeighborListFormat.MATRIX,
         backend="torch_reference",
     )
-    batch["pbc"] = torch.ones(2, 3, dtype=torch.bool)
-    model = LennardJonesModelWrapper(1.0, 1.0, 2.0, backend="torch_reference")
-    with pytest.raises(NotImplementedError, match="does not support PBC"):
-        model(batch)
+    model = LennardJonesModelWrapper(1.0, 1.0, 1.5, backend="torch_reference")
+    output = model(batch)
+
+    expected_energy = torch.tensor([[_lj_pair_energy(1.1)]], dtype=torch.float64)
+    expected_forces = torch.tensor(
+        [[-_lj_force_on_left(1.1), 0.0, 0.0], [_lj_force_on_left(1.1), 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+    assert model.model_config.supports_pbc is True
+    assert torch.allclose(output["energy"], expected_energy, rtol=1e-12, atol=1e-12)
+    assert torch.allclose(output["forces"], expected_forces, rtol=1e-12, atol=1e-12)
+    assert torch.allclose(
+        output["forces"].sum(dim=0), torch.zeros(3, dtype=torch.float64), atol=1e-12
+    )
 
 
 def test_reference_model_builds_neighbor_hook_without_eager_dynamics_import():

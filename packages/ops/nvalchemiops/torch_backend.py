@@ -77,6 +77,9 @@ def dispatch_lj_energy_forces(
     half_list: bool = False,
     fill_value: int | None = None,
     switch_width: float = 0.0,
+    cell: torch.Tensor | None = None,
+    batch_idx: torch.Tensor | None = None,
+    neighbor_matrix_shifts: torch.Tensor | None = None,
     backend: BackendName = "torch_reference",
     return_backend: bool = False,
 ) -> Any:
@@ -94,6 +97,9 @@ def dispatch_lj_energy_forces(
         half_list=half_list,
         fill_value=fill_value,
         switch_width=switch_width,
+        cell=cell,
+        batch_idx=batch_idx,
+        neighbor_matrix_shifts=neighbor_matrix_shifts,
     )
     return (result, selection) if return_backend else result
 
