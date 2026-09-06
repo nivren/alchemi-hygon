@@ -45,9 +45,12 @@ True
 
 显式加载 `/opt/dtk-26.04/env.sh` 后，项目 `.venv` 可以访问 HCU；该结果说明 HCU 支持共享使用。由于设备当前有其他作业，后续探针仍需限制显存和运行时间。
 
-在同一主机环境中，使用已有探索环境（项目 `.venv` 当前未安装 pytest）重跑上次失败的单测：
+在 2026-09-05 的复核时，项目 `.venv` 尚未安装 pytest，因此使用已有探索环境重跑上次失败的单测：
 
 ```text
 packages/framework/test/data/test_batch.py::TestBatchIndexing::test_pin_memory PASSED
 1 passed, 94 deselected in 16.02s
 ```
+
+当前项目环境已补装 `pytest==8.4.2`；后续项目回归结果记录在
+`reports/g1-project-reference-pytest.md`，本历史段落保留原始复核条件。

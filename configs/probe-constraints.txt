@@ -1,3 +1,6 @@
+# Shared ABI constraints for probes.  This is intentionally not the complete
+# project environment; use hygon-reference.in and hygon-reference-lock.txt for
+# the versioned Hygon reference/dev environment, including MACE and pytest.
 torch==2.9.0+das.opt1.dtk2604
 triton==3.3.0+das.opt1.dtk2604.torch290
 # Supplied Torch wheel reports NumPy 1.x ABI; validate bridge before relaxing.

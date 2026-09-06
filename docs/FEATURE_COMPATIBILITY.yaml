@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "upstream_lock": "docs/UPSTREAM_LOCK.yaml",
+  "status_semantics": {
+    "status": "target contract implementation state; a broad feature stays planned while only a reference slice is implemented",
+    "verification.dcu_status": "runtime evidence on the target HCU; partial means the listed scope passed, not the whole contract",
+    "status_reviewed": "2026-09-06"
+  },
   "features": [
     {
       "id": "data.atomic",
@@ -91,6 +96,7 @@
       "id": "data.batch",
       "category": "A",
       "status": "planned",
+      "implementation_scope": "G1 异构 Batch/索引边界与 MACE reference batching；pin_memory、完整序列化和 inflight 仍未完成",
       "scenario": "异构 batch/unbatch、索引偏移、体系 ID、空输入和容量；不丢失 mutation/alias 约定",
       "source": {
         "repository": "framework",
@@ -469,6 +475,7 @@
       "id": "models.mace",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；训练混合二阶与完整模型加速仍未完成",
       "scenario": "真实 MACE/e3nn 能量、负梯度力、力损失到参数的混合二阶路径",
       "source": {
         "repository": "framework",
@@ -1072,6 +1079,7 @@
       "id": "neighbors.topology",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "Torch reference full-list matrix/COO、批边界、PBC shifts 与基础容量契约；cell-list、half-list/per-system 扩容仍未完成",
       "scenario": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
       "source": {
         "repository": "ops",
@@ -1149,7 +1157,7 @@
       },
       "gradient_level": "topology_none_continuous_displacements_first_and_second",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/neighbors/__init__.py",
           "test/neighbors/bindings/__init__.py",
@@ -1237,6 +1245,7 @@
       "id": "interactions.lj",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "Torch reference no-switch/no-virial 的 full/half 与周期 energy/force；switching 和 virial/stress 已拆为独立条目",
       "scenario": "能量、负梯度力、virial 与 switching 一致；half/full 计数、单位和归约约定",
       "source": {
         "repository": "ops",

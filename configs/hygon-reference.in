@@ -1,0 +1,33 @@
+# Hygon DCU Torch-reference environment, CPython 3.12.
+#
+# This is the small, intentional input specification.  The exact transitive
+# resolution for the current host is checked in as hygon-reference-lock.txt.
+# Do not add nvidia-physicsnemo here: the single-process HCU reference path
+# keeps that NVIDIA/Warp-bound integration optional and lazy.
+--index-url https://mirrors.bfsu.edu.cn/pypi/web/simple
+
+# These two wheels are supplied by the DTK installation and must not be
+# replaced by a CUDA/PyPI Torch build.
+torch @ file:///data/envs/torch-2.9.0+das.opt1.dtk2604-cp312-cp312-manylinux_2_28_x86_64.whl
+triton @ file:///data/envs/triton-3.3.0+das.opt1.dtk2604.torch290-cp312-cp312-manylinux_2_28_x86_64.whl
+numpy==1.26.4
+
+# G1 framework import and real-checkpoint path.
+mace-torch==0.3.15
+e3nn==0.4.4
+ase==3.29.0
+matscipy==1.1.1
+jaxtyping==0.3.11
+periodictable==2.0.2
+tensordict==0.14.1
+pydantic==2.13.5
+dm-tree==0.1.10
+zarr==3.1.5
+plotext==6.0.0
+loguru==0.7.3
+plum-dispatch==2.7.1
+
+# Project regression runner.  pytest-asyncio matches the upstream pytest
+# configuration; heavier coverage/timeout plugins stay optional.
+pytest==8.4.2
+pytest-asyncio==1.4.0

@@ -35,6 +35,10 @@
 - MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境和项目 `.venv` 的 CPU/HCU 通过；两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在探索环境和项目 `.venv` 的 CPU/HCU 通过。项目环境批次为 `batch_ptr=[0,46,92]`、1754 条边、跨体系边 0。周期 reference 邻居向量化后，单个 perf_46 邻居约 5.33 秒、完整链约 9.76 秒。详细报告见 `reports/g1-mace-wrapper-batch.md`。
 - 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。向量化前双 perf46 超时记录仍保留为优化前证据。
 - 依赖检查：北外镜像 dry-run 解析到 `mace-torch==0.3.15`、`e3nn==0.4.4`、`matscipy==1.1.1`、`ase==3.29.0` 等 45 个包，随后安装到项目 `.venv`；另补齐 framework 基础依赖，Torch `2.9.0+das.opt1.dtk2604`、Triton `3.3.0+das.opt1.dtk2604.torch290` 未被替换。PhysicsNeMo 未安装，单进程路径由可选导入保持可用。
+- 环境规格已补齐：项目 `.venv` 现在包含 `pytest==8.4.2`、`pytest-asyncio==1.4.0`；直接输入见 `configs/hygon-reference.in`，当前主机精确冻结见 `configs/hygon-reference-lock.txt`，冻结脚本为 `scripts/freeze_hygon_env.sh`，报告快照见 `reports/probe-environment-freeze.txt`。冻结中的 Torch/Triton URI 是主机本地海光 wheel，换机时必须先提供同版本 wheel；PhysicsNeMo 不属于 Hygon reference 安装集。
+- 特性状态已复核：`status` 表示完整目标契约的实现阶段，`verification.dcu_status` 表示已列出的 HCU 证据范围；因此 MACE、LJ、neighbors.topology 的完整条目仍是 `planned`，但其 reference 子路径为 `partial`，`neighbors.skin_rebuild` 为 `implemented/partial`。本轮纠正了 neighbors.topology 的 HCU 状态，并在 `FEATURE_COMPATIBILITY.yaml` 写明两轴语义，避免把窄 reference slice 写成完整特性通过。
+- 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `10 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
+- 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
 - 当前下一步：按 ADR 0004 维护 Warp 默认与 reference 旁路的中央切换边界；将 `skin/rebuild`、`switching`、`virial/stress` 分别推进到独立契约和测试，再决定 Triton/HIP/cell-list 注册，不把 reference fallback 当作最终优化后端。
 
 ## 2026-09-05：G0 初始化审计

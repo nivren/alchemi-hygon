@@ -50,6 +50,19 @@ UV_CACHE_DIR=/data/envs/uv-cache uv pip install --dry-run \
 
 随后按同一 constraints 安装到项目 `.venv`，并核对 `torch==2.9.0+das.opt1.dtk2604`、`triton==3.3.0+das.opt1.dtk2604.torch290`、`numpy==1.26.4` 未变化。PhysicsNeMo 没有安装：它绑定 NVIDIA/Warp，不是单进程 Torch/HCU MACE wrapper 的必需依赖；profiling 和域并行能力仍保留为显式可选边界。
 
+## 项目环境规格（2026-09-06）
+
+本报告早期的 `configs/probe-constraints.txt` 只承担 Torch/Triton/NumPy ABI 约束，不能作为完整环境冻结。当前可重建入口已独立登记：
+
+- 直接输入：`configs/hygon-reference.in`；
+- 精确包冻结：`configs/hygon-reference-lock.txt`；
+- 海光 wheel 名称/SHA256：`configs/hygon-wheel-manifest.txt`；
+- 生成脚本：`scripts/freeze_hygon_env.sh`；
+- pytest：`8.4.2`，pytest-asyncio：`1.4.0`；
+- 当前冻结摘要：`reports/probe-environment-freeze.txt`。
+
+冻结文件包含 MACE/e3nn/ASE/matscipy 运行栈和 framework 基础依赖；它不包含源包本身（运行时由项目 `PYTHONPATH` 暴露），也不包含 PhysicsNeMo。
+
 ## 解释和边界
 
 审计命令在受限探针沙箱中观察到 `torch.cuda.is_available()=False`；该沙箱不暴露 `/dev/kfd`、`/dev/dri`，不能据此判断 HCU 不可用。此前 source DTK 26.04、可见 BW200/gfx936 环境中的 Torch/HCU 证据仍以对应 reports 为准。
