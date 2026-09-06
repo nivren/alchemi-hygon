@@ -68,8 +68,10 @@ def _periodic_neighbor_rows(
 
     The shift convention matches the upstream matrix contract:
     ``r_ij = r_i - r_j - shift @ cell``.  This reference implementation is
-    intentionally eager and small-input oriented; the later Triton/HIP paths
-    will replace the Python loops after the contract is validated.
+    intentionally eager and small-input oriented; each system is vectorized
+    over atom pairs and image shifts to avoid per-pair device synchronization.
+    Later Triton/HIP paths will replace this reference implementation for
+    larger systems after the contract is validated.
     """
     rows: list[list[tuple[int, tuple[int, int, int], torch.Tensor, torch.Tensor]]] = [
         [] for _ in range(positions.shape[0])
@@ -87,38 +89,59 @@ def _periodic_neighbor_rows(
         bounds = torch.ceil(
             cutoff * torch.linalg.vector_norm(inv_cell, dim=0)
         ).to(torch.int64) + 1
-        for i in range(start, end):
-            for j in range(start, end):
-                delta = positions[i] - positions[j]
-                fractional_delta = delta @ inv_cell
-                ranges: list[range] = []
-                for dim in range(3):
-                    if bool(pbc_s[dim]):
-                        center = float(fractional_delta[dim].item())
-                        bound = int(bounds[dim].item())
-                        lower = math.floor(center) - bound - 1
-                        upper = math.floor(center) + bound + 1
-                        ranges.append(range(lower, upper + 1))
-                    else:
-                        ranges.append(range(0, 1))
-                for sx in ranges[0]:
-                    for sy in ranges[1]:
-                        for sz in ranges[2]:
-                            shift = (sx, sy, sz)
-                            if i == j and shift == (0, 0, 0):
-                                continue
-                            shift_tensor = torch.tensor(
-                                shift, dtype=positions.dtype, device=positions.device
-                            )
-                            vector = delta - shift_tensor @ cell_s
-                            distance_sq = vector.square().sum()
-                            if distance_sq < cutoff_sq:
-                                if distance_sq == 0:
-                                    raise ValueError(
-                                        "periodic neighbor list contains an "
-                                        "overlapping active pair"
-                                    )
-                                rows[i].append((j, shift, distance_sq, vector))
+        local_positions = positions[start:end]
+        delta = local_positions[:, None, :] - local_positions[None, :, :]
+        fractional_delta = delta @ inv_cell
+        bounds_cpu = bounds.detach().cpu().tolist()
+        ranges: list[range] = []
+        for dim in range(3):
+            if bool(pbc_s[dim]):
+                # Use one range covering every pair.  For each pair the old
+                # loop used floor(fractional_delta) +/- bound; taking the
+                # extrema preserves that candidate set without per-pair .item().
+                lower = math.floor(float(fractional_delta[..., dim].amin().item()))
+                upper = math.floor(float(fractional_delta[..., dim].amax().item()))
+                lower -= int(bounds_cpu[dim]) + 1
+                upper += int(bounds_cpu[dim]) + 1
+                ranges.append(range(lower, upper + 1))
+            else:
+                ranges.append(range(0, 1))
+
+        shifts = [
+            (sx, sy, sz)
+            for sx in ranges[0]
+            for sy in ranges[1]
+            for sz in ranges[2]
+        ]
+        shift_values = torch.tensor(
+            shifts, dtype=positions.dtype, device=positions.device
+        )
+        shift_vectors = shift_values @ cell_s
+        vectors = delta[:, :, None, :] - shift_vectors[None, None, :, :]
+        distance_sq = vectors.square().sum(dim=-1)
+        active = distance_sq < cutoff_sq
+        zero_shift = shifts.index((0, 0, 0))
+        diagonal = torch.arange(end - start, device=positions.device)
+        active[diagonal, diagonal, zero_shift] = False
+        if torch.any(active & (distance_sq == 0)):
+            raise ValueError(
+                "periodic neighbor list contains an overlapping active pair"
+            )
+
+        active_indices = torch.nonzero(active, as_tuple=False)
+        active_distances = distance_sq[active]
+        active_vectors = vectors[active]
+        for active_index, (row, col, shift_index) in enumerate(
+            active_indices.detach().cpu().tolist()
+        ):
+            rows[start + row].append(
+                (
+                    start + col,
+                    shifts[shift_index],
+                    active_distances[active_index],
+                    active_vectors[active_index],
+                )
+            )
     return rows
 
 

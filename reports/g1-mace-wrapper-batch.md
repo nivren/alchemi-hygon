@@ -9,6 +9,8 @@
 
 `MACEWrapper.from_checkpoint` 的签名允许本地 `Path | str`，但此前无条件调用 MACE 下载器。MACE 下载器把本地路径当 URL，导致 `Path` 触发 `decode` 错误，字符串路径触发 `unknown url type`。现在已有文件先在本地加载，命名 foundation checkpoint 仍走原下载器。
 
+周期 reference 邻居路径随后改为按体系向量化 `[atom_i, atom_j, image_shift]` 候选，消除原来每个 pair/image 的 Python 循环和 HCU 标量同步；返回顺序、signed image shift 和容量/重叠错误契约保持不变。Torch reference 仍定位为正确性与中等输入 fallback，不把这一步当作最终 cell-list/Triton/HIP 性能实现。
+
 回归命令：
 
 ```bash
@@ -83,7 +85,7 @@ HCU batching 退出 `124`（180 秒超时），没有 JSON 结果，不能记为
 - CPU：`artifacts/g1/mace_wrapper_perf46_batch2_cpu.json`、`.stderr`、`.exit`；
 - HCU：`artifacts/g1/mace_wrapper_perf46_batch2_hcu0.json`、`.stderr`、`.exit`。
 
-当前探针已断言 `batch_idx/batch_ptr`、逐体系 energy、无跨体系邻居边和逐体系总力；尚未覆盖完整 dynamics、训练 wrapper 的混合二阶梯度、skin 重建和多卡域分解。HCU 超时原因尚未定位，不得改写为设备不支持。
+当前探针已断言 `batch_idx/batch_ptr`、逐体系 energy、无跨体系邻居边和逐体系总力；尚未覆盖完整 dynamics、训练 wrapper 的混合二阶梯度、skin 重建和多卡域分解。上面的超时是向量化前的历史证据。
 
 同一个 `perf_46` CIF 的单体系 HCU 命令退出 `0`：
 
@@ -123,3 +125,25 @@ HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 90 \
 ```
 
 该探针退出 `124`，在 90 秒内只完成 `model_loaded`（3.79 秒）和 `batch_built`（3.84 秒，`batch_ptr=[0,46,92]`），没有输出 `neighbors_built`，因此没有进入 MACE 原始 model forward。原始 stderr/stdout/退出码见 `artifacts/g1/mace_wrapper_perf46_batch2_stages_hcu0.{stderr,json,exit}`。当前结论是 reference 邻居路径在 HCU 上对两个 46 原子周期体系已超出小输入定位范围；需要后续基准和 Triton/HIP/cell-list 设计，不能靠延长 MACE timeout 解决。
+
+单个 `perf_46` 的正式阶段计时作为规模化基线：
+
+- `model_loaded`：3.71 秒；
+- `neighbors_built`：115.06 秒，即周期 Torch reference 邻居构造约 111.32 秒；
+- `raw_forward`：115.80 秒，MACE 原始 forward 约 0.72 秒；
+- 46 原子、858 条边，最终 energy `-39190.8359375`，退出码 `0`。
+
+原始输出：`artifacts/g1/mace_wrapper_perf46_10_stages_hcu0.json`、`.stderr`、`.exit`。向量化前该基线用于定位瓶颈；向量化后的阶段结果见下节。
+
+## 向量化后的 HCU batching
+
+单个 `perf_46` 重新计时：`neighbors_built=9.07` 秒，完整同步 `9.76` 秒，邻居构造约 `5.33` 秒，MACE forward 约 `0.69` 秒，能量仍为 `-39190.8359375`。原始输出：`artifacts/g1/mace_wrapper_perf46_10_stages_hcu0_vectorized.json`、`.stderr`、`.exit`。
+
+两个 `perf_46` 的完整 wrapper batching 重新运行后退出 `0`：
+
+- 设备 `BW200, UBB BW1000`，`num_systems=2`，`batch_ptr=[0,46,92]`；
+- `neighbor_edges=1754`，`cross_system_edges=0`；
+- energy 为 `-39190.8359375`、`-39190.82421875`；
+- 两个体系逐体系总力最大分量约 `9.6e-7`。
+
+原始输出：`artifacts/g1/mace_wrapper_perf46_batch2_hcu0_vectorized.json`、`.stderr`、`.exit`。这验证了当前 Torch reference 在 G1 中等规模 PBC batching 上可用；更大体系、性能稳定性和生产 cell-list/Triton/HIP 仍需单独基准，不能把 reference fallback 当作最终优化后端。

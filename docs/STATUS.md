@@ -32,9 +32,9 @@
 ## 当前快照（2026-09-06）
 
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
-- MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境 CPU/HCU 通过；H₂O 的 framework `MACEWrapper + compute_neighbors(torch_reference)` 在 CPU/HCU 通过；两个 `perf_46` CIF 的 CPU batching 通过。详细报告见 `reports/g1-mace-wrapper-batch.md`。
-- 当前未验证：两个 `perf_46` CIF 的 HCU batching（两次 180 秒均退出 `124`；阶段探针确认卡在 Torch reference 邻居构造，单个 perf_46 和两个 H₂O 已通过）、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、项目 `.venv` 中的 MACE 依赖、cuEquivariance/Triton/HIP kernel 和多卡域分解。
-- 当前下一步：先对周期 Torch reference 邻居构造做规模基准和算子阶段分析，再设计 Triton/HIP/cell-list 后端；MACE 最小依赖安装到项目 `.venv` 可在邻居路径边界明确后进行，不把探索环境证据写成项目环境支持。
+- MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境 CPU/HCU 通过；H₂O 和两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在 CPU/HCU 通过。周期 reference 邻居向量化后，单个 perf_46 邻居约 5.33 秒、完整链约 9.76 秒。详细报告见 `reports/g1-mace-wrapper-batch.md`。
+- 当前未验证：更大规模 reference 邻居性能、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、项目 `.venv` 中的 MACE 依赖、cuEquivariance/Triton/HIP kernel 和多卡域分解。向量化前双 perf46 超时记录仍保留为优化前证据。
+- 当前下一步：先在项目 `.venv` 对 MACE 最小依赖做不改 Torch/Triton 的 dry-run，再运行项目环境 wrapper/上游真实模型测试；同时保留更大规模邻居的 Triton/HIP/cell-list 评估，不把 reference fallback 当作最终性能后端。
 
 ## 2026-09-05：G0 初始化审计
 
@@ -194,4 +194,4 @@
 - 修复 `MACEWrapper.from_checkpoint` 的本地 `Path | str` 处理：已有文件直接加载，命名 foundation checkpoint 仍走 MACE 下载器。上游 MACE 回归 `3 passed, 89 deselected`，退出码 `0`。
 - `probes/mace_probe.py` 的 direct model 在探索环境 CPU 和 source DTK 26.04 的 BW200/gfx936 HCU 均退出 `0`，能量 `-2077.7669553149117`、force loss `0.4526716740143`、26 个非零参数梯度。
 - `probes/mace_wrapper_reference.py` 的 H₂O wrapper CPU/HCU 均退出 `0`；两个 `perf_46` CIF 的 CPU batching 通过，`batch_ptr=[0,46,92]`、跨体系边 `0`、逐体系总力约 `1e-6`。详细命令和 SHA256 见 [wrapper/batch 报告](../reports/g1-mace-wrapper-batch.md)。
-- 同一两个 `perf_46` CIF 的 HCU batching 两次均达到 180 秒超时，退出码 `124`，没有 JSON 结果，不能记为 HCU batching 通过；阶段探针在 90 秒内只完成模型加载和 `batch_built`，卡在 `neighbors_built` 之前，说明瓶颈是 Torch reference 周期邻居构造，不是 MACE forward。单个 `perf_46` 结构随后在 HCU 退出 `0`（46 原子、858 条边、energy `-39190.8359375`、逐体系总力约 `3.6e-7`）；两个 H₂O 也退出 `0`，`batch_ptr=[0,3,6]`、12 条边、跨体系边 `0`、逐体系总力约 `2.4e-7`。项目 `.venv` 尚未安装 MACE/e3nn/ASE；下一步应对周期邻居 reference 做规模基准，再进入 Triton/HIP/cell-list 设计，完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证。
+- 向量化周期 reference 邻居后，单个 `perf_46` HCU 阶段从邻居约 `111.32` 秒降至约 `5.33` 秒，完整 wrapper 到同步约 `9.76` 秒；两个 `perf_46` CIF 的 HCU batching 退出 `0`，`batch_ptr=[0,46,92]`、1754 条边、跨体系边 `0`、逐体系总力最大分量约 `9.6e-7`。向量化前两次 180 秒超时和阶段定位仍保留在报告中，用于说明优化原因。项目 `.venv` 尚未安装 MACE/e3nn/ASE；下一步转向项目环境依赖 dry-run，同时单列更大规模 neighbor 性能和 Triton/HIP/cell-list 任务。

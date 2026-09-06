@@ -33,10 +33,10 @@ PY
 - `/data/envs/uv-cache` 中能找到 `mace-torch 0.3.15` 和 e3nn 的缓存/索引痕迹，因此后续可以优先做离线解析或从缓存安装；缓存存在不等于 wheel 与海光 Torch、gfx936 运行时兼容。
 - 用户确认 `~/.cache/mace` 中的模型权重可作为可信来源。`MACE-OFF23_small.model` 可加载为 `ScaleShiftMACE`，覆盖 H/O/C/N 等元素，`r_max=4.5`；SHA256 为 `165cce4cfec5a34b9c64d4ebf95de15d71106bb584b7291c8470f0749977c46f`。
 - `probes/mace_probe.py` 已在探索环境 CPU 和 source DTK 26.04 的 BW200/gfx936 HCU 上退出 `0`，检查能量、力、力损失到模型参数的非零梯度；详细结果见 `reports/g1-mace-wrapper-batch.md`。这只是原始 MACE 模型证据，不等同于 framework wrapper 或 dynamics 支持。
-- `probes/mace_wrapper_reference.py` 已加入正式 wrapper + Torch reference neighbor + Batch smoke；H₂O CPU/HCU 通过，两个 `perf_46` CIF 的 CPU batching 通过。两个结构的 HCU batching 在 180 秒超时（退出 `124`），因此保留为未验证。
+- `probes/mace_wrapper_reference.py` 已加入正式 wrapper + Torch reference neighbor + Batch smoke；H₂O 单/双体系、单个 `perf_46` 和两个 `perf_46` CIF 的 CPU/HCU batching 均通过。向量化周期 Torch reference 邻居后，双体系 HCU 结果为 `batch_ptr=[0,46,92]`、1754 条边、无跨体系边、逐体系总力最大分量约 `9.6e-7`；向量化前的 180 秒超时（退出 `124`）仍作为优化前证据保留，详见 wrapper 报告。
 
 ## 解释和边界
 
 审计命令在受限探针沙箱中观察到 `torch.cuda.is_available()=False`；该沙箱不暴露 `/dev/kfd`、`/dev/dri`，不能据此判断 HCU 不可用。此前 source DTK 26.04、可见 BW200/gfx936 环境中的 Torch/HCU 证据仍以对应 reports 为准。
 
-P06 目前为 `partial`：探索环境已有真实 checkpoint 与依赖，项目 `.venv` 尚未安装 MACE/e3nn/ASE。下一步应先定位 HCU 多体系 batching 超时（区分编译/JIT、显存和算子路径），再决定是否将最小依赖固定安装到项目 `.venv`；不把探索环境证据写成项目环境支持。
+P06 目前为 `partial`：探索环境已有真实 checkpoint 与依赖，项目 `.venv` 尚未安装 MACE/e3nn/ASE；当前证据覆盖的是探索环境中的 wrapper/reference batching，不等于项目环境依赖已封装，也不等于完整 dynamics、训练或生产 cell-list/Triton/HIP 支持。下一步先审核项目 `.venv` 的最小依赖解析，再决定是否从缓存安装；不把探索环境证据写成项目环境支持。
