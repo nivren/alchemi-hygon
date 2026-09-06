@@ -151,7 +151,7 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "两个 perf_46 结构的 HCU batching 探针 180 秒超时，未验证完整 HCU 多体系路径"
+        "单个 perf_46 结构和两个 H₂O 的 HCU Batch 已通过；两个 perf_46 结构的 HCU batching 两次均在 180 秒超时，完整 HCU 多体系路径仍未验证"
       ],
       "release_gate": "G1"
     },
@@ -541,7 +541,7 @@
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "项目环境尚未安装 MACE/e3nn/ASE",
-        "H₂O wrapper CPU/HCU 与 perf_46 CPU batching 已验证；perf_46 HCU batching 超时",
+        "H₂O wrapper CPU/HCU、单个 perf_46 HCU 和 perf_46 CPU batching 已验证；两个 perf_46 结构的 HCU batching 持续超时",
         "完整 dynamics、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
       ],
       "release_gate": "G2"

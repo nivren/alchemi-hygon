@@ -33,7 +33,7 @@
 
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
 - MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境 CPU/HCU 通过；H₂O 的 framework `MACEWrapper + compute_neighbors(torch_reference)` 在 CPU/HCU 通过；两个 `perf_46` CIF 的 CPU batching 通过。详细报告见 `reports/g1-mace-wrapper-batch.md`。
-- 当前未验证：两个 `perf_46` CIF 的 HCU batching（180 秒超时，退出 `124`）、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、项目 `.venv` 中的 MACE 依赖、cuEquivariance/Triton/HIP kernel 和多卡域分解。
+- 当前未验证：两个 `perf_46` CIF 的 HCU batching（两次 180 秒均退出 `124`；单个 perf_46 和两个 H₂O 已通过）、完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、项目 `.venv` 中的 MACE 依赖、cuEquivariance/Triton/HIP kernel 和多卡域分解。
 - 当前下一步：先复核 HCU batching 超时的编译/JIT、显存和算子路径，再决定是否将 MACE 最小依赖安装到项目 `.venv`；不把探索环境证据写成项目环境支持。
 
 ## 2026-09-05：G0 初始化审计
@@ -194,4 +194,4 @@
 - 修复 `MACEWrapper.from_checkpoint` 的本地 `Path | str` 处理：已有文件直接加载，命名 foundation checkpoint 仍走 MACE 下载器。上游 MACE 回归 `3 passed, 89 deselected`，退出码 `0`。
 - `probes/mace_probe.py` 的 direct model 在探索环境 CPU 和 source DTK 26.04 的 BW200/gfx936 HCU 均退出 `0`，能量 `-2077.7669553149117`、force loss `0.4526716740143`、26 个非零参数梯度。
 - `probes/mace_wrapper_reference.py` 的 H₂O wrapper CPU/HCU 均退出 `0`；两个 `perf_46` CIF 的 CPU batching 通过，`batch_ptr=[0,46,92]`、跨体系边 `0`、逐体系总力约 `1e-6`。详细命令和 SHA256 见 [wrapper/batch 报告](../reports/g1-mace-wrapper-batch.md)。
-- 同一两个 `perf_46` CIF 的 HCU batching 达到 180 秒超时，退出码 `124`，没有 JSON 结果，不能记为 HCU batching 通过。项目 `.venv` 尚未安装 MACE/e3nn/ASE；下一步先定位 HCU 超时的编译/JIT、显存和算子路径，再决定是否安装项目依赖。完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、cuEquivariance、Triton/HIP 和多卡域分解仍未验证。
+- 同一两个 `perf_46` CIF 的 HCU batching 两次均达到 180 秒超时，退出码 `124`，没有 JSON 结果，不能记为 HCU batching 通过；stderr 只有 DTK 的 `clang++`/`hipconfig` 提示。单个 `perf_46` 结构随后在 HCU 退出 `0`（46 原子、858 条边、energy `-39190.8359375`、逐体系总力约 `3.6e-7`）；两个 H₂O 也退出 `0`，`batch_ptr=[0,3,6]`、12 条边、跨体系边 `0`、逐体系总力约 `2.4e-7`。因此问题收窄为持续的多体系 HCU Batch 执行路径，项目 `.venv` 尚未安装 MACE/e3nn/ASE；完整 dynamics/弛豫、训练 wrapper 混合二阶梯度、cuEquivariance、Triton/HIP 和多卡域分解仍未验证。

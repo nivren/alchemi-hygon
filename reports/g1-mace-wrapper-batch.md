@@ -85,3 +85,27 @@ HCU batching 退出 `124`（180 秒超时），没有 JSON 结果，不能记为
 
 当前探针已断言 `batch_idx/batch_ptr`、逐体系 energy、无跨体系邻居边和逐体系总力；尚未覆盖完整 dynamics、训练 wrapper 的混合二阶梯度、skin 重建和多卡域分解。HCU 超时原因尚未定位，不得改写为设备不支持。
 
+同一个 `perf_46` CIF 的单体系 HCU 命令退出 `0`：
+
+```bash
+source scripts/activate_hygon_env.sh exploration
+HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 180 \
+  python probes/mace_wrapper_reference.py --device cuda \
+  --checkpoint /home/wangleping/.cache/mace/MACE-OFF23_small.model \
+  --cif /data/csp_data/perf_46/formal_c1_1_10_z1_46.cif
+```
+
+设备为 `BW200, UBB BW1000`，46 原子、858 条边，energy 为 `-39190.8359375`，逐体系总力最大分量约 `3.6e-7`。原始输出：`artifacts/g1/mace_wrapper_perf46_10_hcu0.json`、`.stderr`、`.exit`。因此当前证据把问题收窄为两个 46 原子体系同时进入 HCU Batch 时的超时；单体系、H₂O 双体系和 `perf_46` CPU 双体系均可运行。
+
+将两个 `perf_46` 结构的 HCU 命令在同一张卡上再次重跑，仍在 180 秒退出 `124`，没有 JSON 输出。证据为 `artifacts/g1/mace_wrapper_perf46_batch2_hcu0_retry.json`、`.stderr`、`.exit`。这不是一次性冷启动/JIT 超时；当前不再通过增加 timeout 来掩盖问题。
+
+## HCU 超时定位的最小诊断
+
+用两个相同的 H₂O 组成 Batch，在同一 source DTK 26.04、`HIP_VISIBLE_DEVICES=0` 环境运行同一 `MACEWrapper + compute_neighbors(torch_reference)` 路径：
+
+- 退出码 `0`，设备 `BW200, UBB BW1000`；
+- `batch_ptr=[0,3,6]`、12 条邻居边、跨体系边 `0`；
+- 两个 energy 均为 `-2078.119873046875`；
+- 两个体系逐体系总力最大分量约 `2.4e-7`。
+
+证据：`artifacts/g1/mace_wrapper_h2o_batch2_hcu0.json`、`.stderr`、`.exit`。这说明小图的 HCU batching 基础路径可运行；`perf_46` 两体系超时仍需区分图规模、PBC/JIT、显存和共享资源，不能归因于 Batch 语义或直接判定 HCU 不支持。
