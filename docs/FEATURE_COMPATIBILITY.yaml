@@ -3269,7 +3269,7 @@
         "api": "explicit_backend_torch_reference_skin_cache",
         "data": "full-list cutoff+skin cache; rebuild at raw displacement > skin/2, cell or batch layout change; physical cutoff filters energy",
         "fallback": "unsupported half-list/method/scratch/production cell-list rebuild must fail explicitly",
-        "details": "Reference cache is a correctness slice; it does not define production cell-list capacity growth or asynchronous rebuild scheduling."
+        "details": "Reference cache is a correctness slice; its NeighborListHook staging matrix owns 16-aligned grow-and-retry, idle trim and override-floor semantics. It does not define production cell-list capacity growth or asynchronous rebuild scheduling."
       },
       "dependencies": ["torch", "nvalchemi.data.Batch", "NeighborListHook"],
       "backends": {
@@ -3280,16 +3280,16 @@
       "verification": {
         "dcu_status": "partial",
         "upstream_tests": ["test/hooks/test_neighbor_list_hook.py", "test/interactions/test_lj.py"],
-        "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "probes/skin_rebuild_batch_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
-        "evidence": ["reports/g1-skin-rebuild-batch-reference.md", "reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md"],
+      "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "probes/skin_rebuild_batch_reference.py", "probes/neighbor_capacity_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
+        "evidence": ["reports/g1-skin-rebuild-batch-reference.md", "reports/g1-neighbor-capacity-reference.md", "reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md"],
         "environments": ["project .venv + DTK 26.04 + BW200/gfx936", "exploration env + DTK 26.04 + BW200/gfx936"]
       },
       "limitations": [
         "当前是 eager Torch reference：缓存仍是整批矩阵，但 skin 超阈值时只重建变化的 system；不是 per-system cell-list 生产路径",
-        "周期 half-list、method/scratch、动态邻居容量扩容和长轨迹性能未验证",
-        "后续 G2 需独立完成 cell-list、容量扩展策略和 Triton/HIP 基准"
+        "周期 half-list、method/scratch、PBC 容量压力和规模化长轨迹性能未验证",
+        "后续 G2 需独立完成 cell-list、生产容量策略和 Triton/HIP 基准"
       ],
-      "roadmap": ["G1 partial: reference cache and per-system eager rebuild correctness", "G2 planned: cell-list, capacity growth and production rebuild"],
+      "roadmap": ["G1 partial: reference cache, per-system eager rebuild and staging capacity contract", "G2 planned: cell-list and production rebuild/performance"],
       "release_gate": "G1"
     },
     {

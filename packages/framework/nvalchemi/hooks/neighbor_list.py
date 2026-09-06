@@ -61,6 +61,7 @@ from enum import Enum
 
 import torch
 from nvalchemiops.torch_backend import dispatch_neighbor_list
+from nvalchemiops.torch_reference import NeighborOverflowError
 
 from nvalchemi.data import Batch
 from nvalchemi.hooks._context import HookContext
@@ -254,6 +255,7 @@ class NeighborListHook:
         self._col_range: torch.Tensor | None = None
         self._num_neighbors: torch.Tensor | None = None
         self._neighbor_matrix_shifts: torch.Tensor | None = None
+        self._max_neighbors: int | None = None
 
         # Shape the staging buffers were allocated for; used to detect when
         # re-allocation is needed (e.g. inflight batching with variable load).
@@ -328,28 +330,30 @@ class NeighborListHook:
                 self._write_reference_cache(batch)
                 return
 
-        max_neighbors = self._max_neighbors_override
-        if max_neighbors is None and pbc is None:
-            max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
-        result = dispatch_neighbor_list(
+        shape_changed = (
+            self._neighbor_matrix is None
+            or self._neighbor_matrix.shape[0] != batch.num_nodes
+        )
+        if shape_changed:
+            self._max_neighbors = self._max_neighbors_override
+        result, capacity = self._dispatch_reference(
             positions=batch.positions,
             cutoff=self.config.cutoff + self.skin,
             cell=cell,
             pbc=pbc,
             batch_idx=batch.batch_idx,
             batch_ptr=batch.batch_ptr,
-            max_neighbors=max_neighbors,
-            half_fill=self.config.half_list,
-            backend=self.backend,
+            fill_value=batch.num_nodes,
+            capacity=self._max_neighbors,
         )
-        if pbc is None:
-            neighbor_matrix, num_neighbors = result
-            neighbor_matrix_shifts = None
-        else:
-            neighbor_matrix, num_neighbors, neighbor_matrix_shifts = result
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = self._unpack_reference_result(
+            result, pbc=pbc
+        )
+        self._max_neighbors = capacity
         self._neighbor_matrix = neighbor_matrix
         self._num_neighbors = num_neighbors
         self._neighbor_matrix_shifts = neighbor_matrix_shifts
+        self._shrink_reference_capacity(batch.num_nodes, pbc=pbc)
         if self.skin > 0.0:
             self._ref_positions = batch.positions.detach().clone()
             self._ref_cell = None if cell is None else cell.detach().clone()
@@ -365,6 +369,183 @@ class NeighborListHook:
             cutoff=self.config.cutoff,
             backend=self.backend,
         )
+
+    @staticmethod
+    def _round_reference_k(value: int) -> int:
+        """Round a staging K dimension up to the 16-entry alignment."""
+        if value <= 0:
+            return 0
+        return ((value + 15) // 16) * 16
+
+    @staticmethod
+    def _unpack_reference_result(
+        result: tuple[torch.Tensor, ...], *, pbc: torch.Tensor | None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        if pbc is None:
+            neighbor_matrix, num_neighbors = result
+            return neighbor_matrix, num_neighbors, None
+        neighbor_matrix, num_neighbors, neighbor_matrix_shifts = result
+        return neighbor_matrix, num_neighbors, neighbor_matrix_shifts
+
+    @staticmethod
+    def _pad_reference_result(
+        result: tuple[torch.Tensor, ...],
+        *,
+        pbc: torch.Tensor | None,
+        capacity: int,
+        fill_value: int,
+    ) -> tuple[torch.Tensor, ...]:
+        """Pad a reference result to the staging capacity without changing counts."""
+        matrix, counts, shifts = NeighborListHook._unpack_reference_result(
+            result, pbc=pbc
+        )
+        if matrix.shape[1] == capacity:
+            return result
+        padded = torch.full(
+            (matrix.shape[0], capacity),
+            fill_value,
+            dtype=matrix.dtype,
+            device=matrix.device,
+        )
+        if matrix.shape[1] > 0:
+            padded[:, : matrix.shape[1]].copy_(matrix)
+        if pbc is None:
+            return padded, counts
+        padded_shifts = torch.zeros(
+            matrix.shape[0], capacity, 3, dtype=shifts.dtype, device=shifts.device
+        )
+        if shifts.shape[1] > 0:
+            padded_shifts[:, : shifts.shape[1]].copy_(shifts)
+        return padded, counts, padded_shifts
+
+    def _reference_growth_capacity(self, actual: int, current: int) -> int:
+        """Return the aligned capacity required by the reference grow contract."""
+        new_capacity = self._round_reference_k(int(actual * 1.5))
+        if new_capacity <= current:
+            new_capacity = self._round_reference_k(current + 1)
+        if self._max_neighbors_override is not None:
+            new_capacity = max(new_capacity, self._max_neighbors_override)
+        return new_capacity
+
+    @torch.compiler.disable
+    def _dispatch_reference(
+        self,
+        *,
+        positions: torch.Tensor,
+        cutoff: float,
+        cell: torch.Tensor | None,
+        pbc: torch.Tensor | None,
+        batch_idx: torch.Tensor | None,
+        batch_ptr: torch.Tensor | None,
+        fill_value: int,
+        capacity: int | None,
+    ) -> tuple[tuple[torch.Tensor, ...], int]:
+        """Dispatch reference neighbors with staging grow-and-retry semantics."""
+
+        def run(limit: int | None) -> tuple[torch.Tensor, ...]:
+            return dispatch_neighbor_list(
+                positions=positions,
+                cutoff=cutoff,
+                cell=cell,
+                pbc=pbc,
+                batch_idx=batch_idx,
+                batch_ptr=batch_ptr,
+                max_neighbors=limit,
+                half_fill=self.config.half_list,
+                fill_value=fill_value,
+                backend=self.backend,
+            )
+
+        if capacity is None:
+            result = run(None)
+            _, counts, _ = self._unpack_reference_result(result, pbc=pbc)
+            actual = int(counts.max().item()) if counts.numel() else 0
+            capacity = self._round_reference_k(actual)
+            if actual > 0 and actual >= capacity:
+                capacity = self._reference_growth_capacity(actual, capacity)
+            return (
+                self._pad_reference_result(
+                    result,
+                    pbc=pbc,
+                    capacity=capacity,
+                    fill_value=fill_value,
+                ),
+                capacity,
+            )
+
+        try:
+            result = run(capacity)
+        except NeighborOverflowError:
+            discovered = run(None)
+            _, counts, _ = self._unpack_reference_result(discovered, pbc=pbc)
+            actual = int(counts.max().item()) if counts.numel() else 0
+            if actual <= capacity:
+                raise
+            capacity = self._reference_growth_capacity(actual, capacity)
+            result = run(capacity)
+            return result, capacity
+
+        _, counts, _ = self._unpack_reference_result(result, pbc=pbc)
+        actual = int(counts.max().item()) if counts.numel() else 0
+        if actual > 0 and actual >= capacity:
+            capacity = self._reference_growth_capacity(actual, capacity)
+            result = run(capacity)
+        return result, capacity
+
+    @torch.compiler.disable
+    def _resize_reference_k(
+        self, N: int, capacity: int, *, pbc: torch.Tensor | None
+    ) -> None:
+        """Resize the reference staging matrix while preserving cached systems."""
+        if self._neighbor_matrix is None or self._num_neighbors is None:
+            self._max_neighbors = capacity
+            return
+        old_capacity = self._neighbor_matrix.shape[1]
+        if old_capacity == capacity:
+            self._max_neighbors = capacity
+            return
+        fill_value = N
+        matrix = torch.full(
+            (N, capacity),
+            fill_value,
+            dtype=self._neighbor_matrix.dtype,
+            device=self._neighbor_matrix.device,
+        )
+        copy_width = min(old_capacity, capacity)
+        if copy_width > 0:
+            matrix[:, :copy_width].copy_(self._neighbor_matrix[:, :copy_width])
+        self._neighbor_matrix = matrix
+        if pbc is None:
+            self._neighbor_matrix_shifts = None
+        else:
+            shifts = torch.zeros(
+                N, capacity, 3, dtype=torch.int32, device=self._neighbor_matrix.device
+            )
+            if self._neighbor_matrix_shifts is not None and copy_width > 0:
+                shifts[:, :copy_width].copy_(
+                    self._neighbor_matrix_shifts[:, :copy_width]
+                )
+            self._neighbor_matrix_shifts = shifts
+        self._max_neighbors = capacity
+        self._col_range = torch.arange(
+            capacity, dtype=torch.int32, device=self._neighbor_matrix.device
+        )
+
+    @torch.compiler.disable
+    def _shrink_reference_capacity(
+        self, N: int, *, pbc: torch.Tensor | None
+    ) -> None:
+        """Trim an idle reference staging matrix without rerunning neighbors."""
+        if self._max_neighbors is None or self._num_neighbors is None:
+            return
+        actual = int(self._num_neighbors.max().item()) if self._num_neighbors.numel() else 0
+        if actual <= 0 or actual >= 0.5 * self._max_neighbors:
+            return
+        new_capacity = self._round_reference_k(actual * 2)
+        if self._max_neighbors_override is not None:
+            new_capacity = max(new_capacity, self._max_neighbors_override)
+        if new_capacity < self._max_neighbors:
+            self._resize_reference_k(N, new_capacity, pbc=pbc)
 
     def _write_reference_cache(self, batch: Batch) -> None:
         if self._neighbor_matrix is None or self._num_neighbors is None:
@@ -399,47 +580,66 @@ class NeighborListHook:
         """
         if self._neighbor_matrix is None or self._num_neighbors is None:
             raise RuntimeError("reference neighbor cache is incomplete")
-        capacity = self._neighbor_matrix.shape[1]
+        capacity = self._max_neighbors
+        if capacity is None:
+            capacity = self._neighbor_matrix.shape[1]
         fill_value = batch.num_nodes
-        for system in torch.nonzero(rebuild_flags, as_tuple=False).flatten().tolist():
-            start = int(batch.batch_ptr[system].item())
-            end = int(batch.batch_ptr[system + 1].item())
-            local_cell = None if cell is None else cell[system]
-            local_pbc = None if pbc is None else pbc[system]
-            result = dispatch_neighbor_list(
-                positions=batch.positions[start:end],
-                cutoff=self.config.cutoff + self.skin,
-                cell=local_cell,
-                pbc=local_pbc,
-                max_neighbors=capacity,
-                half_fill=self.config.half_list,
-                fill_value=fill_value,
-                backend=self.backend,
-            )
-            if local_pbc is None and local_cell is None:
-                local_matrix, local_counts = result
-                local_shifts = None
-            else:
-                local_matrix, local_counts, local_shifts = result
+        systems = torch.nonzero(rebuild_flags, as_tuple=False).flatten().tolist()
+        while True:
+            pending: list[tuple[int, tuple[torch.Tensor, ...]]] = []
+            grew = False
+            for system in systems:
+                start = int(batch.batch_ptr[system].item())
+                end = int(batch.batch_ptr[system + 1].item())
+                local_cell = None if cell is None else cell[system]
+                local_pbc = None if pbc is None else pbc[system]
+                result, new_capacity = self._dispatch_reference(
+                    positions=batch.positions[start:end],
+                    cutoff=self.config.cutoff + self.skin,
+                    cell=local_cell,
+                    pbc=local_pbc,
+                    batch_idx=None,
+                    batch_ptr=None,
+                    fill_value=fill_value,
+                    capacity=capacity,
+                )
+                if new_capacity != capacity:
+                    self._resize_reference_k(batch.num_nodes, new_capacity, pbc=pbc)
+                    capacity = new_capacity
+                    grew = True
+                    break
+                pending.append((system, result))
+            if grew:
+                continue
 
-            active = torch.arange(capacity, device=batch.device).unsqueeze(0)
-            active = active < local_counts.to(torch.long).unsqueeze(1)
-            global_matrix = local_matrix.clone()
-            global_matrix[active] += start
-            self._neighbor_matrix[start:end].copy_(global_matrix)
-            self._num_neighbors[start:end].copy_(local_counts)
-            if self._neighbor_matrix_shifts is not None:
-                if local_shifts is None:
-                    self._neighbor_matrix_shifts[start:end].zero_()
-                else:
-                    self._neighbor_matrix_shifts[start:end].copy_(local_shifts)
+            for system, result in pending:
+                start = int(batch.batch_ptr[system].item())
+                end = int(batch.batch_ptr[system + 1].item())
+                local_pbc = None if pbc is None else pbc[system]
+                local_matrix, local_counts, local_shifts = self._unpack_reference_result(
+                    result, pbc=local_pbc
+                )
+                active = torch.arange(capacity, device=batch.device).unsqueeze(0)
+                active = active < local_counts.to(torch.long).unsqueeze(1)
+                global_matrix = local_matrix.clone()
+                global_matrix[active] += start
+                self._neighbor_matrix[start:end].copy_(global_matrix)
+                self._num_neighbors[start:end].copy_(local_counts)
+                if self._neighbor_matrix_shifts is not None:
+                    if local_shifts is None:
+                        self._neighbor_matrix_shifts[start:end].zero_()
+                    else:
+                        self._neighbor_matrix_shifts[start:end].copy_(local_shifts)
 
-            with torch.no_grad():
-                self._ref_positions[start:end].copy_(batch.positions[start:end])
-                if self._ref_cell is not None and cell is not None:
-                    self._ref_cell[system].copy_(cell[system])
-                if self._ref_pbc is not None and pbc is not None:
-                    self._ref_pbc[system].copy_(pbc[system])
+                with torch.no_grad():
+                    self._ref_positions[start:end].copy_(batch.positions[start:end])
+                    if self._ref_cell is not None and cell is not None:
+                        self._ref_cell[system].copy_(cell[system])
+                    if self._ref_pbc is not None and pbc is not None:
+                        self._ref_pbc[system].copy_(pbc[system])
+            break
+
+        self._shrink_reference_capacity(batch.num_nodes, pbc=pbc)
 
     @torch.compiler.disable
     def _reference_needs_rebuild(

@@ -41,8 +41,10 @@
 - 特性状态已复核：`status` 表示完整目标契约的实现阶段，`verification.dcu_status` 表示已列出的 HCU 证据范围；因此 MACE、LJ、neighbors.topology 的完整条目仍是 `planned`，但其 reference 子路径为 `partial`，`neighbors.skin_rebuild` 为 `implemented/partial`。本轮纠正了 neighbors.topology 的 HCU 状态，并在 `FEATURE_COMPATIBILITY.yaml` 写明两轴语义，避免把窄 reference slice 写成完整特性通过。
 - 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `11 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
 - 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
-- skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。容量不足仍显式报错，尚未做动态扩容或 cell-list。
-- 当前下一步：进入 N1，完成 skin/rebuild staging K 维的 grow/shrink/floor/retry 契约；同步 ADR 0002 边界和 ADR 0004 宽度门，不把 reference fallback 当作最终优化后端。
+- skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。Hook staging 已有自动容量处理，算子层仍保留显式 overflow 防御。
+- N1 staging 容量契约已完成窄 reference slice：Hook 支持 16 对齐 grow-and-retry、idle shrink、override floor、异构 Batch 和 6 次交替 skin rebuild；framework Hook 回归 `16 passed`，CPU/HCU probe 均退出码 `0`，报告见 `reports/g1-neighbor-capacity-reference.md`。算子层显式 `NeighborOverflowError` 仍保留。
+- 当前未完成：PBC 容量压力、周期 half-list、生产 cell-list、规模化性能和异步 rebuild；这些不因 N1 reference 通过而提前标记为 verified。
+- 当前下一步：进入 N2a，先建立不触发 `nvalchemi.dynamics` 导入链的 Warp-free dynamics reference，范围包括 velocity-Verlet、固定晶胞 FIRE/FIRE2、kinetic energy 和 temperature。
 
 ## 2026-09-05：G0 初始化审计
 

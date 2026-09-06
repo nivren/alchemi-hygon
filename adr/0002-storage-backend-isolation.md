@@ -10,6 +10,8 @@ Warp 代码只作为一种执行后端。masked copy、fit mask、defrag 和 seg
 
 后端必须保持以下契约：atoms/edges/system 分层、segment lengths 与 batch pointers、neighbor list 索引偏移、空输入、容量边界、dtype/shape/layout、原位 mutation、alias、device 和 stream 语义。未支持的显式后端必须 fail-fast；不得静默搬到 CPU、截断数据或改变精度。
 
+邻居 staging 矩阵的 K 维容量不属于 `StorageBackend` 协议。`StorageBackend` 负责 segment 扩张和 defrag；`NeighborListHook` 负责邻居 staging 的 realloc、grow-and-retry 和 idle trim。两条路径共享 16 对齐、用户容量下限、指针更新和缓存失效原则，但不强行共用 allocator 或 segment 管线。
+
 `nvalchemi.data` 和 `nvalchemiops` 不得在基础导入阶段初始化 Warp。Warp 模块只在显式选择 Warp 后端时延迟加载。`backend="auto"` 的实际选择必须可报告，并依据构建元数据、运行时设备和能力探针，而不是仅检查设备字符串是否包含 `cuda`。
 
 ## 分步实施
