@@ -1237,7 +1237,7 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 或 cell/batch 结构变化时重建整批；默认生产路径仍依赖 Warp，PBC half-list、method/scratch、per-system rebuild、cell-list、动态溢出扩容和性能路径尚未接入"
+        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 时对变化 system 做 eager 重建；默认生产路径仍依赖 Warp，PBC half-list、method/scratch、cell-list、动态溢出扩容和性能路径尚未接入"
       ],
       "release_gate": "G1"
     },
@@ -1320,7 +1320,7 @@
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "当前证据覆盖 Torch reference 的 no-PBC 与 full-list PBC 小输入；生产 Warp LJ API 仍保留且未在 HCU 本轮对拍",
-        "Torch reference 尚未覆盖 switching、virial/stress、周期 half-list、生产级 per-system skin/rebuild 或 domain decomposition",
+        "Torch reference 尚未覆盖 switching、virial/stress、周期 half-list、生产级 cell-list skin/rebuild 或 domain decomposition",
         "短 NVE 证据来自独立 Torch velocity-Verlet 探针，不等同于完整 Warp-backed nvalchemi.dynamics.NVE 公共 API"
       ],
       "release_gate": "G1"
@@ -3268,7 +3268,7 @@
       "contract": {
         "api": "explicit_backend_torch_reference_skin_cache",
         "data": "full-list cutoff+skin cache; rebuild at raw displacement > skin/2, cell or batch layout change; physical cutoff filters energy",
-        "fallback": "unsupported half-list/method/scratch/per-system production rebuild must fail explicitly",
+        "fallback": "unsupported half-list/method/scratch/production cell-list rebuild must fail explicitly",
         "details": "Reference cache is a correctness slice; it does not define production cell-list capacity growth or asynchronous rebuild scheduling."
       },
       "dependencies": ["torch", "nvalchemi.data.Batch", "NeighborListHook"],
@@ -3280,16 +3280,16 @@
       "verification": {
         "dcu_status": "partial",
         "upstream_tests": ["test/hooks/test_neighbor_list_hook.py", "test/interactions/test_lj.py"],
-        "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
-        "evidence": ["reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md"],
+        "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "probes/skin_rebuild_batch_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
+        "evidence": ["reports/g1-skin-rebuild-batch-reference.md", "reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md"],
         "environments": ["project .venv + DTK 26.04 + BW200/gfx936", "exploration env + DTK 26.04 + BW200/gfx936"]
       },
       "limitations": [
-        "当前是整批缓存/整批重建的 Torch reference，不是 per-system cell-list 生产路径",
+        "当前是 eager Torch reference：缓存仍是整批矩阵，但 skin 超阈值时只重建变化的 system；不是 per-system cell-list 生产路径",
         "周期 half-list、method/scratch、动态邻居容量扩容和长轨迹性能未验证",
-        "后续 G2 需独立完成 cell-list、容量重建和 Triton/HIP 基准"
+        "后续 G2 需独立完成 cell-list、容量扩展策略和 Triton/HIP 基准"
       ],
-      "roadmap": ["G1 partial: reference cache/rebuild correctness", "G2 planned: per-system cell-list and production rebuild"],
+      "roadmap": ["G1 partial: reference cache and per-system eager rebuild correctness", "G2 planned: cell-list, capacity growth and production rebuild"],
       "release_gate": "G1"
     },
     {

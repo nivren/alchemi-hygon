@@ -313,21 +313,20 @@ class NeighborListHook:
             pbc = None
             cell = None
 
-        if self.skin > 0.0 and not self._reference_needs_rebuild(
-            batch, cell=cell, pbc=pbc
-        ):
-            if self._neighbor_matrix is None or self._num_neighbors is None:
-                raise RuntimeError("reference neighbor cache is incomplete")
-            _write_neighbor_data_to_batch(
-                batch=batch,
-                neighbor_matrix=self._neighbor_matrix,
-                num_neighbors=self._num_neighbors,
-                neighbor_matrix_shifts=self._neighbor_matrix_shifts,
-                format=self.config.format,
-                cutoff=self.config.cutoff,
-                backend=self.backend,
+        rebuild_flags = None
+        if self.skin > 0.0:
+            rebuild_flags = self._reference_rebuild_flags(
+                batch, cell=cell, pbc=pbc
             )
-            return
+            if rebuild_flags is not None:
+                if not bool(torch.any(rebuild_flags)):
+                    self._write_reference_cache(batch)
+                    return
+                self._rebuild_reference_systems(
+                    batch, cell=cell, pbc=pbc, rebuild_flags=rebuild_flags
+                )
+                self._write_reference_cache(batch)
+                return
 
         max_neighbors = self._max_neighbors_override
         if max_neighbors is None and pbc is None:
@@ -367,6 +366,81 @@ class NeighborListHook:
             backend=self.backend,
         )
 
+    def _write_reference_cache(self, batch: Batch) -> None:
+        if self._neighbor_matrix is None or self._num_neighbors is None:
+            raise RuntimeError("reference neighbor cache is incomplete")
+        _write_neighbor_data_to_batch(
+            batch=batch,
+            neighbor_matrix=self._neighbor_matrix,
+            num_neighbors=self._num_neighbors,
+            neighbor_matrix_shifts=self._neighbor_matrix_shifts,
+            format=self.config.format,
+            cutoff=self.config.cutoff,
+            backend=self.backend,
+        )
+
+    @torch.compiler.disable
+    def _rebuild_reference_systems(
+        self,
+        batch: Batch,
+        *,
+        cell: torch.Tensor | None,
+        pbc: torch.Tensor | None,
+        rebuild_flags: torch.Tensor,
+    ) -> None:
+        """Refresh only systems whose reference skin has become stale.
+
+        This is deliberately an eager Torch reference implementation.  It
+        keeps the global matrix/index contract while rebuilding each changed
+        system with local indices and then restoring the batch offset.  The
+        optimized Warp path retains its own preallocated per-system rebuild
+        kernel; this method does not claim cell-list performance or dynamic
+        capacity growth.
+        """
+        if self._neighbor_matrix is None or self._num_neighbors is None:
+            raise RuntimeError("reference neighbor cache is incomplete")
+        capacity = self._neighbor_matrix.shape[1]
+        fill_value = batch.num_nodes
+        for system in torch.nonzero(rebuild_flags, as_tuple=False).flatten().tolist():
+            start = int(batch.batch_ptr[system].item())
+            end = int(batch.batch_ptr[system + 1].item())
+            local_cell = None if cell is None else cell[system]
+            local_pbc = None if pbc is None else pbc[system]
+            result = dispatch_neighbor_list(
+                positions=batch.positions[start:end],
+                cutoff=self.config.cutoff + self.skin,
+                cell=local_cell,
+                pbc=local_pbc,
+                max_neighbors=capacity,
+                half_fill=self.config.half_list,
+                fill_value=fill_value,
+                backend=self.backend,
+            )
+            if local_pbc is None and local_cell is None:
+                local_matrix, local_counts = result
+                local_shifts = None
+            else:
+                local_matrix, local_counts, local_shifts = result
+
+            active = torch.arange(capacity, device=batch.device).unsqueeze(0)
+            active = active < local_counts.to(torch.long).unsqueeze(1)
+            global_matrix = local_matrix.clone()
+            global_matrix[active] += start
+            self._neighbor_matrix[start:end].copy_(global_matrix)
+            self._num_neighbors[start:end].copy_(local_counts)
+            if self._neighbor_matrix_shifts is not None:
+                if local_shifts is None:
+                    self._neighbor_matrix_shifts[start:end].zero_()
+                else:
+                    self._neighbor_matrix_shifts[start:end].copy_(local_shifts)
+
+            with torch.no_grad():
+                self._ref_positions[start:end].copy_(batch.positions[start:end])
+                if self._ref_cell is not None and cell is not None:
+                    self._ref_cell[system].copy_(cell[system])
+                if self._ref_pbc is not None and pbc is not None:
+                    self._ref_pbc[system].copy_(pbc[system])
+
     @torch.compiler.disable
     def _reference_needs_rebuild(
         self,
@@ -375,34 +449,43 @@ class NeighborListHook:
         cell: torch.Tensor | None,
         pbc: torch.Tensor | None,
     ) -> bool:
-        """Return whether the cached reference list is stale.
+        """Return whether any cached reference system is stale."""
+        flags = self._reference_rebuild_flags(batch, cell=cell, pbc=pbc)
+        return flags is None or bool(torch.any(flags))
 
-        The small reference path rebuilds the whole batch when any system
-        crosses the displacement threshold.  This preserves correctness
-        without claiming the upstream per-system GPU rebuild optimization.
-        """
+    def _reference_rebuild_flags(
+        self,
+        batch: Batch,
+        *,
+        cell: torch.Tensor | None,
+        pbc: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        """Return per-system stale flags, or ``None`` when a full rebuild is needed."""
         if self._ref_positions is None or self._neighbor_matrix is None:
-            return True
+            return None
         if self._ref_positions.shape != batch.positions.shape:
-            return True
+            return None
         if self._ref_positions.device != batch.positions.device:
-            return True
+            return None
         if self._ref_batch_idx is None or not torch.equal(
             self._ref_batch_idx, batch.batch_idx
         ):
-            return True
+            return None
         if self._ref_batch_ptr is None or not torch.equal(
             self._ref_batch_ptr, batch.batch_ptr
         ):
-            return True
+            return None
         if (self._ref_cell is None) != (cell is None) or (self._ref_pbc is None) != (
             pbc is None
         ):
-            return True
-        if cell is not None and not torch.equal(self._ref_cell, cell):
-            return True
-        if pbc is not None and not torch.equal(self._ref_pbc, pbc):
-            return True
+            return None
+        rebuild_flags = torch.zeros(
+            batch.num_graphs, dtype=torch.bool, device=batch.positions.device
+        )
+        if cell is not None and self._ref_cell is not None:
+            rebuild_flags |= torch.any(self._ref_cell != cell, dim=(1, 2))
+        if pbc is not None and self._ref_pbc is not None:
+            rebuild_flags |= torch.any(self._ref_pbc != pbc, dim=1)
         displacement = batch.positions - self._ref_positions
         threshold_sq = (self.skin / 2.0) ** 2
         for system in range(batch.num_graphs):
@@ -411,8 +494,8 @@ class NeighborListHook:
             if end > start and bool(
                 torch.any(displacement[start:end].square().sum(dim=1) > threshold_sq)
             ):
-                return True
-        return False
+                rebuild_flags[system] = True
+        return rebuild_flags
 
     @torch.compiler.disable
     def _init_ref_positions(self, positions: torch.Tensor) -> None:

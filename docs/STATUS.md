@@ -37,9 +37,10 @@
 - 依赖检查：北外镜像 dry-run 解析到 `mace-torch==0.3.15`、`e3nn==0.4.4`、`matscipy==1.1.1`、`ase==3.29.0` 等 45 个包，随后安装到项目 `.venv`；另补齐 framework 基础依赖，Torch `2.9.0+das.opt1.dtk2604`、Triton `3.3.0+das.opt1.dtk2604.torch290` 未被替换。PhysicsNeMo 未安装，单进程路径由可选导入保持可用。
 - 环境规格已补齐：项目 `.venv` 现在包含 `pytest==8.4.2`、`pytest-asyncio==1.4.0`；直接输入见 `configs/hygon-reference.in`，当前主机精确冻结见 `configs/hygon-reference-lock.txt`，冻结脚本为 `scripts/freeze_hygon_env.sh`，报告快照见 `reports/probe-environment-freeze.txt`。冻结中的 Torch/Triton URI 是主机本地海光 wheel，换机时必须先提供同版本 wheel；PhysicsNeMo 不属于 Hygon reference 安装集。
 - 特性状态已复核：`status` 表示完整目标契约的实现阶段，`verification.dcu_status` 表示已列出的 HCU 证据范围；因此 MACE、LJ、neighbors.topology 的完整条目仍是 `planned`，但其 reference 子路径为 `partial`，`neighbors.skin_rebuild` 为 `implemented/partial`。本轮纠正了 neighbors.topology 的 HCU 状态，并在 `FEATURE_COMPATIBILITY.yaml` 写明两轴语义，避免把窄 reference slice 写成完整特性通过。
-- 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `10 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
+- 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `11 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
 - 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
-- 当前下一步：按 ADR 0004 维护 Warp 默认与 reference 旁路的中央切换边界；将 `skin/rebuild`、`switching`、`virial/stress` 分别推进到独立契约和测试，再决定 Triton/HIP/cell-list 注册，不把 reference fallback 当作最终优化后端。
+- skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。容量不足仍显式报错，尚未做动态扩容或 cell-list。
+- 当前下一步：先完成 skin/rebuild 的容量扩展/溢出契约和小型性能探针，再分别推进 switching、virial/stress，最后依据基准决定 Triton/HIP/cell-list 注册，不把 reference fallback 当作最终优化后端。
 
 ## 2026-09-05：G0 初始化审计
 
@@ -192,6 +193,12 @@
 - `lj_energy_forces` 会过滤 cached skin 中距离达到实际 cutoff 的 pair，避免邻居缓存范围被误算为物理 cutoff；负 skin、跨体系 active pair 和重叠 active pair 显式失败。
 - framework Hook/LJ reference 回归 `15 passed`，ops reference 回归 `10 passed`；短 NVE `skin=0.5` 在 CPU 与 BW200/gfx936 HCU 通过，1200 步、`dt=1e-4`、第 1079 步 wrap，最大总能漂移仍为 `5.373538503050668e-09`。报告见 [reports/g1-pbc-lj-nve-reference.md](../reports/g1-pbc-lj-nve-reference.md)。
 - 这一步是正式 framework/ops reference 实现和测试；探针只负责跨设备证据。下一小步可独立加入环境加载脚本，然后再评估真实 MLIP 依赖和 MACE 前向/力梯度链；不宣称完整 dynamics NVE 或生产 Warp skin/rebuild 已支持。
+
+### 2026-09-06：Torch reference per-system skin rebuild
+
+- 在保持 Warp 默认路径不变的前提下，reference Hook 对 Batch 中超过 `skin/2` 位移阈值或 cell/pbc 变化的 system 做局部 eager 重建；局部矩阵索引恢复为全局 batch 偏移，未变化 system 的缓存和 Batch 边界保持不变。
+- 新增 Batch 两体系回归：只移动第一个 system 时，第二个 system 的 reference 坐标和邻居矩阵保持不变，并覆盖 COO 全局偏移；framework Hook 测试 `11 passed`。容量不足仍由 reference dispatcher 显式抛出 `NeighborOverflowError`，动态扩容留到下一小步。
+- 该步仍不是 cell-list、异步 rebuild 或生产级容量管理；下一小步是为容量溢出/扩容确定契约和测试，再进入更宽的 G2 路径。
 
 ### 2026-09-06：MACE 依赖、wrapper 与 batching 验证
 

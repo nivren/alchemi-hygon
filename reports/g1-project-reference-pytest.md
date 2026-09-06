@@ -22,7 +22,7 @@ pytest -q packages/framework/test/hooks/test_optional_imports.py \
 结果：
 
 - ops reference：`10 passed`，退出码 `0`；
-- framework optional-import/neighbor Hook：`10 passed`，退出码 `0`；
+- framework optional-import/neighbor Hook：`11 passed`，退出码 `0`；
 - pytest 插件加载 `pytest-asyncio==1.4.0`，不再出现 `asyncio_mode` 配置警告。
 
 两个包的上游测试目录都使用顶层 `test` 包名。把两包测试目录放在同一个 pytest 命令中会触发 `ImportPathMismatchError`，因此当前基线按包分开执行；这属于测试入口组织问题，不是算子失败。

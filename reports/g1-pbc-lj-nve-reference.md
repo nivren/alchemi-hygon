@@ -44,6 +44,8 @@ PYTHONPATH=packages/framework:packages/ops HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS
 
 CPU 与 HCU 都通过：`BW200, UBB BW1000`，1200 步、`dt=1e-4`，第 1079 步发生周期 wrap，最大总能漂移 `5.373538503050668e-09`，最终总力 `[0, 0, 0]`。HCU 进程退出码为 0；stderr 中的 `clang++`/`hipconfig` 提示来自 DTK 环境探测，不影响本次 Torch 运行。
 
-同一探针增加 `--skin 0.5` 后，CPU 与 BW200 HCU 的能量、周期 wrap 和总力结果完全一致。reference Hook 在 raw Cartesian displacement 超过 `skin/2`（或 cell/batch 结构变化）时重建整批邻居，并将 `cutoff + skin` 中超出实际 cutoff 的 pair 在 LJ reference 中过滤掉。该路径用于验证语义，不代表上游 Warp 的 per-system rebuild、预分配 scratch 或性能实现。
+同一探针增加 `--skin 0.5` 后，CPU 与 BW200 HCU 的能量、周期 wrap 和总力结果完全一致。reference Hook 在 raw Cartesian displacement 超过 `skin/2`（或 cell/batch 结构变化）时重建变化的 system；首次构建或 Batch 布局变化仍重建整批，并将 `cutoff + skin` 中超出实际 cutoff 的 pair 在 LJ reference 中过滤掉。该路径用于验证语义，不代表上游 Warp 的预分配 scratch、cell-list 容量管理或性能实现。
 
-该证据是 G1 的小型数值闭环，不代表完整 `nvalchemi.dynamics.NVE`、周期 half-list、Verlet skin/rebuild、switching、stress、性能后端或生产 Warp API 已在 HCU 支持。
+2026-09-06 在 per-system rebuild 改动后用项目 `.venv`、DTK 26.04、`HIP_VISIBLE_DEVICES=0` 重跑同一 HCU 命令，仍退出码 `0`；设备为 `BW200, UBB BW1000`，`max_drift=5.373538503050668e-09`，总力为零。
+
+该证据是 G1 的小型数值闭环，不代表完整 `nvalchemi.dynamics.NVE`、周期 half-list、生产级 Verlet skin/rebuild、switching、stress、性能后端或生产 Warp API 已在 HCU 支持。

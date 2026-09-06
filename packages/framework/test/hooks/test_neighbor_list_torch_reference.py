@@ -151,6 +151,42 @@ def test_reference_hook_reuses_skin_cache_until_displacement_threshold():
     assert torch.equal(hook._ref_positions, batch.positions)
 
 
+def test_reference_skin_rebuild_updates_only_changed_system():
+    hook = NeighborListHook(
+        NeighborConfig(cutoff=2.0, format=NeighborListFormat.MATRIX),
+        backend="torch_reference",
+        skin=0.5,
+    )
+    batch = _batch()
+    _call_eager(hook, batch)
+    first_reference = hook._ref_positions.clone()
+    first_matrix = batch.neighbor_matrix.clone()
+
+    batch.positions[0, 0] += 0.3
+    _call_eager(hook, batch)
+
+    assert torch.equal(hook._ref_positions[2:], first_reference[2:])
+    assert torch.equal(hook._ref_positions[:2], batch.positions[:2])
+    assert torch.equal(batch.neighbor_matrix, first_matrix)
+
+
+def test_reference_skin_rebuild_preserves_coo_batch_offsets():
+    hook = NeighborListHook(
+        NeighborConfig(cutoff=2.0, format=NeighborListFormat.COO),
+        backend="torch_reference",
+        skin=0.5,
+    )
+    batch = _batch()
+    _call_eager(hook, batch)
+    first_edges = batch.neighbor_list.clone()
+
+    batch.positions[0, 0] += 0.3
+    _call_eager(hook, batch)
+
+    assert torch.equal(batch.neighbor_list, first_edges)
+    assert batch.neighbor_list.tolist() == [[0, 1], [1, 0], [2, 3], [3, 2]]
+
+
 def test_reference_hook_rebuilds_when_periodic_cell_changes():
     hook = NeighborListHook(
         NeighborConfig(cutoff=0.5, format=NeighborListFormat.MATRIX),
