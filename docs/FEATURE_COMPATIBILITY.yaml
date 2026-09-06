@@ -167,6 +167,7 @@
       "id": "dynamics.fused_stage",
       "category": "A",
       "status": "planned",
+      "implementation_scope": "G2 FusedStage/inflight reference 状态与 sampler/sink 编排子集已验证；完整多阶段、NVT/Langevin 和分布式流水线仍未完成",
       "scenario": "逐体系阶段迁移、阶段预算、不同收敛速度、共享模型和 Hooks 时序",
       "source": {
         "repository": "framework",
@@ -216,19 +217,40 @@
       },
       "gradient_level": "default_md_forward_only",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
-          "test/dynamics/test_pipeline_stage.py"
+          "test/dynamics/test_pipeline_stage.py",
+          "test/dynamics/test_single_loop.py",
+          "test/dynamics/test_state_management.py"
         ],
-        "dcu_tests": [],
+        "dcu_tests": [
+          "test/dynamics/test_inflight.py",
+          "test/dynamics/test_single_loop.py::TestConvergenceHook",
+          "test/dynamics/test_single_loop.py::TestFusedStage",
+          "test/dynamics/test_single_loop.py::TestFusedStageSubstageHooks",
+          "test/dynamics/test_single_loop.py::TestFusedStageDeviceValidation",
+          "test/dynamics/test_single_loop.py::TestCommunicationMixinStreamContext",
+          "test/dynamics/test_single_loop.py::TestFusedStageStreamContext",
+          "test/dynamics/test_single_loop.py::TestDistributedPipelineComposition",
+          "test/dynamics/test_demo_dynamics.py",
+          "test/dynamics/test_state_management.py::TestMakeNewState",
+          "test/dynamics/test_sampler.py",
+          "probes/mace_fire2_inflight_reference.py"
+        ],
         "evidence": [
-          "reports/upstream_inventory.json"
+          "reports/upstream_inventory.json",
+          "reports/g2-upstream-inflight-reference.md",
+          "reports/g2-upstream-fusedstage-state-sinks-reference.md",
+          "reports/g2-upstream-sampler-reference.md",
+          "reports/g2-mace-fire2-inflight-reference.md"
         ],
-        "environments": []
+        "environments": [
+          "project .venv + DTK 26.04 + BW200/gfx936"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "仅覆盖 FusedStage/inflight reference 状态与 sampler/sink 编排；完整多阶段和分布式流水线仍未验证"
       ],
       "release_gate": "G2"
     },
@@ -236,6 +258,7 @@
       "id": "dynamics.inflight",
       "category": "A",
       "status": "planned",
+      "implementation_scope": "G2 reference 已验证毕业、补位、状态清理、send path 收缩和 HostMemory 写入子集；真实 MACE/FIRE2 短 inflight 已通过，长轨迹和 NVT/Langevin 仍未完成",
       "scenario": "完成只写一次、补位状态重置、容量限制、采样耗尽和稳定 ID",
       "source": {
         "repository": "framework",
@@ -291,19 +314,28 @@
       },
       "gradient_level": "default_md_forward_only",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/dynamics/test_inflight.py"
         ],
-        "dcu_tests": [],
-        "evidence": [
-          "reports/upstream_inventory.json"
+        "dcu_tests": [
+          "test/dynamics/test_inflight.py",
+          "test/dynamics/test_sampler.py",
+          "probes/mace_fire2_inflight_reference.py"
         ],
-        "environments": []
+        "evidence": [
+          "reports/upstream_inventory.json",
+          "reports/g2-upstream-inflight-reference.md",
+          "reports/g2-upstream-sampler-reference.md",
+          "reports/g2-mace-fire2-inflight-reference.md"
+        ],
+        "environments": [
+          "project .venv + DTK 26.04 + BW200/gfx936"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "已验证真实 MACE/FIRE2 的短 inflight 补位；尚未验证长轨迹 occupancy、NVT/Langevin 子阶段状态、checkpoint/restart 和多卡 ownership"
       ],
       "release_gate": "G2"
     },
@@ -318,7 +350,8 @@
         "paths": [
           "nvalchemi/hooks/_protocol.py",
           "nvalchemi/hooks/_registry.py",
-          "nvalchemi/hooks/physicsnemo_profiling.py"
+          "nvalchemi/hooks/physicsnemo_profiling.py",
+          "nvalchemi/hooks/periodic.py"
         ],
         "symbols": {
           "nvalchemi/hooks/_protocol.py": [
@@ -331,6 +364,10 @@
           "nvalchemi/hooks/physicsnemo_profiling.py": [
             "_parse_activity",
             "TorchProfilerHook"
+          ],
+          "nvalchemi/hooks/periodic.py": [
+            "WrapPeriodicHook",
+            "wrap_positions_into_cell"
           ]
         }
       },
@@ -360,7 +397,7 @@
       },
       "gradient_level": "not_applicable",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/hooks/__init__.py",
           "test/hooks/test_context.py",
@@ -378,18 +415,36 @@
         ],
         "dcu_tests": [
           "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
+          "test/dynamics/test_observer_hooks.py::TestSnapshotHook",
+          "test/dynamics/test_observer_hooks.py::TestConvergedSnapshotHook",
+          "test/dynamics/test_observer_hooks.py::TestLoggingHook",
+          "test/dynamics/test_observer_hooks.py::TestEnergyDriftMonitorHook",
+          "test/dynamics/test_observer_hooks.py::TestHookLifecycle",
+          "test/dynamics/test_hook_utils.py",
+          "test/dynamics/test_periodic_hook.py",
+          "test/dynamics/test_safety_hooks.py",
+          "test/dynamics/test_freeze_hook.py",
+          "test/dynamics/test_bias_hook.py",
+          "test/compatibility/test_public_dynamics_reference.py::test_reference_observer_segment_reduce",
+          "probes/hooks_utils_reference.py",
           "probes/framework_neighbor_lj_reference.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-neighbor-hook-lj-audit.md",
+          "reports/g2-upstream-observer-reference.md",
+          "reports/g2-upstream-hook-utils-reference.md",
+          "reports/g2-upstream-safety-freeze-reference.md",
+          "reports/g2-upstream-bias-reference.md",
           "artifacts/g1/framework_neighbor_lj_reference_hcu0.json"
         ],
-        "environments": []
+        "environments": [
+          "project .venv + DTK 26.04 + BW200/gfx936"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行",
+        "未设置 backend 时上游 Warp 默认路径仍依赖 Warp；reference utility/periodic slice 已在 DTK 26.04、BW200/gfx936 HCU 通过，受限沙箱中的 No HIP GPUs 仅表示设备节点不可见",
         "NeighborListHook 的 Torch reference 仅覆盖无 PBC、skin=0 且不使用 method/scratch；默认生产路径仍依赖 Warp，HCU 证据仅覆盖本阶段的两体系 Hook→LJ reference 探针"
       ],
       "release_gate": "G2"
@@ -535,12 +590,23 @@
         ],
         "dcu_tests": [
           "probes/mace_probe.py",
-          "probes/mace_wrapper_reference.py"
+          "probes/mace_wrapper_reference.py",
+          "probes/mace_dynamics_reference.py",
+          "test/compatibility/test_public_dynamics_reference.py",
+          "probes/mace_fire2_batch_relaxation.py",
+          "probes/mace_fire2_heterogeneous_trajectory.py",
+          "probes/mace_fire2_baseline_comparison.py",
+          "probes/mace_wrapper_stages.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g1-mace-dependency-audit.md",
-          "reports/g1-mace-wrapper-batch.md"
+          "reports/g1-mace-wrapper-batch.md",
+          "reports/g2-mace-dynamics-reference.md",
+          "reports/g2-mace-fire2-batch32.md",
+          "reports/g2-mace-fire2-heterogeneous-trajectory.md",
+          "reports/g2-mace-fire2-baseline-comparison.md",
+          "reports/g2-mace-profile-reference.md"
         ],
         "environments": [
           "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
@@ -552,7 +618,7 @@
         "原测试未在本基线运行",
         "项目环境已安装 MACE/e3nn/ASE 最小组合，但未安装 PhysicsNeMo/cuEquivariance",
         "探索环境和项目 .venv 的 H₂O wrapper CPU/HCU、单个 perf_46 和两个 perf_46 的 HCU batching 已验证；向量化 reference 仍不是生产 cell-list/Triton/HIP 性能后端",
-        "完整 dynamics、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
+        "已验证固定晶胞非 PBC 的短 reference dynamics 组合、周期 32×92/异构 [46,92] 的短 reference 组合，以及 HCU 上异构 [46,92] 与两个单体系的 FIRE2 收敛对照；A4 已有等长规模短 profile，但混合规模、长轨迹、skin rebuild 分项和完整性能结论仍未完成；CPU 完整收敛受当前 reference 性能限制，DataSink/inflight、变胞 stress、重启、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
       ],
       "release_gate": "G2"
     },
@@ -560,6 +626,7 @@
       "id": "data.storage",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "G2 最小 SnapshotHook→HostMemory 轨迹写出已验证；GPUBuffer、ZarrData、checkpoint/restart 和完整 stream 生命周期仍未完成",
       "scenario": "轨迹/预取 stream 生命周期和同步；轨迹不等同于完整模拟 checkpoint",
       "source": {
         "repository": "framework",
@@ -632,7 +699,7 @@
       },
       "gradient_level": "data_transport",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [
           "test/data/__init__.py",
           "test/data/test_atomic_data.py",
@@ -649,15 +716,29 @@
           "test/data/test_zarr_datapipe.py",
           "test/dynamics/test_sinks.py"
         ],
-        "dcu_tests": [],
-        "evidence": [
-          "reports/upstream_inventory.json"
+        "dcu_tests": [
+          "test/compatibility/test_heterogeneous_trajectory_reference.py",
+          "test/dynamics/test_sampler.py",
+          "test/dynamics/test_sinks.py::TestDataSinkABC",
+          "test/dynamics/test_sinks.py::TestDrainMethod",
+          "test/dynamics/test_sinks.py::TestHostMemory",
+          "probes/mace_fire2_heterogeneous_trajectory.py"
         ],
-        "environments": []
+        "evidence": [
+          "reports/upstream_inventory.json",
+          "reports/g2-heterogeneous-trajectory-reference.md",
+          "reports/g2-upstream-fusedstage-state-sinks-reference.md",
+          "reports/g2-upstream-sampler-reference.md",
+          "reports/g2-mace-fire2-heterogeneous-trajectory.md"
+        ],
+        "environments": [
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+        ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "原测试未在本基线运行"
+        "原测试未在本基线完整运行",
+        "已验证异构 [3,5] synthetic Batch 和真实 [46,92] MACE/FIRE2 短轨迹的 SnapshotHook→HostMemory 独立快照；GPUBuffer、ZarrData、checkpoint/restart、重启状态恢复和完整 stream 生命周期仍未验证"
       ],
       "release_gate": "G2"
     },
@@ -1596,21 +1677,29 @@
           "test/dynamics/test_velocity_verlet.py"
         ],
         "dcu_tests": [
-          "test/compatibility/test_dynamics_reference_velocity_verlet.py"
+          "test/compatibility/test_dynamics_reference_velocity_verlet.py",
+          "test/compatibility/test_public_dynamics_reference.py",
+          "probes/mace_dynamics_reference.py",
+          "probes/dynamics_reference_compile.py",
+          "test/dynamics/test_ops.py::TestVelocityVerlet"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g2-dynamics-reference-velocity-verlet.md",
           "reports/g2-dynamics-reference-kinetics.md",
-          "reports/g2-dynamics-public-boundary.md"
+          "reports/g2-dynamics-public-boundary.md",
+          "reports/g2-mace-dynamics-reference.md",
+          "reports/g2-dynamics-reference-compile.md",
+          "reports/g2-upstream-dynamics-reference.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"
         ]
       },
-      "limitations": [
-        "仅完成顶层 Warp-free velocity-Verlet、kinetic energy 和 temperature reference；Langevin/Nose-Hoover/NPT、完整 NVE/FusedStage 尚未接线",
-        "上游 Warp-backed dynamics API 和上游 dynamics 测试仍未解除导入阻断"
+        "limitations": [
+          "已完成公共 NVE 的固定晶胞 reference 单步/短 run 接线；Langevin/Nose-Hoover/NPT、完整 FusedStage、DataSink/inflight 尚未接线",
+        "上游 Warp-backed dynamics API 的默认路径保留但未在 HCU 验证；上游 dynamics 行为套件仍需按 reference backend 解除运行阻断",
+        "kinetic energy custom op 可通过严格 torch.compile；FIRE2 和 temperature reference 在 fullgraph=True 下仍有 graph break/数据依赖分支，默认 fullgraph=False 仅保证可运行，不保证完整编译优化"
       ],
       "release_gate": "G1_then_G4"
     },
@@ -1709,20 +1798,41 @@
           "test/dynamics/test_velocity_verlet.py"
         ],
         "dcu_tests": [
-          "test/compatibility/test_dynamics_reference_fire.py"
+          "test/compatibility/test_dynamics_reference_fire.py",
+          "test/compatibility/test_fire2_upstream_reference.py",
+          "test/compatibility/test_fire2_skin_functional.py",
+          "test/compatibility/test_public_dynamics_reference.py",
+          "test/compatibility/test_inactive_dynamics_outputs.py",
+          "probes/mace_dynamics_reference.py",
+          "probes/mace_fire2_batch_relaxation.py",
+          "probes/mace_fire2_heterogeneous_trajectory.py",
+          "probes/mace_fire2_baseline_comparison.py",
+          "test/dynamics/test_ops.py::TestFireOps",
+          "test/dynamics/test_ops.py::TestFire2Ops",
+          "test/dynamics/test_ops.py::TestIntegrators.test_fire_step",
+          "probes/dynamics_reference_compile.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
           "reports/g2-dynamics-reference-fire.md",
-          "reports/g2-dynamics-public-boundary.md"
+          "reports/g2-fire2-upstream-reference.md",
+          "reports/g2-fire2-skin-functional.md",
+          "reports/g2-dynamics-public-boundary.md",
+          "reports/g2-mace-dynamics-reference.md",
+          "reports/g2-mace-fire2-batch32.md",
+          "reports/g2-mace-fire2-heterogeneous-trajectory.md",
+          "reports/g2-mace-fire2-baseline-comparison.md",
+          "reports/g2-upstream-dynamics-reference.md",
+          "reports/g2-dynamics-reference-compile.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"
         ]
       },
-      "limitations": [
-        "仅完成顶层 Warp-free 固定晶胞 FIRE/FIRE2 reference；公共 dynamics 委派、uphill energy-check、变胞 FIRE2 和收敛流程尚未接线",
-        "上游 Warp-backed FIRE/FIRE2 API 和上游 dynamics 测试仍未解除导入阻断"
+        "limitations": [
+          "已完成公共固定晶胞 FIRE/FIRE2 的 reference 接线，并在一个 Batch 中完成 32×92 周期 MACE 固定晶胞弛豫；异构 [46,92] 的 3 步 HostMemory 轨迹和 HCU mixed/single 收敛对照已验证；CPU 完整收敛仍受 reference 性能限制，变胞 FIRE2、stress、inflight 和完整上游行为套件尚未接线",
+        "上游 Warp-backed FIRE/FIRE2 默认路径保留但未在 HCU 验证；本次 32×92 结果只覆盖 Torch reference 单卡和固定晶胞",
+        "FIRE2 reference 在 torch.compile(fullgraph=True) 下因输入校验和动态分支暂不通过；fullgraph=False 可运行但会产生 graph breaks，未承诺完整编译优化"
       ],
       "release_gate": "G2"
     },
@@ -3293,8 +3403,8 @@
       "verification": {
         "dcu_status": "partial",
         "upstream_tests": ["test/hooks/test_neighbor_list_hook.py", "test/interactions/test_lj.py"],
-      "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "probes/skin_rebuild_batch_reference.py", "probes/neighbor_capacity_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
-        "evidence": ["reports/g1-skin-rebuild-batch-reference.md", "reports/g1-neighbor-capacity-reference.md", "reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md"],
+      "dcu_tests": ["test/hooks/test_neighbor_list_torch_reference.py", "test/compatibility/test_fire2_skin_functional.py", "probes/skin_rebuild_batch_reference.py", "probes/neighbor_capacity_reference.py", "probes/pbc_lj_nve_reference.py", "probes/mace_wrapper_reference.py"],
+        "evidence": ["reports/g1-skin-rebuild-batch-reference.md", "reports/g1-neighbor-capacity-reference.md", "reports/g1-pbc-lj-nve-reference.md", "reports/g1-mace-wrapper-batch.md", "reports/g2-fire2-skin-functional.md"],
         "environments": ["project .venv + DTK 26.04 + BW200/gfx936", "exploration env + DTK 26.04 + BW200/gfx936"]
       },
       "limitations": [

@@ -25,7 +25,7 @@ python probes/mace_wrapper_reference.py \
         /data/csp_data/perf_46/formal_c1_1_11_z1_46.cif
 ```
 
-HCU 运行必须在 DTK 已加载且设备节点可见的主机环境中显式设置 `HIP_VISIBLE_DEVICES`；结果和超时退出码写入 `artifacts/g1`，详见 `docs/PROBE_PLAN.md` 与 `reports/g1-mace-wrapper-batch.md`。
+HCU 运行必须在 DTK 已加载且设备节点可见的主机环境中显式设置 `HIP_VISIBLE_DEVICES`；先用仓库内的 `probes/torch_probe.py --device cuda` 检查当前 shell，再运行目标探针。结果和超时退出码写入 `artifacts/g1`，详见 `docs/PROBE_PLAN.md` 与 `reports/g1-mace-wrapper-batch.md`。
 
 脚本会加载 DTK 26.04、设置项目 `PYTHONPATH`、HUST PyPI 镜像和 `/data/envs/uv-cache`。`HIP_VISIBLE_DEVICES`、`OMP_NUM_THREADS`、超时和探针参数仍由每条命令显式设置。
 

@@ -25,11 +25,11 @@ def test_public_nve_fire_wrappers_and_kinetic_hook_select_reference_without_warp
     code = """
 import sys
 import torch
-from nvalchemi.dynamics import NVE
+from nvalchemi.dynamics import FIRE, FIRE2, NVE
 from nvalchemi.dynamics._ops.fire import fire2_step_coord
 from nvalchemi.dynamics.hooks._utils import kinetic_energy_per_graph
 assert 'warp' not in sys.modules
-assert NVE.__name__ == 'NVE'
+assert (NVE.__name__, FIRE.__name__, FIRE2.__name__) == ('NVE', 'FIRE', 'FIRE2')
 pos = torch.zeros((1, 3), dtype=torch.float64)
 vel = torch.ones_like(pos)
 force = torch.ones_like(pos)
@@ -62,6 +62,26 @@ dt = torch.ones(1, dtype=torch.float64)
 batch = torch.zeros(1, dtype=torch.int32)
 vv_position_update(pos, vel, force, mass, dt, batch, backend='torch_reference')
 assert torch.allclose(pos, torch.full_like(pos, 0.5))
+assert 'warp' not in sys.modules
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code], check=False, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_periodic_helper_can_select_reference_without_warp() -> None:
+    code = """
+import sys
+import torch
+from nvalchemi.hooks.periodic import wrap_positions_into_cell
+assert 'warp' not in sys.modules
+positions = torch.tensor([[12.0, -3.0, 25.0]])
+cell = torch.eye(3).unsqueeze(0) * 10.0
+pbc = torch.ones((1, 3), dtype=torch.bool)
+batch = torch.zeros(1, dtype=torch.int32)
+wrap_positions_into_cell(positions, cell, pbc, batch, backend='torch_reference')
+assert torch.allclose(positions, torch.tensor([[2.0, 7.0, 5.0]]))
 assert 'warp' not in sys.modules
 """
     result = subprocess.run(

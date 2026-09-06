@@ -1341,7 +1341,20 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
     __needs_keys__: set[str] = set()
     __provides_keys__: set[str] = set()
 
-    _mutable_fields: tuple[str, ...] = ("positions", "velocities", "cell")
+    # State that an integrator may mutate while a graduated graph is being
+    # held in a mixed-status batch.  The output fields are included because
+    # the shared model forward still sees the temporary pre-update positions
+    # before ``step()`` restores the graduated graph's coordinates; leaving
+    # those outputs untouched would make ``forces``/``energy`` describe a
+    # position that is no longer present in the returned batch.
+    _mutable_fields: tuple[str, ...] = (
+        "positions",
+        "velocities",
+        "cell",
+        "forces",
+        "energy",
+        "stress",
+    )
 
     _bookkeeping_keys: dict[str, Callable[[int, torch.device], torch.Tensor]] = {
         "status": lambda n, dev: torch.zeros(n, 1, dtype=torch.long, device=dev),
@@ -1837,10 +1850,11 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
         7. Increment step_count
 
         Samples with ``status >= exit_status`` are treated as no-ops for the
-        integrator (pre_update/post_update). Their positions and velocities
-        are preserved through the step. This enables back-pressure handling
-        in pipeline mode where converged samples may remain in the active
-        batch when the send buffer is full.
+        integrator (pre_update/post_update). Their coordinates, velocities,
+        cells, and model outputs are preserved through the step. This enables
+        back-pressure handling in pipeline mode where converged samples may
+        remain in the active batch when the send buffer is full, without
+        leaving forces or energies evaluated at a temporary position.
 
         Parameters
         ----------

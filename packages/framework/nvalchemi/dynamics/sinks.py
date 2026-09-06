@@ -620,9 +620,14 @@ class HostMemory(DataSink):
                 f"Buffer is full. Cannot add {len(data_list)} samples "
                 f"to buffer with {len(self._data_list)}/{self._capacity} samples."
             )
-        # Move data to CPU before storing
+        # Move data to CPU before storing. ``Tensor.to`` is allowed to return
+        # the original tensor when the source is already on CPU, so a plain
+        # ``data.to("cpu")`` would let later in-place updates of the live
+        # batch overwrite an earlier trajectory frame. A sink owns its
+        # snapshots; clone after the device transfer to make that boundary
+        # explicit for both standard and dynamically added graph fields.
         for data in data_list:
-            self._data_list.append(data.to(self._device))
+            self._data_list.append(data.to(self._device).clone())
 
     def read(self) -> Batch:
         """

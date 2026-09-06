@@ -27,6 +27,21 @@ source scripts/activate_hygon_env.sh exploration   # 已验证的探索环境
 
 `activate_hygon_env.sh` 会根据当前 shell 自动选择 DTK 脚本：bash 使用 `/opt/dtk-26.04/env.sh`，zsh 使用 `/opt/dtk-26.04/env.zsh`。也可以直接加载对应脚本，但不能在 zsh 中直接 source 只适合 bash 的 `env.sh`。脚本还会激活选定 Python 环境，并设置项目 `PYTHONPATH`、北外 PyPI 镜像和 `/data/envs/uv-cache`；GPU 可见性、线程数和超时仍需由探针或作业命令显式指定。
 
+环境脚本已在 bash 和 zsh 中实测：`DTKROOT=/opt/dtk-26.04`，项目 `.venv`
+中的海光 Torch `torch.cuda.is_available()=True`。HCU 运行前使用仓库内的基础
+探针确认当前 shell，而不要用 heredoc 临时拼接多行 Python：
+
+```bash
+source scripts/activate_hygon_env.sh project
+HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 60 \
+  .venv/bin/python -u probes/torch_probe.py --device cuda
+```
+
+在本机设备节点可见的主机权限终端，该命令于 2026-09-06 退出码为 `0`；若在
+受限沙箱中得到 `No HIP GPUs are available`，通常是 `/dev/kfd`/`/dev/dri` 被隔离，
+不能据此判断 DTK 未加载或 HCU 不可用。所有 HCU 证据均应记录运行终端的 DTK
+入口和设备可见性。
+
 2026-09-06 主机能力探针已确认：单卡 Triton 基础向量 kernel 和双卡 RCCL/NCCL all-reduce/P2P 均通过；这不等于生产 Triton/HIP kernel、LJ ownership 或 DomainParallel 已完成。沙箱内 `/dev/kfd` 不可见，GPU 探针必须在具备设备节点访问权限的主机终端运行。
 
 项目环境的可重建规格：

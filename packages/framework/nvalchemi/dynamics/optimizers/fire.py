@@ -51,11 +51,6 @@ import torch
 from nvalchemi.data import Batch
 from nvalchemi.dynamics._ops._bridge import _make_state_batch, _to_per_system
 from nvalchemi.dynamics._ops.fire import fire_step, fire_update
-from nvalchemi.dynamics._ops.npt_nph import (
-    nph_velocity_half_step,
-    npt_cell_update,
-    npt_position_update,
-)
 from nvalchemi.dynamics._ops.velocity_verlet import vv_velocity_finalize
 from nvalchemi.dynamics.base import BaseDynamics
 
@@ -148,6 +143,7 @@ class FIRE(BaseDynamics):
         n_steps: int | None = None,
         hooks: list[Hook] | None = None,
         convergence_hook: ConvergenceHook | dict | None = None,
+        backend: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -167,6 +163,7 @@ class FIRE(BaseDynamics):
         self.alpha_start = alpha_start
         self.f_alpha = f_alpha
         self._uphill_init = uphill
+        self.backend = backend
 
     def _make_uphill_flag(self, M: int, dev: torch.device) -> torch.Tensor:
         """Convert *uphill* init value to a per-system int32 tensor."""
@@ -284,6 +281,7 @@ class FIRE(BaseDynamics):
             vv=self._state.vv,
             ff=self._state.ff,
             batch_idx=batch.batch_idx.int(),
+            backend=self.backend,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -470,6 +468,15 @@ class FIREVariableCell(BaseDynamics):
             Current batch; *positions*, *velocities*, and *cell*
             updated in-place.
         """
+        # Variable-cell dynamics remains on the Warp path until the stress and
+        # NPT/NPH reference operators are implemented.  Keep this import local
+        # so fixed-cell FIRE can be imported and used without Warp.
+        from nvalchemi.dynamics._ops.npt_nph import (
+            nph_velocity_half_step,
+            npt_cell_update,
+            npt_position_update,
+        )
+
         cells_inv = torch.linalg.inv_ex(batch.cell)[0].contiguous()
         volumes = torch.linalg.det(batch.cell).abs()
         num_atoms = torch.bincount(batch.batch_idx, minlength=batch.num_graphs).to(

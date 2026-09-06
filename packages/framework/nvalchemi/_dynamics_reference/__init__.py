@@ -23,6 +23,7 @@ from nvalchemi._dynamics_reference.fire import (
     fire_step,
     fire_update,
 )
+from nvalchemi._dynamics_reference.periodic import wrap_positions_into_cell
 
 __all__ = [
     "KB_EV",
@@ -34,4 +35,5 @@ __all__ = [
     "fire2_step_coord_cell",
     "vv_position_update",
     "vv_velocity_finalize",
+    "wrap_positions_into_cell",
 ]

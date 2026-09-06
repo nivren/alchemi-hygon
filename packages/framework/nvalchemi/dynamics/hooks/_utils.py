@@ -181,6 +181,7 @@ def scatter_reduce_per_graph(
     batch_idx: torch.Tensor,
     num_graphs: int,
     reduce: ScatterReduce = "amax",
+    backend: str | None = None,
 ) -> torch.Tensor:
     """Scatter-reduce a 1-D node-level tensor to graph level.
 
@@ -189,8 +190,10 @@ def scatter_reduce_per_graph(
     (e.g. computing norms, kinetic energies, etc.) before calling
     this function.
 
-    Delegates to GPU-optimized segmented reduction kernels in
-    ``nvalchemiops.segment_ops``.
+    By default delegates to GPU-optimized segmented reduction kernels in
+    ``nvalchemiops.segment_ops``. ``backend="torch_reference"`` and
+    ``backend="auto"`` use an equivalent Torch implementation without
+    importing Warp.
 
     Parameters
     ----------
@@ -204,12 +207,41 @@ def scatter_reduce_per_graph(
         Number of graphs in the batch.
     reduce : {"amax", "sum", "amin", "mean"}
         Scatter-reduce operation. Default ``"amax"``.
+    backend : {None, "warp", "auto", "torch_reference"}, optional
+        Execution backend. ``None``/``"warp"`` preserve the upstream Warp
+        path; ``"torch_reference"`` and ``"auto"`` select the Torch path.
 
     Returns
     -------
     Tensor
         1-D tensor of shape ``(B,)`` with per-graph reduced values.
     """
+    if backend not in (None, "warp", "auto", "torch_reference"):
+        raise ValueError(f"unsupported scatter backend: {backend!r}")
+
+    if backend in ("auto", "torch_reference"):
+        idx = batch_idx.to(dtype=torch.long)
+        if reduce == "sum":
+            out = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
+            return out.index_add(0, idx, values)
+        if reduce == "amax":
+            out = torch.full(
+                (num_graphs,), float("-inf"), device=values.device, dtype=values.dtype
+            )
+            return out.scatter_reduce(0, idx, values, reduce="amax", include_self=True)
+        if reduce == "amin":
+            out = torch.full(
+                (num_graphs,), float("inf"), device=values.device, dtype=values.dtype
+            )
+            return out.scatter_reduce(0, idx, values, reduce="amin", include_self=True)
+        sums = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
+        sums = sums.index_add(0, idx, values)
+        counts = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
+        counts = counts.index_add(
+            0, idx, torch.ones_like(values, dtype=values.dtype)
+        )
+        return torch.where(counts > 0, sums / counts, torch.zeros_like(sums))
+
     if reduce == "sum":
         return _segmented_sum(values, batch_idx, num_graphs)
     if reduce == "amax":

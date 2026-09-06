@@ -25,6 +25,8 @@ Tests verify:
 
 from __future__ import annotations
 
+import os
+
 import pytest
 import torch
 
@@ -46,9 +48,21 @@ def dtype(request):
     return request.param
 
 
-@pytest.fixture(params=["cpu"])
+@pytest.fixture(params=[os.environ.get("NVALCHEMI_TEST_DEVICE", "cpu")])
 def device(request):
+    """Run on CPU by default; opt into a specific device for a probe run."""
     return torch.device(request.param)
+
+
+@pytest.fixture
+def backend():
+    """Optional backend override for running this upstream suite on reference.
+
+    The default remains ``None`` and therefore exercises the locked Warp path.
+    CI or a local reference run may set ``NVALCHEMI_TEST_BACKEND`` explicitly
+    without changing the upstream default behavior.
+    """
+    return os.environ.get("NVALCHEMI_TEST_BACKEND")
 
 
 # ---------------------------------------------------------------------------
@@ -70,44 +84,44 @@ class TestVelocityVerlet:
         batch = _batch_idx(sizes, device)
         return positions, velocities, forces, masses, dt, batch
 
-    def test_position_update_shape(self, dtype, device):
+    def test_position_update_shape(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.velocity_verlet import vv_position_update
 
         pos, vel, frc, mass, dt, batch = self._make(2, 8, dtype, device)
         pos_orig = pos.clone()
         vel_orig = vel.clone()
-        vv_position_update(pos, vel, frc, mass, dt, batch)
+        vv_position_update(pos, vel, frc, mass, dt, batch, backend=backend)
         assert pos.shape == pos_orig.shape
         assert vel.shape == vel_orig.shape
         assert pos.dtype == dtype
         # positions must change
         assert not torch.allclose(pos, pos_orig)
 
-    def test_position_update_single_system(self, dtype, device):
+    def test_position_update_single_system(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.velocity_verlet import vv_position_update
 
         pos, vel, frc, mass, dt, _ = self._make(1, 4, dtype, device)
         batch = torch.zeros(4, dtype=torch.int32, device=device)
         pos_orig = pos.clone()
-        vv_position_update(pos, vel, frc, mass, dt, batch)
+        vv_position_update(pos, vel, frc, mass, dt, batch, backend=backend)
         assert not torch.allclose(pos, pos_orig)
 
-    def test_velocity_finalize_shape(self, dtype, device):
+    def test_velocity_finalize_shape(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.velocity_verlet import vv_velocity_finalize
 
         _, vel, frc, mass, dt, batch = self._make(2, 8, dtype, device)
         vel_orig = vel.clone()
-        vv_velocity_finalize(vel, frc, mass, dt, batch)
+        vv_velocity_finalize(vel, frc, mass, dt, batch, backend=backend)
         assert vel.shape == vel_orig.shape
         assert vel.dtype == dtype
         assert not torch.allclose(vel, vel_orig)
 
-    def test_velocity_finalize_multi_system(self, dtype, device):
+    def test_velocity_finalize_multi_system(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.velocity_verlet import vv_velocity_finalize
 
         _, vel, frc, mass, dt, batch = self._make(3, 9, dtype, device)
         vel_orig = vel.clone()
-        vv_velocity_finalize(vel, frc, mass, dt, batch)
+        vv_velocity_finalize(vel, frc, mass, dt, batch, backend=backend)
         assert not torch.allclose(vel, vel_orig)
 
 
@@ -643,7 +657,7 @@ class TestFireOps:
             batch,
         )
 
-    def test_fire_step_mutates_positions(self, dtype, device):
+    def test_fire_step_mutates_positions(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.fire import fire_step
 
         M, N = 2, 8
@@ -685,12 +699,13 @@ class TestFireOps:
             f_inc,
             uphll,
             batch_idx=batch,
+            backend=backend,
         )
         assert pos.shape == pos_orig.shape
         assert pos.dtype == dtype
         assert not torch.allclose(pos, pos_orig)
 
-    def test_fire_step_single_system(self, dtype, device):
+    def test_fire_step_single_system(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.fire import fire_step
 
         M, N = 1, 5
@@ -732,10 +747,11 @@ class TestFireOps:
             f_inc,
             uphll,
             batch_idx=batch,
+            backend=backend,
         )
         assert not torch.allclose(pos, pos_orig)
 
-    def test_fire_step_uphill_flag_shape(self, dtype, device):
+    def test_fire_step_uphill_flag_shape(self, dtype, device, backend):
         """uphill_flag must be [M] int32."""
         from nvalchemi.dynamics._ops.fire import fire_step
 
@@ -780,10 +796,11 @@ class TestFireOps:
             f_inc,
             uphll,
             batch_idx=batch,
+            backend=backend,
         )
         assert not torch.allclose(pos, pos_orig)
 
-    def test_fire_update_mutates_velocities(self, dtype, device):
+    def test_fire_update_mutates_velocities(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.fire import fire_update
 
         M, N = 2, 8
@@ -823,6 +840,7 @@ class TestFireOps:
             f_dec,
             f_inc,
             batch_idx=batch,
+            backend=backend,
         )
         assert vel.shape == vel_orig.shape
         assert not torch.allclose(vel, vel_orig)
@@ -879,26 +897,26 @@ class TestFire2Ops:
         batch = _batch_idx(sizes, device)
         return positions, velocities, forces, alpha, dt, nsteps_inc, batch
 
-    def test_fire2_coord_mutates_positions(self, dtype, device):
+    def test_fire2_coord_mutates_positions(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.fire import fire2_step_coord
 
         M, N = 2, 8
         pos, vel, frc, alpha, dt, nsteps_inc, batch = self._make(M, N, dtype, device)
         pos_orig = pos.clone()
-        fire2_step_coord(pos, vel, frc, batch, alpha, dt, nsteps_inc)
+        fire2_step_coord(pos, vel, frc, batch, alpha, dt, nsteps_inc, backend=backend)
         assert pos.shape == pos_orig.shape
         assert not torch.allclose(pos, pos_orig)
 
-    def test_fire2_coord_single_system(self, dtype, device):
+    def test_fire2_coord_single_system(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.fire import fire2_step_coord
 
         M, N = 1, 4
         pos, vel, frc, alpha, dt, nsteps_inc, batch = self._make(M, N, dtype, device)
         pos_orig = pos.clone()
-        fire2_step_coord(pos, vel, frc, batch, alpha, dt, nsteps_inc)
+        fire2_step_coord(pos, vel, frc, batch, alpha, dt, nsteps_inc, backend=backend)
         assert not torch.allclose(pos, pos_orig)
 
-    def test_fire2_coord_scratch_buffers(self, dtype, device):
+    def test_fire2_coord_scratch_buffers(self, dtype, device, backend):
         from nvalchemi.dynamics._ops.fire import fire2_step_coord
 
         M, N = 2, 6
@@ -918,6 +936,7 @@ class TestFire2Ops:
             vf=vf,
             v_sumsq=v_sumsq,
             f_sumsq=f_sumsq,
+            backend=backend,
         )
         assert not torch.allclose(pos, pos_orig)
 
@@ -1172,7 +1191,7 @@ class TestIntegrators:
             lang.step(batch)
         assert batch.positions.shape == (4, 3)
 
-    def test_fire_step(self):
+    def test_fire_step(self, backend):
         from nvalchemi.data import Batch
         from nvalchemi.dynamics.optimizers.fire import FIRE
         from nvalchemi.models.demo import DemoModel, DemoModelWrapper
@@ -1181,7 +1200,7 @@ class TestIntegrators:
         model.eval()
         data = self._make_batch(4, seed=2)
         batch = Batch.from_data_list([data])
-        fire = FIRE(model=model, dt=0.1)
+        fire = FIRE(model=model, dt=0.1, backend=backend)
         for _ in range(3):
             fire.step(batch)
         assert batch.positions.shape == (4, 3)

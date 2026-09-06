@@ -19,6 +19,7 @@ LoggingHook, and EnergyDriftMonitorHook.
 from __future__ import annotations
 
 import csv
+import os
 from enum import Enum
 from pathlib import Path
 
@@ -77,6 +78,16 @@ def _make_dynamics(device: str = "cpu") -> BaseDynamics:
 
 
 _make_ctx = make_dynamics_context
+
+
+def _test_backend() -> str | None:
+    """Select an explicit numerical backend for DCU reference runs."""
+    return os.environ.get("NVALCHEMI_TEST_BACKEND")
+
+
+def _make_energy_hook(**kwargs):
+    """Construct an energy monitor with the test-selected compute backend."""
+    return EnergyDriftMonitorHook(compute_backend=_test_backend(), **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -229,11 +240,18 @@ class TestLoggingHook:
         def writer(step: int, rows: list[dict[str, float]]) -> None:
             captured.append((step, rows))
 
-        return LoggingHook(backend="custom", writer_fn=writer, **kwargs), captured
+        return LoggingHook(
+            backend="custom",
+            writer_fn=writer,
+            compute_backend=_test_backend(),
+            **kwargs,
+        ), captured
 
     def test_context_manager(self, device: str, tmp_path: Path) -> None:
         csv_path = tmp_path / "ctx.csv"
-        with LoggingHook(backend="csv", log_path=str(csv_path)) as hook:
+        with LoggingHook(
+            backend="csv", log_path=str(csv_path), compute_backend=_test_backend()
+        ) as hook:
             batch = _make_batch(device=device)
             dynamics = _make_dynamics(device=device)
             ctx = _make_ctx(batch, dynamics)
@@ -246,7 +264,9 @@ class TestLoggingHook:
         self, device: str, tmp_path: Path
     ) -> None:
         csv_path = tmp_path / "ctx2.csv"
-        hook = LoggingHook(backend="csv", log_path=str(csv_path))
+        hook = LoggingHook(
+            backend="csv", log_path=str(csv_path), compute_backend=_test_backend()
+        )
         with hook:
             batch = _make_batch(device=device)
             dynamics = _make_dynamics(device=device)
@@ -331,7 +351,9 @@ class TestLoggingHook:
 
     def test_csv_per_sample_rows(self, device: str, tmp_path: Path) -> None:
         csv_path = tmp_path / "log.csv"
-        with LoggingHook(backend="csv", log_path=str(csv_path)) as hook:
+        with LoggingHook(
+            backend="csv", log_path=str(csv_path), compute_backend=_test_backend()
+        ) as hook:
             batch = _make_batch(n_graphs=2, device=device)
             dynamics = _make_dynamics(device=device)
             ctx = _make_ctx(batch, dynamics)
@@ -532,7 +554,7 @@ class TestLoggingHook:
 
 class TestEnergyDriftMonitorHook:
     def test_first_call_captures_reference(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(threshold=1.0)
+        hook = _make_energy_hook(threshold=1.0)
         batch = _make_batch(device=device)
         dynamics = _make_dynamics(device=device)
         ctx = _make_ctx(batch, dynamics)
@@ -542,7 +564,7 @@ class TestEnergyDriftMonitorHook:
         assert hook._reference_total_energy is not None
 
     def test_no_drift_no_action(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(threshold=1.0, metric="absolute")
+        hook = _make_energy_hook(threshold=1.0, metric="absolute")
         batch = _make_batch(device=device)
         # Set constant energy
         batch.__dict__["energy"] = torch.tensor([[1.0], [2.0]], device=device)
@@ -557,7 +579,7 @@ class TestEnergyDriftMonitorHook:
     def test_drift_exceeds_threshold_warn(
         self, device: str, capfd: pytest.CaptureFixture
     ) -> None:
-        hook = EnergyDriftMonitorHook(threshold=0.01, metric="absolute", action="warn")
+        hook = _make_energy_hook(threshold=0.01, metric="absolute", action="warn")
         batch = _make_batch(device=device)
         batch.__dict__["energy"] = torch.tensor([[1.0], [2.0]], device=device)
         dynamics = _make_dynamics(device=device)
@@ -572,7 +594,7 @@ class TestEnergyDriftMonitorHook:
         hook(ctx, DynamicsStage.AFTER_STEP)  # should warn, not raise
 
     def test_drift_exceeds_threshold_raise(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(threshold=0.01, metric="absolute", action="raise")
+        hook = _make_energy_hook(threshold=0.01, metric="absolute", action="raise")
         batch = _make_batch(device=device)
         batch.__dict__["energy"] = torch.tensor([[1.0], [2.0]], device=device)
         dynamics = _make_dynamics(device=device)
@@ -587,7 +609,7 @@ class TestEnergyDriftMonitorHook:
             hook(ctx, DynamicsStage.AFTER_STEP)
 
     def test_per_atom_per_step_normalization(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(
+        hook = _make_energy_hook(
             threshold=1e10, metric="per_atom_per_step", action="raise"
         )
         batch = _make_batch(n_graphs=1, atoms_per_graph=10, device=device)
@@ -605,7 +627,7 @@ class TestEnergyDriftMonitorHook:
         hook(ctx, DynamicsStage.AFTER_STEP)
 
     def test_per_atom_per_step_exceeds(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(
+        hook = _make_energy_hook(
             threshold=0.005, metric="per_atom_per_step", action="raise"
         )
         batch = _make_batch(n_graphs=1, atoms_per_graph=10, device=device)
@@ -623,7 +645,7 @@ class TestEnergyDriftMonitorHook:
             hook(ctx, DynamicsStage.AFTER_STEP)
 
     def test_include_kinetic_false(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(
+        hook = _make_energy_hook(
             threshold=1e10, metric="absolute", include_kinetic=False
         )
         batch = _make_batch(with_velocities=True, device=device)
@@ -638,7 +660,7 @@ class TestEnergyDriftMonitorHook:
         hook(ctx, DynamicsStage.AFTER_STEP)
 
     def test_include_kinetic_true(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(
+        hook = _make_energy_hook(
             threshold=1e10, metric="absolute", include_kinetic=True
         )
         batch = _make_batch(with_velocities=True, device=device)
@@ -652,7 +674,7 @@ class TestEnergyDriftMonitorHook:
         hook(ctx, DynamicsStage.AFTER_STEP)
 
     def test_multi_graph_max_drift(self, device: str) -> None:
-        hook = EnergyDriftMonitorHook(threshold=0.5, metric="absolute", action="raise")
+        hook = _make_energy_hook(threshold=0.5, metric="absolute", action="raise")
         batch = _make_batch(n_graphs=2, device=device)
         batch.__dict__["energy"] = torch.tensor([[0.0], [0.0]], device=device)
         dynamics = _make_dynamics(device=device)
@@ -771,7 +793,11 @@ class TestHookLifecycle:
         def noop_writer(record: dict) -> None:
             records.append(record)
 
-        hook = LoggingHook(backend="custom", writer_fn=noop_writer)
+        hook = LoggingHook(
+            backend="custom",
+            writer_fn=noop_writer,
+            compute_backend=_test_backend(),
+        )
 
         # User manually enters
         hook.__enter__()

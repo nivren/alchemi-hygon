@@ -19,6 +19,8 @@ Covers :class:`WrapPeriodicHook`.
 
 from __future__ import annotations
 
+import os
+
 import torch
 
 from nvalchemi.data import AtomicData, Batch
@@ -68,6 +70,11 @@ def _make_dynamics() -> BaseDynamics:
 _make_ctx = make_dynamics_context
 
 
+def _test_backend() -> str | None:
+    """Select the explicit reference backend when requested by the test run."""
+    return os.environ.get("NVALCHEMI_TEST_BACKEND") or None
+
+
 # ===========================================================================
 # WrapPeriodicHook
 # ===========================================================================
@@ -90,7 +97,9 @@ class TestWrapPeriodicHook:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -118,7 +127,9 @@ class TestWrapPeriodicHook:
         )
         positions_before = batch.positions.clone()
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -140,7 +151,9 @@ class TestWrapPeriodicHook:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -167,7 +180,9 @@ class TestWrapPeriodicHook:
         )
         positions_before = batch.positions.clone()
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -191,7 +206,9 @@ class TestWrapPeriodicHook:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -216,7 +233,9 @@ class TestWrapPeriodicHook:
         )
         positions_ref = batch.positions
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -247,7 +266,9 @@ class TestWrapPeriodicHook:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -258,19 +279,29 @@ class TestWrapPeriodicHook:
         assert torch.allclose(batch.positions, expected, atol=1e-5)
 
     def test_stage_is_after_post_update(self) -> None:
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         assert hook.stage == DynamicsStage.AFTER_POST_UPDATE
 
     def test_default_frequency_is_one(self) -> None:
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         assert hook.frequency == 1
 
     def test_custom_frequency(self) -> None:
-        hook = WrapPeriodicHook(frequency=10, stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            frequency=10,
+            stage=DynamicsStage.AFTER_POST_UPDATE,
+            compute_backend=_test_backend(),
+        )
         assert hook.frequency == 10
 
     def test_is_hook(self) -> None:
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         assert isinstance(hook, Hook)
 
 
@@ -296,7 +327,9 @@ class TestWrapPeriodicHookDimensionSqueeze:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)  # must not raise
 
@@ -317,7 +350,9 @@ class TestWrapPeriodicHookDimensionSqueeze:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -337,7 +372,9 @@ class TestWrapPeriodicHookDimensionSqueeze:
             device=device,
         )
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         ctx = _make_ctx(batch, dynamics)
         hook(ctx, DynamicsStage.AFTER_POST_UPDATE)
 
@@ -364,8 +401,13 @@ class TestWrapPeriodicHookCompile:
             [[12.0, 0.0, 0.0], [5.0, 5.0, 5.0], [0.0, 0.0, 0.0]],
             device=device,
         )
+        # Materialize the lazy Batch index before strict tracing; otherwise
+        # torch.compile sees repeat_interleave's data-dependent output shape.
+        _ = batch.batch_idx
 
-        hook = WrapPeriodicHook(stage=DynamicsStage.AFTER_POST_UPDATE)
+        hook = WrapPeriodicHook(
+            stage=DynamicsStage.AFTER_POST_UPDATE, compute_backend=_test_backend()
+        )
         compiled = torch.compile(hook._wrap_positions, **self._compile_kwargs(device))
         compiled(batch)
 

@@ -24,9 +24,7 @@ from __future__ import annotations
 from enum import Enum
 
 import torch
-import warp as wp
 from jaxtyping import Float
-from nvalchemiops.dynamics.utils import compute_cell_inverse, wrap_positions_to_cell
 
 from nvalchemi.data import Batch
 from nvalchemi.hooks._context import HookContext
@@ -45,6 +43,9 @@ def _wrap_positions(
     cell: torch.Tensor,
     batch_idx: torch.Tensor,
 ) -> torch.Tensor:
+    import warp as wp
+    from nvalchemiops.dynamics.utils import compute_cell_inverse, wrap_positions_to_cell
+
     vec_dtype = wp.vec3d if positions.dtype == torch.float64 else wp.vec3f
     mat_dtype = wp.mat33d if positions.dtype == torch.float64 else wp.mat33f
 
@@ -78,6 +79,7 @@ def wrap_positions_into_cell(
     cell: Float[torch.Tensor, "B 3 3"],
     pbc: torch.Tensor,
     batch_idx: torch.Tensor,
+    backend: str | None = None,
 ) -> Float[torch.Tensor, "V 3"]:
     """Wrap positions into the unit cell using fractional coordinates.
 
@@ -85,9 +87,9 @@ def wrap_positions_into_cell(
     wrapped.  Non-periodic dimensions are left unchanged.
 
     This function modifies ``positions`` **in-place** and returns the
-    same tensor.  Delegates to ``nvalchemiops.dynamics.utils.wrap_positions_to_cell``
-    for GPU-optimized wrapping, then applies per-dimension PBC masking
-    in pure PyTorch.
+    same tensor.  The default path delegates to
+    ``nvalchemiops.dynamics.utils.wrap_positions_to_cell`` for GPU-optimized
+    wrapping; the explicit reference path uses an equivalent Torch custom op.
 
     Parameters
     ----------
@@ -99,12 +101,28 @@ def wrap_positions_into_cell(
         Per-dimension periodicity flags, shape ``(B, 3)``, boolean.
     batch_idx : Tensor
         Per-atom graph membership indices of shape ``(V,)``.
+    backend : {None, "warp", "auto", "torch_reference"}, optional
+        Compute backend. ``None``/``"warp"`` preserve the upstream Warp path;
+        ``"auto"`` and ``"torch_reference"`` select the Torch reference path.
 
     Returns
     -------
     Float[Tensor, "V 3"]
         The same ``positions`` tensor (modified in-place).
     """
+    if backend not in (None, "warp", "auto", "torch_reference"):
+        raise ValueError(
+            "unsupported periodic backend: "
+            f"{backend!r}; expected None, 'warp', 'auto', or 'torch_reference'"
+        )
+    if backend in ("auto", "torch_reference"):
+        from nvalchemi._dynamics_reference.periodic import (
+            wrap_positions_into_cell as reference_wrap_positions,
+        )
+
+        reference_wrap_positions(positions, cell, pbc, batch_idx)
+        return positions
+
     original = positions.clone()
     wrapped = _wrap_positions(positions, cell, batch_idx)
 
@@ -164,6 +182,9 @@ class WrapPeriodicHook:
     stage : Enum | None, optional
         The workflow stage at which this hook runs.  Defaults to
         ``None`` (stage-agnostic until registered with a specific engine).
+    compute_backend : {None, "warp", "auto", "torch_reference"}, optional
+        Backend used by the coordinate helper. If omitted, an explicit
+        ``ctx.workflow.backend`` is inherited when available.
 
     Attributes
     ----------
@@ -198,12 +219,21 @@ class WrapPeriodicHook:
         self,
         frequency: int = 1,
         stage: Enum | None = None,
+        compute_backend: str | None = None,
     ) -> None:
+        if compute_backend not in (None, "warp", "auto", "torch_reference"):
+            raise ValueError(
+                "WrapPeriodicHook compute_backend must be one of None, 'warp', "
+                f"'auto', or 'torch_reference'; got {compute_backend!r}."
+            )
         self.frequency = frequency
         self.stage = stage
+        self.compute_backend = compute_backend
 
-    def _wrap_positions(self, batch: Batch) -> None:
+    def _wrap_positions(self, batch: Batch, backend: str | None = None) -> None:
         """Wrap positions into the unit cell in-place."""
+        if backend is None:
+            backend = self.compute_backend
         cell = batch.cell
         pbc = batch.pbc
         # System-level tensors may have a leading singleton dim: (B, 1, 3, 3) -> (B, 3, 3)
@@ -211,8 +241,13 @@ class WrapPeriodicHook:
             cell = cell.squeeze(1)
         if pbc.dim() == 3:
             pbc = pbc.squeeze(1)
-        wrap_positions_into_cell(batch.positions, cell, pbc, batch.batch_idx)
+        wrap_positions_into_cell(
+            batch.positions, cell, pbc, batch.batch_idx, backend=backend
+        )
 
     def __call__(self, ctx: HookContext, stage: Enum) -> None:
         """Wrap positions into the unit cell in-place."""
-        self._wrap_positions(ctx.batch)
+        backend = self.compute_backend
+        if backend is None:
+            backend = getattr(ctx.workflow, "backend", None)
+        self._wrap_positions(ctx.batch, backend=backend)

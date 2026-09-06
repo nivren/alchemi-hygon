@@ -131,6 +131,10 @@ class LoggingHook:
     writer_fn : Callable[[int, list[dict[str, float]]], None] | None, optional
         Custom writer function, required when ``backend="custom"``.
         Receives ``(step_count, rows)``.  Default ``None``.
+    compute_backend : {None, "warp", "auto", "torch_reference"}, optional
+        Backend for on-device reductions and kinetic observables. ``None``
+        follows ``ctx.workflow.backend`` when present, otherwise preserves
+        the upstream Warp path.
 
     Examples
     --------
@@ -170,6 +174,7 @@ class LoggingHook:
         ) = None,
         writer_fn: (Callable[[int, list[dict[str, float]]], None] | None) = None,
         stage: Enum = DynamicsStage.AFTER_STEP,
+        compute_backend: str | None = None,
     ) -> None:
         self.frequency = frequency
         self.stage = stage
@@ -196,6 +201,12 @@ class LoggingHook:
         self.log_path = log_path
         self.custom_scalars = custom_scalars
         self.writer_fn = writer_fn
+        if compute_backend not in (None, "warp", "auto", "torch_reference"):
+            raise ValueError(
+                "LoggingHook compute_backend must be one of None, 'warp', "
+                f"'auto', or 'torch_reference'; got {compute_backend!r}."
+            )
+        self.compute_backend = compute_backend
 
     # ------------------------------------------------------------------
     # Context manager
@@ -297,6 +308,9 @@ class LoggingHook:
         """
         dev = batch.device
         num_graphs = batch.num_graphs
+        compute_backend = self.compute_backend
+        if compute_backend is None:
+            compute_backend = getattr(ctx.workflow, "backend", None)
 
         td = TensorDict(
             step=torch.full((num_graphs,), step_count, device=dev, dtype=torch.int64),
@@ -325,7 +339,11 @@ class LoggingHook:
             td.set(
                 "fmax",
                 scatter_reduce_per_graph(
-                    norms, batch.batch_idx, num_graphs, reduce="amax"
+                    norms,
+                    batch.batch_idx,
+                    num_graphs,
+                    reduce="amax",
+                    backend=compute_backend,
                 ),
             )
 
@@ -338,6 +356,7 @@ class LoggingHook:
                     batch.batch_idx,
                     num_graphs,
                     batch.num_nodes_per_graph,
+                    backend=compute_backend,
                 ),
             )
 

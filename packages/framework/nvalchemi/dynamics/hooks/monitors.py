@@ -90,6 +90,9 @@ class EnergyDriftMonitorHook:
         Whether to include kinetic energy in the total energy
         calculation. Set to ``False`` if only monitoring potential
         energy drift (e.g. for optimizers). Default ``True``.
+    compute_backend : {None, "warp", "auto", "torch_reference"}, optional
+        Backend for kinetic energy. ``None`` follows ``ctx.workflow.backend``
+        when present, otherwise preserves the upstream Warp path.
 
     Attributes
     ----------
@@ -145,6 +148,7 @@ class EnergyDriftMonitorHook:
         frequency: int = 1,
         include_kinetic: bool = True,
         stage: Enum = DynamicsStage.AFTER_STEP,
+        compute_backend: str | None = None,
     ) -> None:
         self.frequency = frequency
         self.stage = stage
@@ -152,10 +156,22 @@ class EnergyDriftMonitorHook:
         self.metric = metric
         self.action = action
         self.include_kinetic = include_kinetic
+        if compute_backend not in (None, "warp", "auto", "torch_reference"):
+            raise ValueError(
+                "EnergyDriftMonitorHook compute_backend must be one of None, "
+                f"'warp', 'auto', or 'torch_reference'; got {compute_backend!r}."
+            )
+        self.compute_backend = compute_backend
         self._reference_total_energy: torch.Tensor | None = None
 
     @torch.compiler.disable
-    def _check_drift(self, batch: Batch, step_count: int, global_rank: int) -> None:
+    def _check_drift(
+        self,
+        batch: Batch,
+        step_count: int,
+        global_rank: int,
+        compute_backend: str | None = None,
+    ) -> None:
         """Compute energy drift and compare against the threshold.
 
         On the first firing, this method captures the reference total
@@ -172,6 +188,8 @@ class EnergyDriftMonitorHook:
             The current step number.
         global_rank : int
             The distributed rank of this process.
+        compute_backend : {None, "warp", "auto", "torch_reference"}, optional
+            Backend used for the kinetic contribution.
 
         Raises
         ------
@@ -186,6 +204,7 @@ class EnergyDriftMonitorHook:
                 batch.atomic_masses,
                 batch.batch_idx,
                 batch.num_graphs,
+                backend=compute_backend,
             ).squeeze(-1)  # (B,)
             total = energy + ke
         else:
@@ -218,4 +237,12 @@ class EnergyDriftMonitorHook:
 
     def __call__(self, ctx: DynamicsContext, stage: Enum) -> None:
         """Check energy drift against the configured threshold."""
-        self._check_drift(ctx.batch, ctx.step_count, ctx.global_rank or 0)
+        compute_backend = self.compute_backend
+        if compute_backend is None:
+            compute_backend = getattr(ctx.workflow, "backend", None)
+        self._check_drift(
+            ctx.batch,
+            ctx.step_count,
+            ctx.global_rank or 0,
+            compute_backend=compute_backend,
+        )

@@ -50,7 +50,6 @@ import torch
 from nvalchemi.data import Batch
 from nvalchemi.dynamics._ops._bridge import _make_state_batch, _to_per_system
 from nvalchemi.dynamics._ops.fire import fire2_step_coord, fire2_step_coord_cell
-from nvalchemi.dynamics._ops.npt_nph import stress_to_cell_force
 from nvalchemi.dynamics.base import BaseDynamics
 
 if TYPE_CHECKING:
@@ -155,6 +154,7 @@ class FIRE2(BaseDynamics):
         n_steps: int | None = None,
         hooks: list[Hook] | None = None,
         convergence_hook: ConvergenceHook | dict | None = None,
+        backend: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -173,6 +173,7 @@ class FIRE2(BaseDynamics):
         self.tmax = tmax
         self.tmin = tmin
         self.maxstep = maxstep
+        self.backend = backend
 
     def _init_state(self, batch: Batch) -> None:
         M = batch.num_graphs
@@ -223,6 +224,7 @@ class FIRE2(BaseDynamics):
             tmax=self.tmax,
             tmin=self.tmin,
             maxstep=self.maxstep,
+            backend=self.backend,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -340,6 +342,11 @@ class FIRE2VariableCell(BaseDynamics):
             Current batch; *positions*, *velocities*, and *cell*
             updated in-place.
         """
+        # Variable-cell FIRE2 remains Warp-backed until stress/cell reference
+        # operators are implemented.  Import it locally so fixed-cell FIRE2
+        # stays usable without Warp.
+        from nvalchemi.dynamics._ops.npt_nph import stress_to_cell_force
+
         volumes = torch.linalg.det(batch.cell).abs()
         # batch.stress is tensile-positive Cauchy stress -W/V (eV/A^3).
         stress_sigma = batch.stress

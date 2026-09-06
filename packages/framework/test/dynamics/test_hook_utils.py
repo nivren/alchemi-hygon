@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import os
+
 import torch
 
 from nvalchemi.dynamics.hooks._utils import (
@@ -25,6 +27,11 @@ from nvalchemi.dynamics.hooks._utils import (
     temperature_per_graph,
 )
 from nvalchemi.hooks.periodic import wrap_positions_into_cell
+
+
+def _test_backend() -> str | None:
+    """Select the explicit reference backend when requested by the test run."""
+    return os.environ.get("NVALCHEMI_TEST_BACKEND") or None
 
 # ---------------------------------------------------------------------------
 # scatter_reduce_per_graph
@@ -39,7 +46,7 @@ class TestScatterReducePerGraph:
         values = torch.tensor([1.0, 5.0, 3.0])
         batch_idx = torch.tensor([0, 0, 0])
         result = scatter_reduce_per_graph(
-            values, batch_idx, num_graphs=1, reduce="amax"
+            values, batch_idx, num_graphs=1, reduce="amax", backend=_test_backend()
         )
         assert result.shape == (1,)
         assert torch.isclose(result[0], torch.tensor(5.0))
@@ -49,7 +56,7 @@ class TestScatterReducePerGraph:
         values = torch.tensor([5.0, 1.0, 10.0, 2.0])
         batch_idx = torch.tensor([0, 0, 1, 1])
         result = scatter_reduce_per_graph(
-            values, batch_idx, num_graphs=2, reduce="amax"
+            values, batch_idx, num_graphs=2, reduce="amax", backend=_test_backend()
         )
         assert result.shape == (2,)
         assert torch.isclose(result[0], torch.tensor(5.0))
@@ -59,7 +66,9 @@ class TestScatterReducePerGraph:
         """Verify sum reduction for a single graph."""
         values = torch.tensor([1.0, 2.0, 3.0])
         batch_idx = torch.tensor([0, 0, 0])
-        result = scatter_reduce_per_graph(values, batch_idx, num_graphs=1, reduce="sum")
+        result = scatter_reduce_per_graph(
+            values, batch_idx, num_graphs=1, reduce="sum", backend=_test_backend()
+        )
         assert result.shape == (1,)
         assert torch.isclose(result[0], torch.tensor(6.0))
 
@@ -67,7 +76,9 @@ class TestScatterReducePerGraph:
         """Verify sum reduction across multiple graphs."""
         values = torch.tensor([1.0, 2.0, 10.0, 20.0])
         batch_idx = torch.tensor([0, 0, 1, 1])
-        result = scatter_reduce_per_graph(values, batch_idx, num_graphs=2, reduce="sum")
+        result = scatter_reduce_per_graph(
+            values, batch_idx, num_graphs=2, reduce="sum", backend=_test_backend()
+        )
         assert result.shape == (2,)
         assert torch.isclose(result[0], torch.tensor(3.0))
         assert torch.isclose(result[1], torch.tensor(30.0))
@@ -77,7 +88,7 @@ class TestScatterReducePerGraph:
         values = torch.tensor([5.0, 1.0, 10.0, 2.0])
         batch_idx = torch.tensor([0, 0, 1, 1])
         result = scatter_reduce_per_graph(
-            values, batch_idx, num_graphs=2, reduce="amin"
+            values, batch_idx, num_graphs=2, reduce="amin", backend=_test_backend()
         )
         assert result.shape == (2,)
         assert torch.isclose(result[0], torch.tensor(1.0))
@@ -88,7 +99,7 @@ class TestScatterReducePerGraph:
         values = torch.tensor([2.0, 4.0, 10.0, 20.0])
         batch_idx = torch.tensor([0, 0, 1, 1])
         result = scatter_reduce_per_graph(
-            values, batch_idx, num_graphs=2, reduce="mean"
+            values, batch_idx, num_graphs=2, reduce="mean", backend=_test_backend()
         )
         assert result.shape == (2,)
         assert torch.isclose(result[0], torch.tensor(3.0))
@@ -98,14 +109,18 @@ class TestScatterReducePerGraph:
         """Verify default reduction is amax."""
         values = torch.tensor([1.0, 5.0, 3.0])
         batch_idx = torch.tensor([0, 0, 0])
-        result = scatter_reduce_per_graph(values, batch_idx, num_graphs=1)
+        result = scatter_reduce_per_graph(
+            values, batch_idx, num_graphs=1, backend=_test_backend()
+        )
         assert torch.isclose(result[0], torch.tensor(5.0))
 
     def test_all_zeros(self) -> None:
         """Verify zero values are handled correctly with sum."""
         values = torch.zeros(4)
         batch_idx = torch.tensor([0, 0, 1, 1])
-        result = scatter_reduce_per_graph(values, batch_idx, num_graphs=2, reduce="sum")
+        result = scatter_reduce_per_graph(
+            values, batch_idx, num_graphs=2, reduce="sum", backend=_test_backend()
+        )
         assert torch.allclose(result, torch.zeros(2))
 
     def test_composable_with_vector_norm(self) -> None:
@@ -121,7 +136,13 @@ class TestScatterReducePerGraph:
         )
         batch_idx = torch.tensor([0, 0, 1, 1])
         norms = torch.linalg.vector_norm(forces, dim=-1)
-        result = scatter_reduce_per_graph(norms, batch_idx, num_graphs=2, reduce="amax")
+        result = scatter_reduce_per_graph(
+            norms,
+            batch_idx,
+            num_graphs=2,
+            reduce="amax",
+            backend=_test_backend(),
+        )
         assert torch.isclose(result[0], torch.tensor(5.0))
         assert torch.isclose(result[1], torch.tensor(10.0))
 
@@ -139,7 +160,9 @@ class TestKineticEnergyPerGraph:
         velocities = torch.tensor([[1.0, 0.0, 0.0]])
         masses = torch.tensor([2.0])
         batch_idx = torch.tensor([0])
-        result = kinetic_energy_per_graph(velocities, masses, batch_idx, num_graphs=1)
+        result = kinetic_energy_per_graph(
+            velocities, masses, batch_idx, num_graphs=1, backend=_test_backend()
+        )
         # KE = 0.5 * 2.0 * (1^2 + 0 + 0) = 1.0
         assert result.shape == (1, 1)
         assert torch.isclose(result[0, 0], torch.tensor(1.0))
@@ -149,7 +172,9 @@ class TestKineticEnergyPerGraph:
         velocities = torch.tensor([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
         masses = torch.tensor([1.0, 3.0])
         batch_idx = torch.tensor([0, 0])
-        result = kinetic_energy_per_graph(velocities, masses, batch_idx, num_graphs=1)
+        result = kinetic_energy_per_graph(
+            velocities, masses, batch_idx, num_graphs=1, backend=_test_backend()
+        )
         # KE = 0.5*1*(1) + 0.5*3*(4) = 0.5 + 6.0 = 6.5
         assert torch.isclose(result[0, 0], torch.tensor(6.5))
 
@@ -163,7 +188,9 @@ class TestKineticEnergyPerGraph:
         )
         masses = torch.tensor([2.0, 4.0])
         batch_idx = torch.tensor([0, 1])
-        result = kinetic_energy_per_graph(velocities, masses, batch_idx, num_graphs=2)
+        result = kinetic_energy_per_graph(
+            velocities, masses, batch_idx, num_graphs=2, backend=_test_backend()
+        )
         # Graph 0: 0.5*2*1 = 1.0
         # Graph 1: 0.5*4*1 = 2.0
         assert result.shape == (2, 1)
@@ -175,7 +202,9 @@ class TestKineticEnergyPerGraph:
         velocities = torch.tensor([[1.0, 0.0, 0.0]])
         masses = torch.tensor([[2.0]])  # (1, 1)
         batch_idx = torch.tensor([0])
-        result = kinetic_energy_per_graph(velocities, masses, batch_idx, num_graphs=1)
+        result = kinetic_energy_per_graph(
+            velocities, masses, batch_idx, num_graphs=1, backend=_test_backend()
+        )
         assert torch.isclose(result[0, 0], torch.tensor(1.0))
 
     def test_zero_velocity(self) -> None:
@@ -183,7 +212,9 @@ class TestKineticEnergyPerGraph:
         velocities = torch.zeros(3, 3)
         masses = torch.tensor([1.0, 2.0, 3.0])
         batch_idx = torch.tensor([0, 0, 0])
-        result = kinetic_energy_per_graph(velocities, masses, batch_idx, num_graphs=1)
+        result = kinetic_energy_per_graph(
+            velocities, masses, batch_idx, num_graphs=1, backend=_test_backend()
+        )
         assert torch.isclose(result[0, 0], torch.tensor(0.0))
 
 
@@ -210,7 +241,12 @@ class TestTemperaturePerGraph:
         atoms_per_graph = torch.tensor([n_atoms])
 
         result = temperature_per_graph(
-            velocities, masses, batch_idx, num_graphs=1, atoms_per_graph=atoms_per_graph
+            velocities,
+            masses,
+            batch_idx,
+            num_graphs=1,
+            atoms_per_graph=atoms_per_graph,
+            backend=_test_backend(),
         )
         # Each atom: 0.5 * m * (v/sqrt(3))^2 * 3 = 0.5 * m * v^2
         # Total KE = n_atoms * 0.5 * m * v^2
@@ -235,6 +271,7 @@ class TestTemperaturePerGraph:
             num_graphs=1,
             atoms_per_graph=atoms_per_graph,
             conversion_factor=custom_cf,
+            backend=_test_backend(),
         )
         expected = m * v**2 / (3.0 * custom_cf)
         assert torch.isclose(result[0], torch.tensor(expected), rtol=1e-5)
@@ -247,7 +284,12 @@ class TestTemperaturePerGraph:
         atoms_per_graph = torch.tensor([5])
 
         result = temperature_per_graph(
-            velocities, masses, batch_idx, num_graphs=1, atoms_per_graph=atoms_per_graph
+            velocities,
+            masses,
+            batch_idx,
+            num_graphs=1,
+            atoms_per_graph=atoms_per_graph,
+            backend=_test_backend(),
         )
         assert torch.isclose(result[0], torch.tensor(0.0))
 
@@ -268,7 +310,9 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[12.0, -3.0, 25.0]])  # outside the cell
         batch_idx = torch.tensor([0])
 
-        wrapped = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
         expected = torch.tensor([[2.0, 7.0, 5.0]])
         assert torch.allclose(wrapped, expected, atol=1e-5)
 
@@ -279,7 +323,9 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[5.0, 5.0, 5.0]])
         batch_idx = torch.tensor([0])
 
-        wrapped = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
         assert torch.allclose(wrapped, positions, atol=1e-5)
 
     def test_partial_pbc(self) -> None:
@@ -289,7 +335,9 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[12.0, -3.0, 25.0]])
         batch_idx = torch.tensor([0])
 
-        wrapped = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
         # x and y wrapped, z left as-is
         assert torch.isclose(wrapped[0, 0], torch.tensor(2.0), atol=1e-5)
         assert torch.isclose(wrapped[0, 1], torch.tensor(7.0), atol=1e-5)
@@ -302,7 +350,9 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[12.0, -3.0, 25.0]])
         batch_idx = torch.tensor([0])
 
-        wrapped = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
         assert torch.allclose(wrapped, positions, atol=1e-5)
 
     def test_idempotent(self) -> None:
@@ -312,8 +362,12 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[12.0, -3.0, 25.0]])
         batch_idx = torch.tensor([0])
 
-        wrapped_once = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
-        wrapped_twice = wrap_positions_into_cell(wrapped_once, cell, pbc, batch_idx)
+        wrapped_once = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
+        wrapped_twice = wrap_positions_into_cell(
+            wrapped_once, cell, pbc, batch_idx, backend=_test_backend()
+        )
         assert torch.allclose(wrapped_once, wrapped_twice, atol=1e-5)
 
     def test_triclinic_cell(self) -> None:
@@ -327,12 +381,28 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[16.0, 5.0, 5.0]])
         batch_idx = torch.tensor([0])
 
-        wrapped = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
         # Should wrap to fractional [0.5, 0.5, 0.5]
         # Cartesian: 0.5 * [10,0,0] + 0.5 * [2,10,0] + 0.5 * [0,0,10]
         #          = [5, 0, 0] + [1, 5, 0] + [0, 0, 5] = [6, 5, 5]
         expected = torch.tensor([[6.0, 5.0, 5.0]])
         assert torch.allclose(wrapped, expected, atol=1e-4)
+
+    def test_triclinic_partial_pbc_preserves_cartesian_nonperiodic_axis(self) -> None:
+        """Non-periodic Cartesian coordinates stay unchanged in a skewed cell."""
+        cell = torch.tensor([[[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [0.0, 0.0, 10.0]]])
+        pbc = torch.tensor([[False, True, False]])
+        # Fractional [0.5, 1.5, 0.5] gives Cartesian [8, 15, 5].
+        positions = torch.tensor([[8.0, 15.0, 5.0]])
+        batch_idx = torch.tensor([0])
+
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
+        # y wraps, while x/z remain the original Cartesian values.
+        assert torch.allclose(wrapped, torch.tensor([[8.0, 5.0, 5.0]]), atol=1e-5)
 
     def test_multi_graph_different_cells(self) -> None:
         """Verify wrapping with heterogeneous cells in a batch."""
@@ -349,7 +419,9 @@ class TestWrapPositionsIntoCell:
         positions = torch.tensor([[12.0, 5.0, 5.0], [7.0, 2.5, 2.5]])
         batch_idx = torch.tensor([0, 1])
 
-        wrapped = wrap_positions_into_cell(positions, cell, pbc, batch_idx)
+        wrapped = wrap_positions_into_cell(
+            positions, cell, pbc, batch_idx, backend=_test_backend()
+        )
         assert torch.isclose(wrapped[0, 0], torch.tensor(2.0), atol=1e-5)
         assert torch.isclose(wrapped[1, 0], torch.tensor(2.0), atol=1e-5)
 
@@ -380,7 +452,13 @@ class TestUtilsCompile:
         values = torch.tensor([1.0, 2.0, 10.0, 20.0], device=device)
         batch_idx = torch.tensor([0, 0, 1, 1], device=device)
         fn = torch.compile(scatter_reduce_per_graph, **self._compile_kwargs(device))
-        result = fn(values, batch_idx, num_graphs=2, reduce="sum")
+        result = fn(
+            values,
+            batch_idx,
+            num_graphs=2,
+            reduce="sum",
+            backend=_test_backend(),
+        )
         assert torch.isclose(result[0], torch.tensor(3.0, device=device))
         assert torch.isclose(result[1], torch.tensor(30.0, device=device))
 
@@ -388,7 +466,13 @@ class TestUtilsCompile:
         values = torch.tensor([5.0, 1.0, 10.0, 2.0], device=device)
         batch_idx = torch.tensor([0, 0, 1, 1], device=device)
         fn = torch.compile(scatter_reduce_per_graph, **self._compile_kwargs(device))
-        result = fn(values, batch_idx, num_graphs=2, reduce="amax")
+        result = fn(
+            values,
+            batch_idx,
+            num_graphs=2,
+            reduce="amax",
+            backend=_test_backend(),
+        )
         assert torch.isclose(result[0], torch.tensor(5.0, device=device))
         assert torch.isclose(result[1], torch.tensor(10.0, device=device))
 
@@ -397,7 +481,13 @@ class TestUtilsCompile:
         masses = torch.tensor([1.0, 3.0], device=device)
         batch_idx = torch.tensor([0, 0], device=device)
         fn = torch.compile(kinetic_energy_per_graph, **self._compile_kwargs(device))
-        result = fn(velocities, masses, batch_idx, num_graphs=1)
+        result = fn(
+            velocities,
+            masses,
+            batch_idx,
+            num_graphs=1,
+            backend=_test_backend(),
+        )
         assert torch.isclose(result[0, 0], torch.tensor(6.5, device=device))
 
     def test_temperature_compiles(self, device: str) -> None:
@@ -408,7 +498,12 @@ class TestUtilsCompile:
         atoms_per_graph = torch.tensor([n_atoms], device=device)
         fn = torch.compile(temperature_per_graph, **self._compile_kwargs(device))
         result = fn(
-            velocities, masses, batch_idx, num_graphs=1, atoms_per_graph=atoms_per_graph
+            velocities,
+            masses,
+            batch_idx,
+            num_graphs=1,
+            atoms_per_graph=atoms_per_graph,
+            backend=_test_backend(),
         )
         assert result.shape == (1,)
         assert torch.isfinite(result).all()
@@ -421,6 +516,12 @@ class TestUtilsCompile:
         positions = torch.tensor([[12.0, -3.0, 25.0]], device=device)
         batch_idx = torch.tensor([0], device=device)
         fn = torch.compile(wrap_positions_into_cell, **self._compile_kwargs(device))
-        wrapped = fn(positions, cell, pbc, batch_idx)
+        wrapped = fn(
+            positions,
+            cell,
+            pbc,
+            batch_idx,
+            backend=_test_backend(),
+        )
         expected = torch.tensor([[2.0, 7.0, 5.0]], device=device)
         assert torch.allclose(wrapped, expected, atol=1e-5)

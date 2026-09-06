@@ -23,12 +23,18 @@ Tests for BaseDynamics per-system _state batch lifecycle:
 
 from __future__ import annotations
 
+import os
 from unittest.mock import Mock
 
 import pytest
 import torch
 
 from nvalchemi.data import AtomicData, Batch
+
+
+def _test_backend() -> str | None:
+    """Return an explicit backend for reference test runs, if requested."""
+    return os.environ.get("NVALCHEMI_TEST_BACKEND")
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -143,7 +149,7 @@ class TestStateLazyInit:
 
         model = _make_model()
         batch = _make_batch(2)
-        nve = NVE(model=model, dt=0.1)
+        nve = NVE(model=model, dt=0.1, backend=_test_backend())
         assert not hasattr(nve, "_state")
         self._run_step(nve, batch)
         assert hasattr(nve, "_state")
@@ -173,7 +179,7 @@ class TestStateLazyInit:
 
         model = _make_model()
         batch = _make_batch(2)
-        dyn = FIRE(model=model, dt=0.1)
+        dyn = FIRE(model=model, dt=0.1, backend=_test_backend())
         assert not hasattr(dyn, "_state")
         self._run_step(dyn, batch)
         assert hasattr(dyn, "_state")
@@ -183,7 +189,7 @@ class TestStateLazyInit:
 
         model = _make_model()
         batch = _make_batch(2)
-        dyn = FIRE2(model=model, dt=0.05)
+        dyn = FIRE2(model=model, dt=0.05, backend=_test_backend())
         assert not hasattr(dyn, "_state")
         self._run_step(dyn, batch)
         assert hasattr(dyn, "_state")
@@ -235,7 +241,7 @@ class TestStateLazyInit:
 
         model = _make_model()
         batch = _make_batch(1)
-        nve = NVE(model=model, dt=0.1)
+        nve = NVE(model=model, dt=0.1, backend=_test_backend())
         nve.step(batch)
         state_id = id(nve._state)
         nve.step(batch)
@@ -257,7 +263,7 @@ class TestStateShapes:
 
         model = _make_model()
         batch = _make_batch(M)
-        dyn = NVE(model=model, dt=0.1)
+        dyn = NVE(model=model, dt=0.1, backend=_test_backend())
         dyn._init_state(batch)
         assert dyn._state.dt.shape == (M,)
         assert dyn._state.num_graphs == M
@@ -336,7 +342,7 @@ class TestStateShapes:
 
         model = _make_model()
         batch = _make_batch(M)
-        dyn = FIRE(model=model, dt=0.1)
+        dyn = FIRE(model=model, dt=0.1, backend=_test_backend())
         dyn._init_state(batch)
         for key in [
             "dt",
@@ -374,7 +380,7 @@ class TestStateShapes:
 
         model = _make_model()
         batch = _make_batch(M)
-        dyn = FIRE2(model=model, dt=0.05)
+        dyn = FIRE2(model=model, dt=0.05, backend=_test_backend())
         dyn._init_state(batch)
         assert dyn._state.dt.shape == (M,)
         assert dyn._state.alpha.shape == (M,)
@@ -398,7 +404,7 @@ class TestStateShapes:
 
         model = _make_model()
         batch = _make_batch(1)
-        dyn = NVE(model=model, dt=0.1)
+        dyn = NVE(model=model, dt=0.1, backend=_test_backend())
         dyn._init_state(batch)
         # State dtype must match the actual positions dtype of the batch.
         assert dyn._state.dt.dtype == batch.positions.dtype
@@ -417,7 +423,7 @@ class TestStateInvariant:
 
         model = _make_model()
         batch = _make_batch(3)
-        dyn = NVE(model=model, dt=0.1)
+        dyn = NVE(model=model, dt=0.1, backend=_test_backend())
         for _ in range(5):
             dyn.step(batch)
             assert dyn._state.num_graphs == batch.num_graphs
@@ -428,7 +434,7 @@ class TestStateInvariant:
         model = _make_model()
         data_list = [_make_atomic_data(n, seed=i) for n, i in [(3, 0), (5, 1), (4, 2)]]
         batch = Batch.from_data_list(data_list)
-        dyn = FIRE(model=model, dt=0.1)
+        dyn = FIRE(model=model, dt=0.1, backend=_test_backend())
         for _ in range(3):
             dyn.step(batch)
             assert dyn._state.num_graphs == batch.num_graphs == 3
@@ -478,7 +484,7 @@ class TestPipelineStateMutation:
         """Non-contiguous graduation keeps convergence and FIRE state aligned."""
         from nvalchemi.dynamics.optimizers.fire import FIRE
 
-        dyn = FIRE(model=_make_model(), dt=0.1)
+        dyn = FIRE(model=_make_model(), dt=0.1, backend=_test_backend())
         dyn.active_batch = _make_batch(4)
         dyn.step(dyn.active_batch)
 
@@ -533,7 +539,7 @@ class TestMakeNewState:
         from nvalchemi.dynamics.integrators.nve import NVE
 
         template = self._template()
-        dyn = NVE(model=_make_model(), dt=0.1)
+        dyn = NVE(model=_make_model(), dt=0.1, backend=_test_backend())
         state = dyn._make_new_state(n_new, template)
         assert state is not None
         assert state.dt.shape == (n_new,)
@@ -590,7 +596,7 @@ class TestMakeNewState:
         from nvalchemi.dynamics.optimizers.fire import FIRE
 
         template = self._template()
-        dyn = FIRE(model=_make_model(), dt=0.1)
+        dyn = FIRE(model=_make_model(), dt=0.1, backend=_test_backend())
         state = dyn._make_new_state(n_new, template)
         assert state is not None
         assert state.dt.shape == (n_new,)
@@ -603,7 +609,7 @@ class TestMakeNewState:
         from nvalchemi.dynamics.optimizers.fire2 import FIRE2
 
         template = self._template()
-        dyn = FIRE2(model=_make_model(), dt=0.05)
+        dyn = FIRE2(model=_make_model(), dt=0.05, backend=_test_backend())
         state = dyn._make_new_state(n_new, template)
         assert state is not None
         assert state.alpha.shape == (n_new,)
@@ -721,7 +727,7 @@ class TestStateSyncInflight:
 
         model = _make_model()
         sampler = _MockSampler(replacements)
-        dyn = FIRE(model=model, dt=0.1, sampler=sampler)
+        dyn = FIRE(model=model, dt=0.1, sampler=sampler, backend=_test_backend())
         return dyn, sampler
 
     def _make_status_batch(self, n_systems: int, n_atoms: int = 4) -> Batch:
