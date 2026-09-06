@@ -109,3 +109,17 @@ HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 180 \
 - 两个体系逐体系总力最大分量约 `2.4e-7`。
 
 证据：`artifacts/g1/mace_wrapper_h2o_batch2_hcu0.json`、`.stderr`、`.exit`。这说明小图的 HCU batching 基础路径可运行；`perf_46` 两体系超时仍需区分图规模、PBC/JIT、显存和共享资源，不能归因于 Batch 语义或直接判定 HCU 不支持。
+
+阶段定位探针进一步把超时定位到 Torch reference 周期邻居构造：
+
+```bash
+source scripts/activate_hygon_env.sh exploration
+HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 90 \
+  python -u probes/mace_wrapper_stages.py --device cuda \
+  --checkpoint /home/wangleping/.cache/mace/MACE-OFF23_small.model \
+  --cif /data/csp_data/perf_46/formal_c1_1_10_z1_46.cif \
+        /data/csp_data/perf_46/formal_c1_1_11_z1_46.cif \
+  > artifacts/g1/mace_wrapper_perf46_batch2_stages_hcu0.json
+```
+
+该探针退出 `124`，在 90 秒内只完成 `model_loaded`（3.79 秒）和 `batch_built`（3.84 秒，`batch_ptr=[0,46,92]`），没有输出 `neighbors_built`，因此没有进入 MACE 原始 model forward。原始 stderr/stdout/退出码见 `artifacts/g1/mace_wrapper_perf46_batch2_stages_hcu0.{stderr,json,exit}`。当前结论是 reference 邻居路径在 HCU 上对两个 46 原子周期体系已超出小输入定位范围；需要后续基准和 Triton/HIP/cell-list 设计，不能靠延长 MACE timeout 解决。
