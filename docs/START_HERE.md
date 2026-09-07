@@ -53,6 +53,40 @@ git -C external/nvalchemi-toolkit-ops rev-parse HEAD
 
 此刻打印出的 HEAD 只是实际 clone 到的版本，不自动等于后续锁定基线。下一步需检查两项目版本依赖、Python 和 Torch 等约束。
 
+### 2.1 按锁定 SHA 固定 external 参考 clone
+
+两个参考目录被根仓库的 `.gitignore` 以 `/external/` 整体排除是有意设计：它们是每台
+开发机上的本地、完整上游源码，只用于查阅、审计和同步，不是产品安装源，也不应提交到
+根仓库。准确版本以 `docs/UPSTREAM_LOCK.yaml` 为准；当前锁定值如下：
+
+```bash
+FRAMEWORK_SHA=4dfe3723def34df3fadb245981081ccf8c94c257
+OPS_SHA=26dbceb61e30cca80e1a5805eebeb51d7dc68fd1
+
+git -C external/nvalchemi-toolkit fetch --no-tags origin "$FRAMEWORK_SHA"
+git -C external/nvalchemi-toolkit checkout --detach "$FRAMEWORK_SHA"
+
+git -C external/nvalchemi-toolkit-ops fetch --no-tags origin "$OPS_SHA"
+git -C external/nvalchemi-toolkit-ops checkout --detach "$OPS_SHA"
+
+test "$(git -C external/nvalchemi-toolkit rev-parse HEAD)" = "$FRAMEWORK_SHA"
+test "$(git -C external/nvalchemi-toolkit-ops rev-parse HEAD)" = "$OPS_SHA"
+git -C external/nvalchemi-toolkit status --short
+git -C external/nvalchemi-toolkit-ops status --short
+```
+
+上面的 `git clone` 默认是完整历史；若已有 shallow clone，先执行：
+
+```bash
+git -C external/nvalchemi-toolkit fetch --unshallow origin
+git -C external/nvalchemi-toolkit-ops fetch --unshallow origin
+```
+
+如果服务器不能直连 GitHub，可使用团队认可的完整镜像或 Git bundle，但必须记录官方 URL、
+实际来源、完整 SHA、历史是否完整和许可证。已有参考目录时先检查并 fetch，不要重复 clone、
+清空目录或覆盖他人的本地修改。普通开发者只需建立并查阅这两个目录；不要重新导入
+`packages/framework`/`packages/ops`，除非正在执行明确的 subtree 导入或同步任务。
+
 ## 3. 启动 Codex CLI
 
 安装与登录完成的 Codex CLI 从根目录运行：
