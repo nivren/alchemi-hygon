@@ -1,5 +1,8 @@
 # 环境盘点与更新（2026-09-06 UTC）
 
+新开发者部署环境请先阅读 [`DEVELOPMENT_ENVIRONMENT.md`](DEVELOPMENT_ENVIRONMENT.md)；本文
+记录当前服务器的实测状态、依赖冻结和证据边界，不是跨机器通用安装脚本。
+
 - Ubuntu 22.04.5 LTS，Linux 5.15.0-136-generic，x86_64。
 - 沙箱外 hy-smi：8 张 BW200 / UBB BW1000，每卡 65520 MiB；驱动 6.3.30-V1.4.1a；任意两卡 Link Type 为 HSW。
 - 13:11 UTC 首次资源盘点 8 卡均 100% HCU 利用率、43% VRAM；稍后型号盘点显存用量约 7.2–7.4 GiB，说明资源随时间变化，不能据此抢占。未取得专用卡分配，不启动计算。

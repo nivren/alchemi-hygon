@@ -219,8 +219,9 @@ G5 架构探针从 G0 穿插推进。第一目标是 G1 的完整纵向链路，
 
 - 根仓库分支为 `codex/g0-initialization`；上游锁定不变：framework
   `4dfe3723def34df3fadb245981081ccf8c94c257`、ops
-  `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`。未修改 `external/`，本轮没有提交新
-  commit，工作树状态以 `git status --short` 为准。
+  `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`。未修改 `external/`；周期邻居 Tier 1
+  当前状态检查点已提交为 `9fb9d1f`，后续文档改动另行提交，工作树状态以
+  `git status --short` 为准。
 - 完成 periodic full-list Torch reference 的 Tier 1 装配替换：
   `packages/ops/nvalchemiops/torch_reference.py` 保留原有逐 system pair/image 几何
   候选计算，改用设备端 `nonzero`、`bincount`、行内 rank 和矩阵索引写回，去除逐边

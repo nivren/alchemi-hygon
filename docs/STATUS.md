@@ -519,3 +519,15 @@
 - 原始 JSON 日志见 `artifacts/g2/mace-fire2-batch32-metrics-hcu.log`，统计和
   复现实验说明已补入 `reports/g2-mace-fire2-batch32-tier1.md`。这些是
   `torch_reference`/MACE HCU 指标，不作为 NVIDIA Warp 数值等同性结论。
+
+### 2026-09-07：新开发者环境与开发模式文档
+
+- 当前工程状态检查点已提交为 `9fb9d1f`；本次新增文档只覆盖部署和协作方法，不改变运行时代码。
+- 新增 `docs/DEVELOPMENT_ENVIRONMENT.md`，说明 Hygon reference 环境的本地 Torch/Triton
+  wheel、锁文件、DTK 加载、设备权限、最小验证和常见故障；`docs/ENVIRONMENT.md` 与
+  `docs/START_HERE.md` 已增加入口。
+- 新增 `docs/DEVELOPMENT_GUIDE.md`，说明 Torch reference、Triton、HIP、dispatcher、
+  custom op、算子契约、功能接入、测试/探针和 Git 冲突规约；根 `AGENTS.md` 已增加精简的
+  Agent 开工与交接约束。
+- 本轮文档提交后，下一位开发者仍应先运行 `git status --short --branch`，再按部署指南确认
+  本机 DTK、海光 Torch/Triton 和设备节点；文档不扩大当前已经验证的后端支持范围。

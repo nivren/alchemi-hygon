@@ -98,4 +98,47 @@
 
 每轮更新 STATUS；影响接口/后端/支持范围时更新特性契约和 ADR；同步上游时更新 UPSTREAM。一次修改聚焦一个功能或算子，保留可审查 diff。新分支默认 `codex/` 前缀，不自动推送。
 
-任何“已实现/已支持”的交付说明都要说明验证范围和剩余限制。当前交接材料仅包含文档，没有 DCU 实测结果。
+任何“已实现/已支持”的交付说明都要说明验证范围和剩余限制。当前实测范围以
+`docs/STATUS.md`、`reports/` 和对应原始 `artifacts/` 为准；不能把某个窄 slice 的结果扩大
+成完整 DCU 后端支持。
+
+## 8. 开发者与 Agent 的工作模式
+
+根目录 `AGENTS.md` 是唯一的项目级 Agent 入口；不要另建内容重复的 `Agent.md`。
+完整的环境操作见 [`docs/DEVELOPMENT_ENVIRONMENT.md`](docs/DEVELOPMENT_ENVIRONMENT.md)，
+算子、后端、功能和 Git 协作规则见 [`docs/DEVELOPMENT_GUIDE.md`](docs/DEVELOPMENT_GUIDE.md)。
+
+每次开始工作时按以下顺序执行：
+
+1. 读取本文件、`docs/PROJECT_HANDOFF.md`、`docs/STATUS.md`；涉及环境时再读部署指南和
+   `docs/ENVIRONMENT.md`。
+2. 运行 `git status --short --branch`、查看最近提交和目标文件 diff。工作树已有改动时，
+   不使用 `reset --hard`、`checkout --`、全库格式化或覆盖式复制；先避开无关文件，无法避开
+   时向用户报告。
+3. 从锁定 SHA 对应的 `packages/` 源码、测试和 docstring 建立事实；`external/` 只读，不能
+   直接修改，也不能把探索环境结果写成当前产品证据。
+4. 先写算子/功能契约和最小 reference 测试，再实现后端，再接 framework；每完成一轮同步
+   `FEATURE_COMPATIBILITY.yaml`、`STATUS.md` 和必要的 `UPSTREAM.md`/ADR。
+
+后端修改必须遵守：
+
+- `torch_reference` 是当前正确性基线，优先保持设备内 Torch 张量路径；不把 `.cpu()`、
+  Python 逐元素循环或 detach 当作默认生产方案，不允许静默 CPU 回退或静默改 dtype。
+- Triton 适合经实测确认的规则分块、融合和归约；HIP 适合需要显式线程、原子、复杂不规则
+  访问或通信打包的路径。按输入规模、dtype、梯度等级、设备和 benchmark 选后端，不能用
+  固定的 `hip > triton > torch` 排序。
+- 新后端先在 ops dispatcher/backend registry 中登记，再由 framework 显式传递；`None`/默认
+  仍表示上游默认路径，`auto` 只有在能力过滤和证据满足后才能选择优化后端。未知或未注册
+  后端必须报错，不能回退到另一个实现而不记录。
+- 使用 `torch.library.custom_op` 时同时考虑 `mutates_args`、fake/meta、autograd 和 compile；
+  eager 正确不等于一阶、二阶梯度或 compile 已正确。力损失必须实际反向到模型参数。
+
+新算子或功能至少要有：上游来源和符号、输入输出/shape/dtype/layout/单位、PBC 与
+full/half neighbor 约定、空输入/容量/错误、alias/mutation/stream/确定性、梯度等级、CPU
+reference、HCU smoke、回归测试、探针报告和兼容性条目。不能只补一个“能跑”的示例。
+
+Git 协作默认使用 `codex/<topic>` 分支、短而单一目的的提交和 `git commit -s`。正常工作按
+路径显式 `git add`，不使用 `git add -A` 吞入他人改动；导入、实现、测试、文档尽量分开提交。
+提交前运行 `git diff --check`、相关 CPU 测试和可获得的 HCU 探针，并在交接中分别报告实现、
+测试、数值结果与未验证假设。不要自动推送、不要改写共享提交历史；同步上游前先建立单独
+分支并更新 `UPSTREAM_LOCK/UPSTREAM.md`。

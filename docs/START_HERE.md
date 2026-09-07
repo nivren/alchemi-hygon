@@ -1,10 +1,16 @@
 # 海光服务器部署与 Codex 启动
 
+新开发者请先读 [开发环境部署指南](DEVELOPMENT_ENVIRONMENT.md) 和
+[开发者指南](DEVELOPMENT_GUIDE.md)。本文件保留首轮服务器初始化和 Codex 启动流程；已有
+工程不要重复初始化、覆盖文件或重复 clone。
+
 ## 1. 这份交接包包含什么
 
 - `AGENTS.md`：放在项目根目录，供 Codex 自动读取，包含目标、约束、源码组织和首轮任务。
 - `docs/PROJECT_HANDOFF.md`：完整开发背景、Feature Compatibility Contract、模块迁移、探针和验收路线。
-- `docs/STATUS.md`：初始状态与后续交接模板，明确当前尚无 DCU 实测。
+- `docs/STATUS.md`：初始状态、后续交接和已取得实测证据；支持范围以当前快照和报告边界为准。
+- `docs/DEVELOPMENT_ENVIRONMENT.md`：新开发者部署项目 reference 环境并运行最小验证的指南。
+- `docs/DEVELOPMENT_GUIDE.md`：后端、算子、功能、测试和 Git 协作开发指南。
 - `docs/海光DCU移植开发路线与工程规范.md`：此前调研原文，作为历史背景保留；修订意见在 PROJECT_HANDOFF 中。
 - `.gitignore`：排除上游参考 clone、本地环境和大体积计算输出。
 
