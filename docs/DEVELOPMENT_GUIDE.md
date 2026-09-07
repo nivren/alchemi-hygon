@@ -292,7 +292,9 @@ CPU 结果、HCU 结果、退出码
 
 ### 8.1 分支和提交
 
-每位开发者使用自己的 codex/<topic> 分支，从明确的基线提交开始。推荐提交粒度：
+每位开发者从明确的共享基线（当前为 develop 或 g2-development）创建自己的
+`<开发者>/<类型>-<主题>` 分支。推荐示例为 `alice/feature-triton-neighbor`、
+`bob/fix-pbc-shifts`、`carol/docs-onboarding`。推荐提交粒度：
 
 ~~~text
 docs: update development handoff
@@ -310,7 +312,8 @@ perf(ops): vectorize periodic scatter
 4. HCU 探针、报告和性能记录；
 5. 文档、兼容矩阵和状态交接。
 
-用户明确要求“当前状态检查点”时才一次性提交既有工作树；普通开发不要用 git add -A。
+共享基线分支只接受审核后的合并，不直接在其上开发。用户明确要求“当前状态检查点”时才
+一次性提交既有工作树；普通开发不要用 git add -A。
 
 ### 8.2 开工、暂存和交接
 
@@ -333,8 +336,8 @@ git status --short --branch
 与远端同步需要用户/仓库权限明确后执行；不要自动 push。常规流程是：
 
 ~~~bash
-git fetch origin
-git rebase origin/<目标基线>
+git fetch local-origin
+git rebase local-origin/<目标基线>
 # 解决后逐个检查：
 git status
 git diff --check
