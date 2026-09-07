@@ -23,6 +23,7 @@ Triton、HIP 和 DTK 库后端只能在逐算子注册后参与 `auto`。一个�
 邻居和 LJ 的窄 reference 路径已形成 G1 正确性基线，但以下能力各自是独立特性，不能合并成一个“LJ 已支持”：
 
 - `neighbors.skin_rebuild`：Torch reference 已支持 Batch 缓存、变化 system 的 eager 局部重建，以及 staging K 维的 16 对齐 grow-and-retry、idle shrink 和 override floor；G1 仍记录为 partial。生产 cell-list、异步调度、PBC 容量压力和规模化长轨迹性能另行排期。
+- `neighbors.periodic_reference_assembly`：periodic full-list reference 的 pair/image 几何候选保持逐 system 计算，MATRIX/COO 装配使用 device-side `nonzero`、行内 rank 和 scatter；该窄 slice 的 CPU/HCU 语义与批量回归已通过，但不改变 `neighbors.topology` 的完整状态，也不覆盖 no-PBC、half-list 或 cell-list。
 - `interactions.lj_switching`：当前 reference 明确拒绝非零 `switch_width`；按解析能量、力和 cutoff 连续性单独实现、测试并登记。
 - `interactions.lj_virial_stress`：当前 reference 明确拒绝 virial/stress；按 cell/position 梯度、符号、归一化、单位和 batch 归约单独实现、测试并登记。
 

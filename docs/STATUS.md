@@ -34,12 +34,12 @@
 按小步闭环推进，不把短探针证据写成完整特性支持：
 
 1. A2、A1、A3、A6 及 FIRE2+skin 功能契约已完成并保留 CPU/HCU 证据；A7 compile 限制已登记。
-2. 上游 reference 行为回归继续按模块解除隐式 Warp 阻断；本轮已覆盖 observer、周期 utility、safety/freeze、bias 和 DemoDynamics/FusedStage 编排。
+2. 上游 reference 行为回归继续按模块解除隐式 Warp 阻断；本轮已覆盖 observer、周期 utility、safety/freeze、bias、StageTimingHook、sink 和 DemoDynamics/FusedStage 编排。
 3. HCU 计算允许共享；已通过项目环境脚本在主机权限终端完成 utility/periodic、safety/freeze/bias reference 的 HCU probe 与上游回归。受限沙箱仍可能在 Python 输出前报告 `No HIP GPUs are available`，后续 HCU 证据统一使用设备节点可见的主机权限终端。
-4. 在 HCU 运行时恢复且负载可解释前暂停 A4 性能 profile；不以共享负载读数决定 cell-list、Triton 或 HIP 方案。
+4. A4 已完成 periodic reference 的 device-side scatter 及 CPU/HCU 规模回归；下一步单独评估 no-PBC 装配向量化，完整端到端 profile 仍不以共享 HCU 读数决定 cell-list、Triton 或 HIP 方案。
 5. NVT/Langevin、Nose-Hoover/NPT、变胞 stress、checkpoint/restart 和生产 Triton/HIP 仍保持独立排期，不在本轮 reference 行为回归中混入。
 
-当前状态：A2 已完成；A1 mixed/single 三路 smoke 和 HCU 收敛对照已通过；A3 窄 slice 契约与快照已刷新；A6、FIRE2+skin 功能契约及 A7 compile 边界探针已完成 CPU/HCU 或 CPU 证据；A4 仅保留共享负载观察，干净性能基线等待低干扰窗口。
+当前状态：A2 已完成；A1 mixed/single 三路 smoke 和 HCU 收敛对照已通过；A3 窄 slice 契约与快照已刷新；A6、FIRE2+skin 功能契约及 A7 compile 边界探针已完成 CPU/HCU 或 CPU 证据；A4 已完成 Tier 1 前邻居基线，并完成 periodic full-list device-side scatter 的 CPU/HCU 语义回归与 92 原子 batch=32 对照；完整规模重测、no-PBC 向量化和干净端到端性能结论仍未完成。
 
 ## 每轮 DoD 清单模板
 
@@ -50,13 +50,13 @@
 - [ ] 未验证项、失败模式和静默回退风险已记录。
 - [ ] 下一个可独立执行的小任务已明确。
 
-## 当前快照（2026-09-06）
+## 当前快照（2026-09-07）
 
 - N0 能力探针已完成：主机单卡 Triton vector-add 通过（BW200/UBB BW1000，冷启动约 0.519 s，预热稳态约 24.6 μs/次）；主机双卡 RCCL/NCCL all-reduce 和双向 P2P 通过。证据见 `reports/g0-capability-probes.md`。这只解除 Triton 基础编译/执行和 RCCL 原语的架构未知，不代表生产 kernel、LJ ownership 或 DomainParallel 已验证。
 - 环境加载修正：`scripts/activate_hygon_env.sh` 在 bash 使用 `/opt/dtk-26.04/env.sh`，在 zsh 使用 `/opt/dtk-26.04/env.zsh`；沙箱内 `/dev/kfd` 不可见，GPU 结果均来自主机权限探针。
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
-- MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境和项目 `.venv` 的 CPU/HCU 通过；两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在探索环境和项目 `.venv` 的 CPU/HCU 通过。项目环境批次为 `batch_ptr=[0,46,92]`、1754 条边、跨体系边 0。进一步完成了真实 32×92 周期 MACE/FIRE2 固定晶胞 HCU 弛豫（837 步、32/32 收敛），以及异构 `[46,92]` 三步 MACE/FIRE2→HostMemory 轨迹（读回 `batch_ptr=[0,46,138,184,276,322,414]`、无跨体系边）。详细报告见 `reports/g1-mace-wrapper-batch.md`、`reports/g2-mace-fire2-batch32.md` 和 `reports/g2-mace-fire2-heterogeneous-trajectory.md`。
-- 当前未验证：更大规模 reference 邻居性能、变胞/stress、长轨迹 inflight occupancy、checkpoint/restart、训练 wrapper 混合二阶梯度、生产 cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。向量化前双 perf46 超时记录仍保留为优化前证据。
+- MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境和项目 `.venv` 的 CPU/HCU 通过；两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在探索环境和项目 `.venv` 的 CPU/HCU 通过。项目环境批次为 `batch_ptr=[0,46,92]`、1754 条边、跨体系边 0。Tier 1 邻居装配后重新完成真实 32×92 周期 MACE/FIRE2 固定晶胞 HCU 弛豫（`max_steps=2000`，834 步、32/32 收敛，79.54 s，最终最大 `fmax=0.0099955`），以及异构 `[46,92]` 三步 MACE/FIRE2→HostMemory 轨迹（读回 `batch_ptr=[0,46,138,184,276,322,414]`、无跨体系边）。详细报告见 `reports/g1-mace-wrapper-batch.md`、`reports/g2-mace-fire2-batch32.md`、`reports/g2-mace-fire2-batch32-tier1.md` 和 `reports/g2-mace-fire2-heterogeneous-trajectory.md`。
+- 当前未验证：无共享干扰的更大规模 reference 邻居性能、no-PBC 装配向量化、cell-list、变胞/stress、长轨迹 inflight occupancy、checkpoint/restart、训练 wrapper 混合二阶梯度、生产 cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。Tier 1 前后邻居数据均覆盖真实 perf_46/92/184/368、46/92 原子 batch=1/4/8/16/32、184 原子 batch=4/8/16 及异构规模；HCU 时间仍受共享负载影响。
 - 依赖检查：北外镜像 dry-run 解析到 `mace-torch==0.3.15`、`e3nn==0.4.4`、`matscipy==1.1.1`、`ase==3.29.0` 等 45 个包，随后安装到项目 `.venv`；另补齐 framework 基础依赖，Torch `2.9.0+das.opt1.dtk2604`、Triton `3.3.0+das.opt1.dtk2604.torch290` 未被替换。PhysicsNeMo 未安装，单进程路径由可选导入保持可用。
 - 环境规格已补齐：项目 `.venv` 现在包含 `pytest==8.4.2`、`pytest-asyncio==1.4.0`；直接输入见 `configs/hygon-reference.in`，当前主机精确冻结见 `configs/hygon-reference-lock.txt`，冻结脚本为 `scripts/freeze_hygon_env.sh`，报告快照见 `reports/probe-environment-freeze.txt`。冻结中的 Torch/Triton URI 是主机本地海光 wheel，换机时必须先提供同版本 wheel；PhysicsNeMo 不属于 Hygon reference 安装集。
 - 特性状态已复核：`status` 表示完整目标契约的实现阶段，`verification.dcu_status` 表示已列出的 HCU 证据范围；因此 MACE、LJ、neighbors.topology 的完整条目仍是 `planned`，但其 reference 子路径为 `partial`，`neighbors.skin_rebuild` 为 `implemented/partial`。本轮纠正了 neighbors.topology 的 HCU 状态，并在 `FEATURE_COMPATIBILITY.yaml` 写明两轴语义，避免把窄 reference slice 写成完整特性通过。
@@ -75,7 +75,7 @@
 - `test_state_management.py` 已为固定晶胞 NVE/FIRE/FIRE2 构造器接入 `NVALCHEMI_TEST_BACKEND`：显式 reference 的 lazy init、state shape、Batch invariant、partial removal 和 `_make_new_state` 子集 CPU `20 passed`、HCU `20 passed`；未设置变量的三项反向检查仍在 Warp custom-op 边界失败。该测试载体补丁登记为 `docs/UPSTREAM.md` 的 LP-010。
 - 上游 `test_sampler.py` 的 `SizeAwareSampler` 全部 `51` 项在项目 `.venv` CPU（`0.40 s`）和 DTK 26.04、BW200/gfx936 HCU（`0.13 s`）通过；覆盖异构大小分箱、原子/边/批大小预算、初始批次、replacement 和耗尽语义。报告见 `reports/g2-upstream-sampler-reference.md`。这仍是 sampler 控制流证据，不等于真实 MACE 长轨迹 inflight 或性能通过。
 - 上游 observer hook 子集发现并修复了 `_segmented_max`/kinetic 的隐式 Warp 依赖：`scatter_reduce_per_graph`、`LoggingHook`、`EnergyDriftMonitorHook` 现在支持显式 `compute_backend`，并可由 reference dynamics workflow backend 继承。设置 `NVALCHEMI_TEST_BACKEND=torch_reference` 后，CPU `44 passed, 33 skipped`、HCU `77 passed`；公共 `FIRE(backend="torch_reference")` 不显式设置 observer backend 的 CPU/HCU 单步也通过且未加载 Warp。未设置时单测仍在 Warp 边界失败。报告见 `reports/g2-upstream-observer-reference.md`。
-- 当前快照已包含：公共固定晶胞 NVE/FIRE/FIRE2 reference 的完整短流程、真实 MACE 单卡组合、32×92 批量 FIRE2 弛豫、异构 `[46,92]` 的最小 HostMemory 轨迹和短 inflight 补位，以及上游 FusedStage/状态/HostMemory/Sampler/inflight/observer 的 CPU/HCU reference 子集；safety/freeze/bias 的 CPU 与 HCU 参数化回归也已通过。`test_hook_utils.py` 与周期 hook 现在可在无 Warp 环境收集并运行；周期 helper 的 Torch reference 已实现，CPU utility `30 passed, 5 skipped`、periodic `15 passed, 11 skipped`，在正确加载 DTK 26.04 的主机权限 HCU 上 probe 退出码 `0`，utility+periodic 上游回归 `61 passed`（含 CUDA compile smoke）。受限沙箱仍会因隐藏 `/dev/kfd` 报 `No HIP GPUs are available`，不作为 HCU 能力失败。Safety/freeze HCU `57 passed`、BiasedPotentialHook HCU `22 passed`。下一步在暂停性能 profile 的前提下，继续检查不依赖 Warp 的上游轨迹组合边界；不把这些窄 slice 写成完整生产 dynamics 支持。
+- 当前快照已包含：公共固定晶胞 NVE/FIRE/FIRE2 reference 的完整短流程、真实 MACE 单卡组合、32×92 批量 FIRE2 弛豫、异构 `[46,92]` 的最小 HostMemory 轨迹和短 inflight 补位，以及上游 FusedStage/状态/HostMemory/Sampler/inflight/observer/StageTimingHook/GPUBuffer/ZarrData 的 CPU/HCU reference 子集；safety/freeze/bias 的 CPU 与 HCU 参数化回归也已通过。`test_hook_utils.py` 与周期 hook 现在可在无 Warp 环境收集并运行；周期 helper 的 Torch reference 已实现，CPU utility `30 passed, 5 skipped`、periodic `15 passed, 11 skipped`，在正确加载 DTK 26.04 的主机权限 HCU 上 probe 退出码 `0`，utility+periodic 上游回归 `61 passed`（含 CUDA compile smoke）。受限沙箱仍会因隐藏 `/dev/kfd` 报 `No HIP GPUs are available`，不作为 HCU 能力失败。Safety/freeze HCU `57 passed`、BiasedPotentialHook HCU `22 passed`、StageTimingHook `42 passed, 1 skipped`（skip 仅 nvtx）、完整 `test_sinks.py` `56 passed`。受限沙箱中的 zarr 事件循环阻塞已由主机权限完整回归排除为测试载体问题；下一步继续检查不依赖 Warp 的上游轨迹组合边界，不把这些窄 slice 写成完整生产 dynamics 支持。
 
 ## 2026-09-05：G0 初始化审计
 
@@ -439,3 +439,83 @@
   bias hook，不代表 MACE、邻居或完整 Hook 生产后端。报告见
   `reports/g2-upstream-bias-reference.md`，原始输出与 safety/freeze 合并保存于
   `artifacts/g2/upstream_safety_freeze_bias_hcu0.*`。
+
+### 2026-09-06：上游 GPUBuffer sink 回归
+
+- 锁定上游 `test/dynamics/test_sinks.py` 全文件在设备节点可见的 DTK 26.04、
+  BW200/gfx936 HCU 上 `56 passed`，退出码 `0`，约 `1.37 s`。覆盖 GPUBuffer 和
+  ZarrData 的基础写读、容量、mask、zero/drain、HostMemory 及错误边界；报告见
+  `reports/g2-upstream-gpubuffer-reference.md`，原始输出见
+  `artifacts/g2/upstream_sinks_full_hcu0.*`。
+- 同一文件的 CPU 对照退出码 `0`，`33 passed, 23 skipped`，跳过项仅为 GPUBuffer
+  设备用例；原始输出见 `artifacts/g2/upstream_sinks_full_cpu.*`。
+- 受限沙箱中完整 sink 测试曾在 Zarr 首次写入处超时；独立事件循环探针与主机权限
+  对照表明这是沙箱载体的异步唤醒问题，不能作为 Zarr 依赖、HCU 能力或性能失败。
+  checkpoint/restart、完整 stream 生命周期和长轨迹容量继续保持未验证。
+
+### 2026-09-06：Tier 1 前邻居基线与 batch 扩展
+
+- 新增 `probes/neighbor_baseline.py`，只调用 `compute_neighbors(backend="torch_reference")`，
+  每个 case 记录 cold、warmup 和两次 steady，并输出 `batch_ptr`、原子数和边数；不混入
+  MACE forward 或 FIRE2，避免把模型成本混入邻居对照。
+- CPU/HCU 单体系规模阶梯使用真实 `/data/csp_data/perf_46`、`perf_92`、`perf_184`、
+  `perf_368` CIF，覆盖 46、92、184、368 原子。46 和 92 原子等长 batch 均测到
+  `1/4/8/16/32`，184 原子测到 `4/8/16`，另测异构 `[46,92,184,368]`。
+- 关键 steady 均值：92 原子 batch=32 为 CPU `9.2946 s`、HCU `4.2626 s`（54,760 边）；
+  184 原子 batch=16 为 CPU `19.8595 s`、HCU `4.0736 s`（54,448 边）；异构 690 原子
+  batch 为 CPU `6.5289 s`、HCU `0.8983 s`（12,598 边）。所有完整 case 退出码为 0；
+  HCU 为 DTK 26.04/BW200/gfx936 共享负载，时间仅作相对基线。
+- 首次 184 原子 CPU 合并运行在 batch=16 前达到 timeout，`tee` 曾掩盖退出码；已用
+  `pipefail` 和单 case（`neighbor-baseline-cpu-batch184-16.log`）重跑并确认通过，截断日志
+  不计入证据。完整原始日志见 `artifacts/g2/neighbor-baseline-*.log`，摘要见
+  `reports/g2-neighbor-baseline-reference.md`。
+- 基线表明当前周期 pair/image 距离计算虽已按体系 Torch 向量化，但逐边 Python 装配仍是
+  明显目标；下一步进入 Tier 1 device-side `nonzero`/rank/scatter，保持邻居集合、shift、
+  padding、overflow 和 Batch 边界语义不变。Tier 2 cell-list 与后续 Triton/HIP 仍排在
+  Tier 1 正确性回归之后。
+
+### 2026-09-06：Periodic 邻居 Tier 1 device-side scatter
+
+- `packages/ops/nvalchemiops/torch_reference.py` 的 periodic full-list 路径已去除逐边
+  Python `tolist()`/`append`/写回；每个 system 保留原有几何候选计算，活跃 pair 由设备端
+  `nonzero`/`bincount`/行内 rank 和矩阵索引写回装配。shift、自相互作用排除、重合错误、
+  padding、overflow、MATRIX/COO 顺序均保持原契约。
+- CPU ops reference `10 passed`、framework NeighborListHook `16 passed`；在 source
+  DTK 26.04 的 BW200/gfx936 HCU 上 ops reference `10 passed`，均退出码 0。报告见
+  `reports/g2-neighbor-tier1-scatter-reference.md`。
+- framework `compute_neighbors` 集成回归在同一 HCU 上 `3 passed`（CPU 对照亦为
+  `3 passed`），确认 Batch/PBC 接线与直接 ops 结果一致。
+- 同口径真实 `/data/csp_data/perf_92`、92 原子 batch=32 邻居构建（统一
+  `OMP_NUM_THREADS=1`）：CPU steady `9.2946→7.7101 s`，HCU `4.2626→0.0658 s`，边数
+  保持 `54,760`。HCU 仍有共享负载，该数值仅作为相对证据；原始日志见
+  `artifacts/g2/neighbor-tier1-*.log`。
+- 当前快照和 `FEATURE_COMPATIBILITY.yaml` 已同步；46/92/184 原子阶梯及异构 Batch 的
+  scatter 后结果已补齐。下一步单独评估 no-PBC 装配，再决定 torch reference cell-list
+  的优先级。
+
+### 2026-09-07：Tier 1 邻居装配后 32×92 MACE/FIRE2 HCU 弛豫
+
+- 在 periodic full-list device-side scatter 修改后，按用户要求重新运行 32 个 92
+  原子周期 CIF；所有结构在同一个 Batch 中使用真实 `MACE-OFF23_small.model` 和
+  `FIRE2(backend="torch_reference")` 做固定晶胞弛豫。
+- 命令显式设置 `--fmax 0.01 --max-steps 2000 --dt 0.01 --skin 0.5`，其余 FIRE2
+  参数使用上游默认值；通过 `source scripts/activate_hygon_env.sh project` 加载
+  DTK 26.04 和项目 `.venv`，设备为 BW200/UBB BW1000、`gfx936`。
+- HCU 退出码 `0`，`status=passed`；`num_nodes=2944`、`batch_ptr=[0,92,...,2944]`、
+  最终邻居边 `75010`。32/32 体系收敛，最后一个在第 834 步达到阈值；总耗时
+  `79.54159364895895 s`，最终逐体系最大 `fmax=0.009995493106544018`。
+- 逐步 JSON 日志保存在 `artifacts/g2/mace-fire2-batch32-tier1.log`，完整结果与
+  证据边界见 `reports/g2-mace-fire2-batch32-tier1.md`。该结果只证明单 HCU、固定
+  晶胞、周期、等长 32×92 的 reference 组合；不扩大为 cell-list、生产 Triton/HIP、
+  变胞 stress、热浴、restart 或无干扰性能支持。
+
+### 2026-09-07：32×92 收敛能量与密度指标补采
+
+- 使用与上项完全相同的 HCU 设置补采最终指标；32/32 仍收敛，`max_steps=2000`，
+  最少/最多/平均首次收敛步数分别为 `234/834/483.46875`。
+- 平均最终总能量为 `-78382.53393554688 eV/structure`（平均每原子
+  `-851.9840812683105 eV/atom`），平均固定晶胞密度为
+  `0.5551176927983761 g/cm³`。该次耗时 `79.80547558492981 s`。
+- 原始 JSON 日志见 `artifacts/g2/mace-fire2-batch32-metrics-hcu.log`，统计和
+  复现实验说明已补入 `reports/g2-mace-fire2-batch32-tier1.md`。这些是
+  `torch_reference`/MACE HCU 指标，不作为 NVIDIA Warp 数值等同性结论。

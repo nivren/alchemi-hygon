@@ -1,6 +1,8 @@
 # 项目背景、兼容性契约与实施路线
 
-这份文档汇总此前讨论中与开发有关的需求和约定。演示稿排版及代码展示要求不属于产品需求。本文不声称已完成服务器调研或代码移植。
+这份文档汇总此前讨论中与开发有关的需求和约定。演示稿排版及代码展示要求不属于产品需求。
+当前已完成的移植、实测证据和暂停点以本文末尾的本轮交接及 `docs/STATUS.md` 为准；
+早期章节中的“未完成”描述属于历史路线背景，不覆盖后续状态记录。
 
 ## 1. 用户真正需要的产品
 
@@ -210,3 +212,58 @@ G5 架构探针从 G0 穿插推进。第一目标是 G1 的完整纵向链路，
 - 海光文档：https://developer.sourcefind.cn/document
 
 在线文档仅辅助理解。特定版本的行为由 UPSTREAM_LOCK 中的代码、对应版本文档与服务器实测共同确定。
+
+## 11. 本轮暂停交接（2026-09-06）
+
+### 已完成
+
+- 根仓库分支为 `codex/g0-initialization`；上游锁定不变：framework
+  `4dfe3723def34df3fadb245981081ccf8c94c257`、ops
+  `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`。未修改 `external/`，本轮没有提交新
+  commit，工作树状态以 `git status --short` 为准。
+- 完成 periodic full-list Torch reference 的 Tier 1 装配替换：
+  `packages/ops/nvalchemiops/torch_reference.py` 保留原有逐 system pair/image 几何
+  候选计算，改用设备端 `nonzero`、`bincount`、行内 rank 和矩阵索引写回，去除逐边
+  Python `tolist()`/`append`/写回。shift 约定、自相互作用、重合错误、padding、
+  overflow、MATRIX/COO 顺序未改变。
+- 项目 `.venv` CPU ops reference `10 passed`、framework compute_neighbors `3 passed`；
+  通过 `source scripts/activate_hygon_env.sh project` 加载 DTK 26.04 后，BW200/UBB
+  BW1000（gfx936）HCU 同样为 ops `10 passed`、framework `3 passed`。
+- 使用真实 `/data/csp_data/perf_46`、`perf_92`、`perf_184`、`perf_368` CIF 完成
+  Tier 1 后 CPU/HCU 规模与 batch 回归：46/92 原子 batch=1/4/8/16/32，184 原子
+  batch=4/8/16，及异构 `[46,92,184,368]`。所有完整日志中的 case 均为 passed，边数和
+  `batch_ptr` 与前基线一致。
+
+### 统一计时结论
+
+正式前后比较统一使用项目环境、`OMP_NUM_THREADS=1`、一次 warmup 和两次 steady。92 原子
+batch=32、54,760 条边：CPU `9.2946→7.7101 s`，HCU `4.2626→0.0658 s`。HCU 仍在共享
+任务下，绝对时间只作相对证据。此前一次未设置 `OMP_NUM_THREADS=1` 的 CPU `1.0508 s`
+试跑不计入结果。
+
+CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算是主要成本；HCU 上装配
+的逐边 Python 开销被显著削减。该优化没有改变算法复杂度，也不能外推为完整生产邻居
+性能。
+
+### 证据与文档
+
+- 优化报告：[reports/g2-neighbor-tier1-scatter-reference.md](../reports/g2-neighbor-tier1-scatter-reference.md)
+- Tier 1 前基线：[reports/g2-neighbor-baseline-reference.md](../reports/g2-neighbor-baseline-reference.md)
+- 可重跑探针：[probes/neighbor_baseline.py](../probes/neighbor_baseline.py)
+- 原始输出：`artifacts/g2/neighbor-tier1-*.log`（忽略文件，不入库）
+- 本轮已同步：`docs/STATUS.md`、`docs/PROBE_PLAN.md`、`docs/FEATURE_COMPATIBILITY.yaml`、
+  `docs/UPSTREAM.md`（补丁 LP-013）、`adr/0004-backend-defaults-and-width-gates.md`。
+
+### 下次从这里开始
+
+1. 先保持 periodic scatter 代码不变，检查并实现 no-PBC `neighbor_list` 的设备端装配，
+   单独覆盖 full/half、空行、批边界、距离/向量输出和 overlap/overflow 错误。
+2. 分别运行 CPU 与主机权限 HCU 的 no-PBC 回归，并用统一 `OMP_NUM_THREADS=1` 与短 JSON
+   探针记录前后 steady；不把 shared-HCU 数字当作发布性能门槛。
+3. 通过 no-PBC 和 periodic 语义回归后，再评估 Torch reference 内 cell-list 的算法轴
+   价值。cell-list、half-list、PBC 容量压力、长 skin/rebuild、Triton/HIP registry 和
+   完整端到端 profile 仍不可提前标记为完成。
+4. 每次修改导入的上游文件，继续在 `docs/UPSTREAM.md` 登记文件、位置、动机、upstream
+   candidate 和回归指针；每轮独立更新 STATUS 当前快照、时间线和 DoD。
+
+暂停时没有遗留运行中的 pytest 或 benchmark 进程。

@@ -12,7 +12,7 @@
 - 早期安装曾遇到其他镜像 HTTP 403；当前不再把其他源作为默认。本地 Torch/Triton wheel 来源不变。
 - 为解除 framework 导入缺口，项目 `.venv` 已用 `/data/envs/uv-cache` 和北外镜像补齐 MACE 最小依赖（`mace-torch==0.3.15`、`e3nn==0.4.4`、`ase==3.29.0`、`matscipy==1.1.1` 等）以及 `jaxtyping`、`periodictable`、`tensordict` 等基础包；Torch/Triton 仍为海光版本。项目回归工具已固定为 `pytest==8.4.2`、`pytest-asyncio==1.4.0`。PhysicsNeMo 未安装，单进程 Torch/HCU 路径通过延迟导入保持可用；域并行和 PhysicsNeMo profiling 仍是显式未启用能力。
 
-原始探针输出放 artifacts/g0 和 artifacts/g1，摘要放 reports。用户缓存中的 `MACE-OFF23_small.model` 已在探索环境和项目 `.venv` 的 CPU/HCU 运行；向量化 Torch reference 邻居后，项目 `.venv` 的两个 perf_46 结构 HCU wrapper batching 也已通过。更大规模性能、生产 cell-list/Triton/HIP、完整 dynamics、域并行和 PhysicsNeMo profiling 仍未验证。
+原始探针输出放 artifacts/g0 和 artifacts/g1，摘要放 reports。用户缓存中的 `MACE-OFF23_small.model` 已在探索环境和项目 `.venv` 的 CPU/HCU 运行；向量化 Torch reference 邻居后，项目 `.venv` 的两个 perf_46 结构 HCU wrapper batching 也已通过。本轮又在 Tier 1 装配优化前采集了真实 perf_46/92/184/368 的 CPU/HCU 邻居基线（含 46/92 原子 batch=32 和 184 原子 batch=16），详见 `reports/g2-neighbor-baseline-reference.md`；这些 HCU 数据来自共享负载，不是发布性能结论。生产 cell-list/Triton/HIP、完整 dynamics、域并行和 PhysicsNeMo profiling 仍未验证。
 
 用户随后明确 BW200/BW1000 适配目标为 gfx936；所有目标 HIP 编译使用 gfx936。此前 gfx928 编译仅为过程试探，不作为目标能力证据。
 

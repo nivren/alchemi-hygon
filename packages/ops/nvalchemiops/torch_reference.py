@@ -57,29 +57,40 @@ def _normalize_periodic_geometry(
     return cells, periodic
 
 
-def _periodic_neighbor_rows(
+def _periodic_neighbor_pairs(
     positions: torch.Tensor,
     ptr: torch.Tensor,
     cutoff: float,
     cells: torch.Tensor,
     pbc: torch.Tensor,
-) -> list[list[tuple[int, tuple[int, int, int], torch.Tensor, torch.Tensor]]]:
-    """Enumerate periodic neighbors and their integer image shifts.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Enumerate periodic neighbors and return flat device tensors.
 
     The shift convention matches the upstream matrix contract:
     ``r_ij = r_i - r_j - shift @ cell``.  This reference implementation is
-    intentionally eager and small-input oriented; each system is vectorized
-    over atom pairs and image shifts to avoid per-pair device synchronization.
-    Later Triton/HIP paths will replace this reference implementation for
-    larger systems after the contract is validated.
+    intentionally eager and small-input oriented.  Each system is vectorized
+    over atom pairs and image shifts, and the result remains a flat set of
+    device tensors so the caller can assemble the matrix without a Python
+    loop over individual edges.  Later Triton/HIP paths will replace this
+    reference implementation for larger systems after the contract is
+    validated.
+
+    The returned tensors are ordered by system, then source row, destination
+    atom, and image shift, matching ``torch.nonzero``'s row-major order and
+    the ordering of the former Python list-of-lists implementation.
     """
-    rows: list[list[tuple[int, tuple[int, int, int], torch.Tensor, torch.Tensor]]] = [
-        [] for _ in range(positions.shape[0])
-    ]
+    row_parts: list[torch.Tensor] = []
+    col_parts: list[torch.Tensor] = []
+    shift_parts: list[torch.Tensor] = []
+    distance_parts: list[torch.Tensor] = []
+    vector_parts: list[torch.Tensor] = []
     cutoff_sq = cutoff * cutoff
+    # ``ptr`` lives on the target device.  Read it once for the unavoidable
+    # per-system Python loop instead of synchronizing once per boundary.
+    ptr_cpu = ptr.detach().cpu().tolist()
     for system in range(ptr.numel() - 1):
-        start = int(ptr[system].item())
-        end = int(ptr[system + 1].item())
+        start = int(ptr_cpu[system])
+        end = int(ptr_cpu[system + 1])
         cell_s = cells[system]
         pbc_s = pbc[system]
         try:
@@ -114,9 +125,9 @@ def _periodic_neighbor_rows(
             for sz in ranges[2]
         ]
         shift_values = torch.tensor(
-            shifts, dtype=positions.dtype, device=positions.device
+            shifts, dtype=torch.int32, device=positions.device
         )
-        shift_vectors = shift_values @ cell_s
+        shift_vectors = shift_values.to(dtype=positions.dtype) @ cell_s
         vectors = delta[:, :, None, :] - shift_vectors[None, None, :, :]
         distance_sq = vectors.square().sum(dim=-1)
         active = distance_sq < cutoff_sq
@@ -129,20 +140,33 @@ def _periodic_neighbor_rows(
             )
 
         active_indices = torch.nonzero(active, as_tuple=False)
-        active_distances = distance_sq[active]
-        active_vectors = vectors[active]
-        for active_index, (row, col, shift_index) in enumerate(
-            active_indices.detach().cpu().tolist()
-        ):
-            rows[start + row].append(
-                (
-                    start + col,
-                    shifts[shift_index],
-                    active_distances[active_index],
-                    active_vectors[active_index],
-                )
-            )
-    return rows
+        if active_indices.numel() == 0:
+            continue
+
+        # ``active_indices`` is already row-major.  Keep all pair metadata on
+        # the target device; the matrix writer below computes row-local ranks
+        # and performs one scatter per output field.
+        row_parts.append(active_indices[:, 0].to(torch.long) + start)
+        col_parts.append(active_indices[:, 1].to(torch.long) + start)
+        shift_parts.append(shift_values.index_select(0, active_indices[:, 2]))
+        distance_parts.append(distance_sq[active])
+        vector_parts.append(vectors[active])
+
+    empty_rows = torch.empty(0, dtype=torch.long, device=positions.device)
+    empty_shifts = torch.empty(
+        0, 3, dtype=torch.int32, device=positions.device
+    )
+    empty_distances = torch.empty(0, dtype=positions.dtype, device=positions.device)
+    empty_vectors = torch.empty(
+        0, 3, dtype=positions.dtype, device=positions.device
+    )
+    return (
+        torch.cat(row_parts) if row_parts else empty_rows,
+        torch.cat(col_parts) if col_parts else empty_rows,
+        torch.cat(shift_parts) if shift_parts else empty_shifts,
+        torch.cat(distance_parts) if distance_parts else empty_distances,
+        torch.cat(vector_parts) if vector_parts else empty_vectors,
+    )
 
 
 def _neighbor_list_periodic(
@@ -171,8 +195,11 @@ def _neighbor_list_periodic(
         device=positions.device,
         dtype=positions.dtype,
     )
-    rows = _periodic_neighbor_rows(positions, ptr, cutoff, cells, periodic)
-    found_max = max((len(row) for row in rows), default=0)
+    row_ids, col_ids, pair_shifts, pair_distance_sq, pair_vectors = (
+        _periodic_neighbor_pairs(positions, ptr, cutoff, cells, periodic)
+    )
+    counts = torch.bincount(row_ids, minlength=positions.shape[0]).to(torch.int32)
+    found_max = int(counts.max().item()) if counts.numel() else 0
     if max_neighbors is None:
         max_neighbors = found_max
     if max_neighbors < 0:
@@ -187,7 +214,6 @@ def _neighbor_list_periodic(
         dtype=torch.int32,
         device=positions.device,
     )
-    counts = torch.zeros(positions.shape[0], dtype=torch.int32, device=positions.device)
     shifts = torch.zeros(
         positions.shape[0], max_neighbors, 3, dtype=torch.int32, device=positions.device
     )
@@ -201,17 +227,15 @@ def _neighbor_list_periodic(
         if return_vectors
         else None
     )
-    for row_idx, row in enumerate(rows):
-        counts[row_idx] = len(row)
-        for col_idx, (neighbor, shift, distance_sq, vector) in enumerate(row):
-            matrix[row_idx, col_idx] = neighbor
-            shifts[row_idx, col_idx] = torch.tensor(
-                shift, dtype=torch.int32, device=positions.device
-            )
-            if distances is not None:
-                distances[row_idx, col_idx] = distance_sq.sqrt()
-            if vectors is not None:
-                vectors[row_idx, col_idx] = vector
+    if row_ids.numel():
+        row_starts = torch.cumsum(counts.to(torch.long), dim=0) - counts.to(torch.long)
+        ranks = torch.arange(row_ids.numel(), device=positions.device) - row_starts[row_ids]
+        matrix[row_ids, ranks] = col_ids.to(torch.int32)
+        shifts[row_ids, ranks] = pair_shifts
+        if distances is not None:
+            distances[row_ids, ranks] = pair_distance_sq.sqrt()
+        if vectors is not None:
+            vectors[row_ids, ranks] = pair_vectors
 
     if return_neighbor_list:
         active = torch.arange(max_neighbors, device=positions.device).unsqueeze(0) < counts.to(
