@@ -161,7 +161,7 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "上游 test/data/test_batch.py 尚未完整运行；当前只补了 pin_memory 单用例的主机 HCU 证据",
-        "周期 Torch reference 邻居的 pair/image 距离和 periodic full-list MATRIX/COO 装配已按体系/设备张量向量化；探索环境和项目 .venv 的单个/两个 H₂O、单个 perf_46 与两个 perf_46 HCU Batch 已通过；no-PBC 装配、cell-list 和完整上游数据测试仍未验证"
+        "周期 Torch reference 邻居的 pair/image 距离和 periodic full-list MATRIX/COO 装配已按体系/设备张量向量化；探索环境和项目 .venv 的单个/两个 H₂O、单个 perf_46 与两个 perf_46 HCU Batch 已通过；no-PBC full/half device-side 装配已在项目 .venv 的 BW200 HCU 0 窄 slice 通过；cell-list 和完整上游数据测试仍未验证"
       ],
       "release_gate": "G1"
     },
@@ -633,7 +633,7 @@
       "id": "data.storage",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "G2 最小 SnapshotHook→HostMemory 轨迹写出与 GPUBuffer/ZarrData 基础 HCU sink slice 已验证；checkpoint/restart 和完整 stream 生命周期仍未完成",
+      "implementation_scope": "G2 最小 SnapshotHook→HostMemory 轨迹写出与 GPUBuffer/ZarrData 基础 HCU sink slice 已验证；LevelStorage 的 Torch 默认与显式 Warp 对照契约已登记；checkpoint/restart 和完整 stream 生命周期仍未完成",
       "scenario": "轨迹/预取 stream 生命周期和同步；轨迹不等同于完整模拟 checkpoint",
       "source": {
         "repository": "framework",
@@ -724,6 +724,7 @@
           "test/dynamics/test_sinks.py"
         ],
         "dcu_tests": [
+          "packages/framework/test/data/test_storage_backend.py",
           "test/compatibility/test_heterogeneous_trajectory_reference.py",
           "test/dynamics/test_sampler.py",
           "test/dynamics/test_sinks.py",
@@ -735,7 +736,8 @@
           "reports/g2-upstream-fusedstage-state-sinks-reference.md",
           "reports/g2-upstream-sampler-reference.md",
           "reports/g2-upstream-gpubuffer-reference.md",
-          "reports/g2-mace-fire2-heterogeneous-trajectory.md"
+          "reports/g2-mace-fire2-heterogeneous-trajectory.md",
+          "reports/g2-backend-registry-no-pbc-reference.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
@@ -744,6 +746,7 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线完整运行",
+        "LevelStorage 的默认 backend 为跨平台 Torch；WarpStorageBackend 仅显式对照，WARP-EQUIV-001 在无 Warp 环境为 strict xfail",
         "已验证异构 [3,5] synthetic Batch 和真实 [46,92] MACE/FIRE2 短轨迹的 SnapshotHook→HostMemory 独立快照，以及上游 test_sinks.py 在主机权限 HCU 的 GPUBuffer/ZarrData 基础写读、容量、mask 和清空 slice；checkpoint/restart、重启状态恢复和完整 stream 生命周期仍未验证"
       ],
       "release_gate": "G2"
@@ -1166,7 +1169,7 @@
       "id": "neighbors.topology",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "Torch reference full-list matrix/COO、批边界、PBC shifts 与基础容量契约；周期 pair/image 距离和 MATRIX/COO 装配已按体系/设备张量向量化；cell-list、half-list/per-system 扩容仍未完成",
+      "implementation_scope": "Torch reference full/half no-PBC 与 full-list periodic MATRIX/COO、批边界、PBC shifts 和基础容量契约；periodic/no-PBC 的 MATRIX/COO 装配均已按体系/设备张量向量化；cell-list、periodic half-list/per-system 扩容仍未完成",
       "scenario": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
       "source": {
         "repository": "ops",
@@ -1301,6 +1304,7 @@
           "test/neighbors/test_utils.py"
         ],
         "dcu_tests": [
+          "packages/ops/test/torch/test_backend_registry.py",
           "packages/ops/test/torch/test_torch_reference_backend.py",
           "packages/framework/test/models/test_neighbors_torch_reference.py",
           "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
@@ -1317,7 +1321,8 @@
           "reports/g1-pbc-lj-nve-reference.md",
           "artifacts/g1/pbc_neighbor_reference_hcu0.json",
           "reports/g2-neighbor-baseline-reference.md",
-          "reports/g2-neighbor-tier1-scatter-reference.md"
+          "reports/g2-neighbor-tier1-scatter-reference.md",
+          "reports/g2-backend-registry-no-pbc-reference.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors",
@@ -1327,8 +1332,8 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 时对变化 system 做 eager 重建；周期 full-list 的 pair/image 计算与 MATRIX/COO 装配已通过 device-side scatter 替代逐边 Python 循环；默认生产路径仍依赖 Warp，PBC half-list、method/scratch、cell-list、动态溢出扩容和生产性能路径尚未接入",
-        "Tier 1 前基线与 scatter 后 92 原子 batch=32 对照已记录；完整规模重测、共享 HCU 下的绝对性能、no-PBC 向量化和 cell-list 仍未验证"
+        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 时对变化 system 做 eager 重建；periodic full-list 与 no-PBC full/half 的 MATRIX/COO 装配已通过 device-side scatter 替代逐边 Python 写回；默认生产路径仍依赖 Warp，PBC half-list、method/scratch、cell-list、动态溢出扩容和生产性能路径尚未接入",
+        "no-PBC Tier 1 已完成 CPU contract/synthetic probe 及项目 .venv 的 BW200 HCU 0 窄功能 smoke；尚未有低干扰、固定结构阶梯性能基线，Tier 1 前基线与 periodic scatter 后 92 原子 batch=32 对照不能外推到 no-PBC 或 cell-list"
       ],
       "release_gate": "G1"
     },

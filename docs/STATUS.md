@@ -55,6 +55,8 @@
 - N0 能力探针已完成：主机单卡 Triton vector-add 通过（BW200/UBB BW1000，冷启动约 0.519 s，预热稳态约 24.6 μs/次）；主机双卡 RCCL/NCCL all-reduce 和双向 P2P 通过。证据见 `reports/g0-capability-probes.md`。这只解除 Triton 基础编译/执行和 RCCL 原语的架构未知，不代表生产 kernel、LJ ownership 或 DomainParallel 已验证。
 - 环境加载修正：`scripts/activate_hygon_env.sh` 在 bash 使用 `/opt/dtk-26.04/env.sh`，在 zsh 使用 `/opt/dtk-26.04/env.zsh`；沙箱内 `/dev/kfd` 不可见，GPU 结果均来自主机权限探针。
 - 代码基线：Torch reference 的 Batch/邻居/PBC/LJ/skin 纵向切片已在 CPU 和部分 BW200/gfx936 HCU 通过；MACE wrapper 本地 checkpoint 路径修复已实现并有回归测试。
+- G2 收敛：ops 现有单一 capability registry，framework 的邻居、LJ、固定晶胞 dynamics、observer 与 periodic 计算均委派给它；`None`/`warp` 保留 legacy 路径，`auto` 只选择已验证 capability 并报告选择。`LevelStorage` 的 Torch backend 现明确为数据层默认，Warp 仅为显式对照。
+- no-PBC 邻居 Tier 1：逐原子/逐边 Python 写回已替换为逐 system 的 device-side `nonzero`/`bincount`/row-rank/scatter。CPU 契约与 synthetic `[46,92]` probe 已通过；主机权限 HCU 未在本轮运行，因此没有新的 DCU verified 结论。
 - MACE 证据：用户缓存的 `MACE-OFF23_small.model` direct model 在探索环境和项目 `.venv` 的 CPU/HCU 通过；两个 `perf_46` CIF 的 framework `MACEWrapper + compute_neighbors(torch_reference)` batching 在探索环境和项目 `.venv` 的 CPU/HCU 通过。项目环境批次为 `batch_ptr=[0,46,92]`、1754 条边、跨体系边 0。Tier 1 邻居装配后重新完成真实 32×92 周期 MACE/FIRE2 固定晶胞 HCU 弛豫（`max_steps=2000`，834 步、32/32 收敛，79.54 s，最终最大 `fmax=0.0099955`），以及异构 `[46,92]` 三步 MACE/FIRE2→HostMemory 轨迹（读回 `batch_ptr=[0,46,138,184,276,322,414]`、无跨体系边）。详细报告见 `reports/g1-mace-wrapper-batch.md`、`reports/g2-mace-fire2-batch32.md`、`reports/g2-mace-fire2-batch32-tier1.md` 和 `reports/g2-mace-fire2-heterogeneous-trajectory.md`。
 - 当前未验证：无共享干扰的更大规模 reference 邻居性能、no-PBC 装配向量化、cell-list、变胞/stress、长轨迹 inflight occupancy、checkpoint/restart、训练 wrapper 混合二阶梯度、生产 cuEquivariance/Triton/HIP kernel、多卡域分解、PhysicsNeMo profiling 和 DomainParallel。Tier 1 前后邻居数据均覆盖真实 perf_46/92/184/368、46/92 原子 batch=1/4/8/16/32、184 原子 batch=4/8/16 及异构规模；HCU 时间仍受共享负载影响。
 - 依赖检查：北外镜像 dry-run 解析到 `mace-torch==0.3.15`、`e3nn==0.4.4`、`matscipy==1.1.1`、`ase==3.29.0` 等 45 个包，随后安装到项目 `.venv`；另补齐 framework 基础依赖，Torch `2.9.0+das.opt1.dtk2604`、Triton `3.3.0+das.opt1.dtk2604.torch290` 未被替换。PhysicsNeMo 未安装，单进程路径由可选导入保持可用。
@@ -531,3 +533,11 @@
   Agent 开工与交接约束。
 - 本轮文档提交后，下一位开发者仍应先运行 `git status --short --branch`，再按部署指南确认
   本机 DTK、海光 Torch/Triton 和设备节点；文档不扩大当前已经验证的后端支持范围。
+
+### 2026-09-08：G2 backend 收敛与 no-PBC 邻居 Tier 1
+
+- `nvalchemiops.backend` 已从单一 reference resolver 改为 operation/device/dtype/gradient/features capability registry；`backend=None`/`"warp"` 只生成 legacy Warp 选择记录，`auto` 对每个选择签名首次发出包含实际 backend 与原因的 warning。Triton/HIP 仍无登记 capability，显式请求失败。
+- `compute_neighbors`、`NeighborListHook`、LJ、固定晶胞 VV/FIRE、observer 与 periodic helper 已移除局部 backend 字符串集合；`make_neighbor_hooks(backend=...)` 是新公共拼写，`neighbor_backend` 保留为冲突检测的兼容别名。LoggingHook 的 `backend` 仍是 writer，计算参数保持 `compute_backend`。
+- `LevelStorage` 的 `TorchStorageBackend` 默认已在测试与 ADR 0005 中明确；无 Warp 环境的显式 Warp 对照为 `WARP-EQUIV-001` strict xfail。基础数据导入不加载 Warp。
+- no-PBC reference 邻居现在对每个 system 在设备上构造 pair geometry、`nonzero`、`bincount` 与 row-rank/scatter，保持 full/half、MATRIX/COO row-major、batch 边界、distance/vector、overlap 和 overflow 契约。CPU ops `17 passed`；相关 framework storage/neighbors/Hook/默认路径边界/public dynamics reference 为 `32 passed, 2 xfailed`，LJ `7 passed`，dynamics/observer/periodic 子集均退出 `0`。两个 strict xfail 分别跟踪无 Warp 的等价性与 legacy 默认路径守护；synthetic `[46,92]` CPU probe full/half 为 `734/367` 边。
+- 新增 no-PBC 代码已在项目 `.venv`、DTK 26.04、BW200/gfx936 HCU 0 获得窄 slice 证据：ops registry/reference 回归 `17 passed, 1 warning`，异构 `[46,92]` probe 的 full/half 为 `890/445` 边、MATRIX/distance/vector 均为预期 shape；两体系 `AtomicData` 的 framework `compute_neighbors` HCU Batch 写回也通过。HCU 随机序列与 CPU 不同，不以边数对拍；这是功能 smoke，不报告为性能结论。下一步在低干扰窗口以固定结构集决定 cell-list；NVT/Langevin、PBC half-list、Triton/HIP、compile 和分布式保持未完成。

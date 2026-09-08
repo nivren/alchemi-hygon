@@ -257,13 +257,14 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 
 ### 下次从这里开始
 
-1. 先保持 periodic scatter 代码不变，检查并实现 no-PBC `neighbor_list` 的设备端装配，
-   单独覆盖 full/half、空行、批边界、距离/向量输出和 overlap/overflow 错误。
-2. 分别运行 CPU 与主机权限 HCU 的 no-PBC 回归，并用统一 `OMP_NUM_THREADS=1` 与短 JSON
-   探针记录前后 steady；不把 shared-HCU 数字当作发布性能门槛。
-3. 通过 no-PBC 和 periodic 语义回归后，再评估 Torch reference 内 cell-list 的算法轴
-   价值。cell-list、half-list、PBC 容量压力、长 skin/rebuild、Triton/HIP registry 和
-   完整端到端 profile 仍不可提前标记为完成。
+1. no-PBC `neighbor_list` 的设备端装配已完成 CPU 与 BW200 HCU 0 的 full/half、批边界、
+   距离/向量和 overlap/overflow 合同，以及短 JSON probe；下一步只在低干扰窗口补固定结构
+   阶梯基线，不把 shared-HCU 数字当作发布性能门槛。
+2. registry 已集中 operation/dtype/device/gradient/features 选择；任何继续的 framework
+   接线或优化后端必须先登记 capability，不能重新增加局部字符串分支。
+3. no-PBC 与 periodic 的 HCU 语义证据齐备后，再在低干扰窗口评估 Torch reference
+   cell-list 的算法轴价值。cell-list、周期 half-list、PBC 容量压力、长 skin/rebuild、
+   Triton/HIP 和完整端到端 profile 仍不可提前标记为完成。
 4. 每次修改导入的上游文件，继续在 `docs/UPSTREAM.md` 登记文件、位置、动机、upstream
    candidate 和回归指针；每轮独立更新 STATUS 当前快照、时间线和 DoD。
 

@@ -10,9 +10,9 @@
 - [DEVELOPMENT_ENVIRONMENT.md](DEVELOPMENT_ENVIRONMENT.md)：环境部署和 HCU 运行方法。
 
 当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
-Triton/HIP 逐算子替换并以实测决定。当前 ops registry 只注册了 torch_reference；
-triton、hip 名称已被识别但尚未作为该 slice 的可用后端注册。默认 Warp 路径仍保留，
-因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
+Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、device、dtype、梯度等级和
+特性集合登记已验证的 Torch reference 宽度；triton、hip 名称已被识别但尚未作为可用后端
+注册。默认 Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
 
 ## 1. 开始前：定位工作范围
 
@@ -80,9 +80,13 @@ dtype、梯度等级和实际 benchmark。
 - backend="torch_reference"：显式选择正确性优先 reference；
 - backend="triton" / "hip"：未注册时必须抛 BackendUnavailableError；实现和测试完成后才
   能登记；
-- backend="auto"：只在能力过滤、后端注册和证据齐全时选择优化后端；当前 slice 只会选
-  已注册的 reference，并记录原因；
+- backend="auto"：只在能力过滤、后端注册和证据齐全时选择；当前 slice 只会选已注册的
+  reference，并针对每个选择签名首次报告实际后端和原因；
 - backend="warp"：NVIDIA 上游参考路径，不能被 HCU 修改偷偷替换。
+
+数据层例外：`LevelStorage` 默认使用 `TorchStorageBackend`，以保证基础数据导入不初始化
+Warp；`WarpStorageBackend` 必须显式传入并作为 NVIDIA 对照。完整宽度矩阵和 Warp-only
+白名单见 [BACKEND_CAPABILITY_MATRIX.md](BACKEND_CAPABILITY_MATRIX.md)。
 
 ### 3.2 Torch reference
 
