@@ -258,13 +258,14 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 ### 下次从这里开始
 
 1. no-PBC `neighbor_list` 的设备端装配已完成 CPU 与 BW200 HCU 0 的 full/half、批边界、
-   距离/向量和 overlap/overflow 合同，以及短 JSON probe；下一步只在低干扰窗口补固定结构
-   阶梯基线，不把 shared-HCU 数字当作发布性能门槛。
+   距离/向量和 overlap/overflow 合同，以及短 JSON probe；下一步在同一 harness 中补齐
+   no-PBC 与 periodic full-list 的固定结构阶梯基线，并强制加入 `[46,92]` mixed
+   MACE/FIRE2 100 步端到端测量，不把 shared-HCU 数字当作发布性能门槛。
 2. registry 已集中 operation/dtype/device/gradient/features 选择；任何继续的 framework
    接线或优化后端必须先登记 capability，不能重新增加局部字符串分支。
-3. no-PBC 与 periodic 的 HCU 语义证据齐备后，再在低干扰窗口评估 Torch reference
-   cell-list 的算法轴价值。cell-list、周期 half-list、PBC 容量压力、长 skin/rebuild、
-   Triton/HIP 和完整端到端 profile 仍不可提前标记为完成。
+3. 统一 baseline 应同时覆盖 no-PBC full/half 和 periodic full；以 periodic MACE/FIRE2
+   端到端成本作为 cell-list 的主要决策输入。基线完成后先评估 Torch reference
+   cell-list，再排期周期 half-list、PBC 容量压力、长 skin/rebuild、Triton/HIP。
 4. 每次修改导入的上游文件，继续在 `docs/UPSTREAM.md` 登记文件、位置、动机、upstream
    candidate 和回归指针；每轮独立更新 STATUS 当前快照、时间线和 DoD。
 
