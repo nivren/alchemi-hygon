@@ -281,3 +281,6 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
   `reports/g2-unified-reference-benchmark-hcu-smoke.md`。
 - 下一小步是继续同一 harness 的 HCU `perf_46/92/184/368` 规模与 batch 阶梯，随后运行
   periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步；完整结果前不启动 cell-list 实现。
+- HCU 单体系规模阶梯现已完成：periodic full、no-PBC full/half 的 46/92/184/368
+  全部通过；periodic steady 为 `3.243/3.702/5.753/13.969 ms`。下一小步只补同一
+  harness 的 batch 阶梯，之后再运行 periodic `[46,92]` MACE/FIRE2 100 步端到端。
