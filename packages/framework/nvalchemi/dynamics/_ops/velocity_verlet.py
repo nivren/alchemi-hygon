@@ -35,6 +35,8 @@ from __future__ import annotations
 import torch
 import torch.library
 
+from nvalchemi._backend import resolve_compute_backend
+
 __all__ = ["vv_position_update", "vv_velocity_finalize"]
 
 
@@ -146,17 +148,6 @@ def _vv_velocity_finalize_fake(velocities, forces_new, masses, dt, batch_idx) ->
     pass
 
 
-def _select_backend(backend: str | None) -> str:
-    if backend is None or backend == "warp":
-        return "warp"
-    if backend in {"auto", "torch_reference"}:
-        return "torch_reference"
-    raise ValueError(
-        "velocity-Verlet backend must be one of None, 'warp', 'auto', "
-        f"'torch_reference'; got {backend!r}"
-    )
-
-
 def vv_position_update(
     positions: torch.Tensor,
     velocities: torch.Tensor,
@@ -168,7 +159,15 @@ def vv_position_update(
     backend: str | None = None,
 ) -> None:
     """Dispatch velocity-Verlet position update to the explicit backend."""
-    if _select_backend(backend) == "torch_reference":
+    selected = resolve_compute_backend(
+        backend,
+        operation="velocity_verlet",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=1,
+        features={"fixed_cell"},
+    ).selected
+    if selected == "torch_reference":
         from nvalchemi._dynamics_reference.velocity_verlet import vv_position_update as ref
 
         return ref(positions, velocities, forces, masses, dt, batch_idx)
@@ -187,7 +186,15 @@ def vv_velocity_finalize(
     backend: str | None = None,
 ) -> None:
     """Dispatch velocity-Verlet velocity finalize to the explicit backend."""
-    if _select_backend(backend) == "torch_reference":
+    selected = resolve_compute_backend(
+        backend,
+        operation="velocity_verlet",
+        device=velocities.device,
+        dtype=velocities.dtype,
+        gradient_order=1,
+        features={"fixed_cell"},
+    ).selected
+    if selected == "torch_reference":
         from nvalchemi._dynamics_reference.velocity_verlet import vv_velocity_finalize as ref
 
         return ref(velocities, forces_new, masses, dt, batch_idx)

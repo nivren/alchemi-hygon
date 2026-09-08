@@ -19,8 +19,10 @@ Shared pytest fixtures and helpers for the dynamics test suite.
 from __future__ import annotations
 
 from enum import Enum
+import os
 from typing import TYPE_CHECKING
 
+import pytest
 import torch
 
 from nvalchemi.dynamics.base import DynamicsStage
@@ -29,6 +31,28 @@ from nvalchemi.hooks import DynamicsContext
 if TYPE_CHECKING:
     from nvalchemi.data import Batch
     from nvalchemi.dynamics.base import BaseDynamics
+
+
+def selected_test_backend() -> str | None:
+    """Return the opt-in reference backend without changing upstream defaults."""
+    return os.environ.get("NVALCHEMI_TEST_BACKEND") or None
+
+
+def selected_test_device() -> torch.device:
+    """Return the opt-in test device, defaulting to CPU for upstream tests."""
+    return torch.device(os.environ.get("NVALCHEMI_TEST_DEVICE", "cpu"))
+
+
+@pytest.fixture
+def backend() -> str | None:
+    """Shared numerical-backend fixture for explicit reference test runs."""
+    return selected_test_backend()
+
+
+@pytest.fixture
+def device() -> torch.device:
+    """Shared device fixture for explicit HCU test runs."""
+    return selected_test_device()
 
 
 def make_dynamics_context(

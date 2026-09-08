@@ -61,9 +61,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from nvalchemiops.backend import validate_backend_name
 from nvalchemiops.torch_backend import dispatch_lj_energy_forces
 from torch import nn
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi._typing import ModelOutputs
 from nvalchemi.data import AtomicData, Batch
 from nvalchemi.models.base import (
@@ -141,13 +143,8 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         backend: str | None = None,
     ) -> None:
         super().__init__()
-        selected_backend = "warp" if backend is None else backend
-        if selected_backend not in {"warp", "auto", "torch_reference"}:
-            raise ValueError(
-                f"unknown LennardJonesModelWrapper backend {selected_backend!r}; "
-                "choices are 'warp', 'auto', and 'torch_reference'"
-            )
-        if selected_backend == "warp":
+        validate_backend_name(backend)
+        if backend in (None, "warp"):
             _initialize_warp_lj_ops()
 
         self.epsilon = epsilon
@@ -155,7 +152,7 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         self.cutoff = cutoff
         self.switch_width = switch_width
         self.half_list = half_list
-        self.backend = selected_backend
+        self.backend = backend
         # Instance-level model_config so callers can mutate it.
         # active_outputs defaults to energy + forces; stress is opt-in
         # via model.set_config("active_outputs", {"energy", "forces", "stress"})
@@ -470,7 +467,20 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         """
         inp = self.adapt_input(data, **kwargs)
 
-        if self.backend in ("auto", "torch_reference"):
+        pbc = getattr(data, "pbc", None)
+        selection = resolve_compute_backend(
+            self.backend,
+            operation="lj_energy_forces",
+            device=inp["positions"].device,
+            dtype=inp["positions"].dtype,
+            gradient_order=2,
+            features={
+                "periodic" if pbc is not None and bool(pbc.any()) else "no_pbc",
+                "half" if self.half_list else "full",
+                "forces",
+            },
+        )
+        if selection.selected == "torch_reference":
             return self._forward_reference(data, inp)
 
         positions = inp["positions"]  # (N, 3)

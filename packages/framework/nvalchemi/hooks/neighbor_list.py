@@ -60,9 +60,11 @@ from __future__ import annotations
 from enum import Enum
 
 import torch
+from nvalchemiops.backend import BackendUnavailableError, validate_backend_name
 from nvalchemiops.torch_backend import dispatch_neighbor_list
 from nvalchemiops.torch_reference import NeighborOverflowError
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.hooks._context import HookContext
 from nvalchemi.models.base import NeighborConfig, NeighborListFormat
@@ -222,13 +224,8 @@ class NeighborListHook:
         method: str | None = None,
         backend: str | None = None,
     ) -> None:
-        selected_backend = "warp" if backend is None else backend
-        if selected_backend not in {"warp", "auto", "torch_reference"}:
-            raise ValueError(
-                f"unknown NeighborListHook backend {selected_backend!r}; "
-                "choices are 'warp', 'auto', and 'torch_reference'"
-            )
-        if selected_backend == "warp":
+        validate_backend_name(backend)
+        if backend in (None, "warp"):
             _initialize_warp_dependencies()
         if skin < 0.0:
             raise ValueError("skin must be non-negative")
@@ -237,7 +234,7 @@ class NeighborListHook:
         self.skin = skin
         self.stage = stage
         self.method = method
-        self.backend = selected_backend
+        self.backend = backend
         self._max_neighbors_override = max_neighbors
         self.frequency = 1
         self._neighbor_list_flag = config.format == NeighborListFormat.COO
@@ -291,9 +288,31 @@ class NeighborListHook:
         has moved more than ``skin / 2`` since the previous build.  The reference
         positions are updated in-place on the GPU whenever a rebuild occurs.
         """
-        if self.backend in ("auto", "torch_reference"):
+        pbc = getattr(ctx.batch, "pbc", None)
+        if pbc is not None and not bool(pbc.any()):
+            pbc = None
+        selection = resolve_compute_backend(
+            self.backend,
+            operation="neighbor_list",
+            device=ctx.batch.positions.device,
+            dtype=ctx.batch.positions.dtype,
+            features={
+                "periodic" if pbc is not None else "no_pbc",
+                "half" if self.config.half_list else "full",
+                "matrix"
+                if self.config.format == NeighborListFormat.MATRIX
+                else "coo",
+            },
+        )
+        if selection.selected == "torch_reference":
             self._rebuild_reference(ctx.batch)
             return
+
+        if selection.selected != "warp":
+            raise BackendUnavailableError(
+                f"NeighborListHook has no executor for selected backend "
+                f"{selection.selected!r}"
+            )
 
         self._rebuild(ctx.batch)
 

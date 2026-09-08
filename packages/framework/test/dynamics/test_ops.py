@@ -25,13 +25,11 @@ Tests verify:
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import torch
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures are shared by test/dynamics/conftest.py.
 # ---------------------------------------------------------------------------
 
 
@@ -46,23 +44,6 @@ def _batch_idx(sizes: list[int], device: torch.device) -> torch.Tensor:
 @pytest.fixture(params=[torch.float32, torch.float64])
 def dtype(request):
     return request.param
-
-
-@pytest.fixture(params=[os.environ.get("NVALCHEMI_TEST_DEVICE", "cpu")])
-def device(request):
-    """Run on CPU by default; opt into a specific device for a probe run."""
-    return torch.device(request.param)
-
-
-@pytest.fixture
-def backend():
-    """Optional backend override for running this upstream suite on reference.
-
-    The default remains ``None`` and therefore exercises the locked Warp path.
-    CI or a local reference run may set ``NVALCHEMI_TEST_BACKEND`` explicitly
-    without changing the upstream default behavior.
-    """
-    return os.environ.get("NVALCHEMI_TEST_BACKEND")
 
 
 # ---------------------------------------------------------------------------

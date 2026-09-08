@@ -27,6 +27,7 @@ from typing import Literal
 
 import torch
 from loguru import logger
+from nvalchemiops.backend import validate_backend_name
 
 from nvalchemi.data import Batch
 from nvalchemi.dynamics.base import DynamicsStage
@@ -156,11 +157,7 @@ class EnergyDriftMonitorHook:
         self.metric = metric
         self.action = action
         self.include_kinetic = include_kinetic
-        if compute_backend not in (None, "warp", "auto", "torch_reference"):
-            raise ValueError(
-                "EnergyDriftMonitorHook compute_backend must be one of None, "
-                f"'warp', 'auto', or 'torch_reference'; got {compute_backend!r}."
-            )
+        validate_backend_name(compute_backend)
         self.compute_backend = compute_backend
         self._reference_total_energy: torch.Tensor | None = None
 

@@ -48,23 +48,14 @@ from __future__ import annotations
 import torch
 import torch.library
 
+from nvalchemi._backend import resolve_compute_backend
+
 __all__ = [
     "fire_step",
     "fire_update",
     "fire2_step_coord",
     "fire2_step_coord_cell",
 ]
-
-
-def _select_backend(backend: str | None) -> str:
-    if backend is None or backend == "warp":
-        return "warp"
-    if backend in {"auto", "torch_reference"}:
-        return "torch_reference"
-    raise ValueError(
-        "FIRE backend must be one of None, 'warp', 'auto', 'torch_reference'; "
-        f"got {backend!r}"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +322,14 @@ def fire_step(
         caller has already filled them with the desired — e.g. mesh-global —
         values); only the per-atom revert still runs.
     """
-    if _select_backend(backend) == "torch_reference":
+    if resolve_compute_backend(
+        backend,
+        operation="fire",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=1,
+        features={"fixed_cell"},
+    ).selected == "torch_reference":
         from nvalchemi._dynamics_reference.fire import fire_step as reference_step
 
         return reference_step(
@@ -460,7 +458,14 @@ def fire_update(
         caller has already filled them with the desired — e.g. mesh-global —
         values).
     """
-    if _select_backend(backend) == "torch_reference":
+    if resolve_compute_backend(
+        backend,
+        operation="fire",
+        device=velocities.device,
+        dtype=velocities.dtype,
+        gradient_order=1,
+        features={"fixed_cell"},
+    ).selected == "torch_reference":
         from nvalchemi._dynamics_reference.fire import fire_update as reference_update
 
         return reference_update(
@@ -590,7 +595,14 @@ def fire2_step_coord(
     maxstep : float
         Maximum displacement per step.  Default 0.1.
     """
-    if _select_backend(backend) == "torch_reference":
+    if resolve_compute_backend(
+        backend,
+        operation="fire",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=1,
+        features={"fixed_cell"},
+    ).selected == "torch_reference":
         from nvalchemi._dynamics_reference.fire import fire2_step_coord as reference_step
 
         return reference_step(
@@ -706,7 +718,14 @@ def fire2_step_coord_cell(
     delaystep, dtgrow, dtshrink, alphashrink, alpha0, tmax, tmin, maxstep
         FIRE2 hyperparameters (same semantics as :func:`fire2_step_coord`).
     """
-    if _select_backend(backend) == "torch_reference":
+    if resolve_compute_backend(
+        backend,
+        operation="fire",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=1,
+        features={"variable_cell"},
+    ).selected == "torch_reference":
         from nvalchemi._dynamics_reference.fire import (
             fire2_step_coord_cell as reference_step,
         )

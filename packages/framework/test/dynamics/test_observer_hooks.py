@@ -19,7 +19,6 @@ LoggingHook, and EnergyDriftMonitorHook.
 from __future__ import annotations
 
 import csv
-import os
 from enum import Enum
 from pathlib import Path
 
@@ -38,6 +37,7 @@ from nvalchemi.dynamics.sinks import HostMemory
 from nvalchemi.hooks import Hook
 from nvalchemi.models.demo import DemoModel, DemoModelWrapper
 from test.dynamics.conftest import make_dynamics_context
+from test.dynamics.conftest import selected_test_backend as _test_backend
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -78,11 +78,6 @@ def _make_dynamics(device: str = "cpu") -> BaseDynamics:
 
 
 _make_ctx = make_dynamics_context
-
-
-def _test_backend() -> str | None:
-    """Select an explicit numerical backend for DCU reference runs."""
-    return os.environ.get("NVALCHEMI_TEST_BACKEND")
 
 
 def _make_energy_hook(**kwargs):

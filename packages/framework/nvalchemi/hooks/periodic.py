@@ -25,7 +25,9 @@ from enum import Enum
 
 import torch
 from jaxtyping import Float
+from nvalchemiops.backend import validate_backend_name
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.hooks._context import HookContext
 
@@ -110,12 +112,14 @@ def wrap_positions_into_cell(
     Float[Tensor, "V 3"]
         The same ``positions`` tensor (modified in-place).
     """
-    if backend not in (None, "warp", "auto", "torch_reference"):
-        raise ValueError(
-            "unsupported periodic backend: "
-            f"{backend!r}; expected None, 'warp', 'auto', or 'torch_reference'"
-        )
-    if backend in ("auto", "torch_reference"):
+    selected = resolve_compute_backend(
+        backend,
+        operation="periodic_wrap",
+        device=positions.device,
+        dtype=positions.dtype,
+        features={"inplace", "periodic"},
+    ).selected
+    if selected == "torch_reference":
         from nvalchemi._dynamics_reference.periodic import (
             wrap_positions_into_cell as reference_wrap_positions,
         )
@@ -221,11 +225,7 @@ class WrapPeriodicHook:
         stage: Enum | None = None,
         compute_backend: str | None = None,
     ) -> None:
-        if compute_backend not in (None, "warp", "auto", "torch_reference"):
-            raise ValueError(
-                "WrapPeriodicHook compute_backend must be one of None, 'warp', "
-                f"'auto', or 'torch_reference'; got {compute_backend!r}."
-            )
+        validate_backend_name(compute_backend)
         self.frequency = frequency
         self.stage = stage
         self.compute_backend = compute_backend

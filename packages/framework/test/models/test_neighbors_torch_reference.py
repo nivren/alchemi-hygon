@@ -21,6 +21,7 @@ import pytest
 import torch
 
 from nvalchemi.data import AtomicData, Batch
+from nvalchemi.models.lj import LennardJonesModelWrapper
 from nvalchemi.models.base import NeighborListFormat
 from nvalchemi.neighbors import compute_neighbors
 
@@ -64,7 +65,7 @@ def test_compute_neighbors_torch_reference_preserves_batch_boundaries():
 
 def test_compute_neighbors_rejects_unregistered_optimized_backend():
     """A framework caller cannot silently fall back from an unknown backend."""
-    with pytest.raises(RuntimeError, match="not registered"):
+    with pytest.raises(RuntimeError, match="no verified capability"):
         compute_neighbors(_make_batch(), cutoff=2.0, backend="triton")
 
 
@@ -115,3 +116,20 @@ def test_compute_neighbors_torch_reference_pbc_writes_shifts():
     )
     assert coo_batch.neighbor_list.tolist() == [[0, 1], [1, 0]]
     assert coo_batch.neighbor_list_shifts.tolist() == [[-1, 0, 0], [1, 0, 0]]
+
+
+def test_make_neighbor_hooks_accepts_backend_and_compatibility_alias():
+    """The public spelling is backend; the old alias remains unambiguous."""
+    model = LennardJonesModelWrapper(
+        epsilon=1.0,
+        sigma=1.0,
+        cutoff=2.0,
+        backend="torch_reference",
+    )
+    assert model.make_neighbor_hooks(backend="torch_reference")[0].backend == "torch_reference"
+    assert (
+        model.make_neighbor_hooks(neighbor_backend="torch_reference")[0].backend
+        == "torch_reference"
+    )
+    with pytest.raises(ValueError, match="must agree"):
+        model.make_neighbor_hooks(backend="torch_reference", neighbor_backend="warp")

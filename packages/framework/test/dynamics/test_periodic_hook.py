@@ -19,8 +19,6 @@ Covers :class:`WrapPeriodicHook`.
 
 from __future__ import annotations
 
-import os
-
 import torch
 
 from nvalchemi.data import AtomicData, Batch
@@ -28,6 +26,7 @@ from nvalchemi.dynamics.base import BaseDynamics, DynamicsStage
 from nvalchemi.hooks import Hook, WrapPeriodicHook
 from nvalchemi.models.demo import DemoModel, DemoModelWrapper
 from test.dynamics.conftest import make_dynamics_context
+from test.dynamics.conftest import selected_test_backend as _test_backend
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,11 +67,6 @@ def _make_dynamics() -> BaseDynamics:
 
 
 _make_ctx = make_dynamics_context
-
-
-def _test_backend() -> str | None:
-    """Select the explicit reference backend when requested by the test run."""
-    return os.environ.get("NVALCHEMI_TEST_BACKEND") or None
 
 
 # ===========================================================================

@@ -66,7 +66,7 @@ def test_reference_observer_segment_reduce(reduce, expected) -> None:
 
 
 def test_reference_observer_segment_reduce_rejects_unknown_backend() -> None:
-    with pytest.raises(ValueError, match="unsupported scatter backend"):
+    with pytest.raises(ValueError, match="unknown backend"):
         scatter_reduce_per_graph(
             torch.ones(1), torch.zeros(1, dtype=torch.int32), 1, backend="bad"
         )

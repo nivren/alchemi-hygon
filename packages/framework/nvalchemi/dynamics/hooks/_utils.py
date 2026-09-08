@@ -33,6 +33,8 @@ from typing import Literal
 import torch
 from jaxtyping import Float
 
+from nvalchemi._backend import resolve_compute_backend
+
 # Boltzmann constant in eV/K (NIST 2018 CODATA value).
 KB_EV: float = 8.617333262e-5
 
@@ -216,10 +218,14 @@ def scatter_reduce_per_graph(
     Tensor
         1-D tensor of shape ``(B,)`` with per-graph reduced values.
     """
-    if backend not in (None, "warp", "auto", "torch_reference"):
-        raise ValueError(f"unsupported scatter backend: {backend!r}")
-
-    if backend in ("auto", "torch_reference"):
+    selected = resolve_compute_backend(
+        backend,
+        operation="segmented_reduce",
+        device=values.device,
+        dtype=values.dtype,
+        features={"per_graph"},
+    ).selected
+    if selected == "torch_reference":
         idx = batch_idx.to(dtype=torch.long)
         if reduce == "sum":
             out = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
@@ -278,9 +284,15 @@ def kinetic_energy_per_graph(
     Float[Tensor, "B 1"]
         Kinetic energy per graph.
     """
-    if backend not in (None, "warp", "auto", "torch_reference"):
-        raise ValueError(f"unsupported kinetic backend: {backend!r}")
-    if backend in ("auto", "torch_reference"):
+    selected = resolve_compute_backend(
+        backend,
+        operation="kinetics",
+        device=velocities.device,
+        dtype=velocities.dtype,
+        gradient_order=1,
+        features={"per_graph"},
+    ).selected
+    if selected == "torch_reference":
         from nvalchemi._dynamics_reference.kinetics import (
             kinetic_energy_per_graph as reference_kinetic_energy,
         )

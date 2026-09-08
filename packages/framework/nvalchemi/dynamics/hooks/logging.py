@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Literal, get_args
 
 import torch
 from tensordict import TensorDict
+from nvalchemiops.backend import validate_backend_name
 
 from nvalchemi.data import Batch
 from nvalchemi.dynamics.base import DynamicsStage
@@ -201,11 +202,7 @@ class LoggingHook:
         self.log_path = log_path
         self.custom_scalars = custom_scalars
         self.writer_fn = writer_fn
-        if compute_backend not in (None, "warp", "auto", "torch_reference"):
-            raise ValueError(
-                "LoggingHook compute_backend must be one of None, 'warp', "
-                f"'auto', or 'torch_reference'; got {compute_backend!r}."
-            )
+        validate_backend_name(compute_backend)
         self.compute_backend = compute_backend
 
     # ------------------------------------------------------------------

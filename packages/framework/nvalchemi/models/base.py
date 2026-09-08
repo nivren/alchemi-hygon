@@ -796,6 +796,7 @@ class BaseModelMixin(abc.ABC):
         self,
         max_neighbors: int | None = None,
         neighbor_list_method: str | None = None,
+        backend: str | None = None,
         neighbor_backend: str | None = None,
     ) -> list:
         """Return a list of :class:`~nvalchemi.hooks.NeighborListHook` instances
@@ -812,10 +813,13 @@ class BaseModelMixin(abc.ABC):
         neighbor_list_method : str | None, optional
             Explicit ``nvalchemiops`` neighbor-list method to use.  When
             ``None`` (default), the hook selects an appropriate method.
+        backend : str | None, optional
+            Explicit neighbor-list compute backend. When omitted, a
+            model-level ``backend`` attribute is propagated when present;
+            otherwise the hook keeps its default Warp backend.
         neighbor_backend : str | None, optional
-            Explicit neighbor-list backend. When omitted, a model-level
-            ``backend`` attribute is propagated when present; otherwise the
-            hook keeps its default Warp backend.
+            Backward-compatible alias for ``backend``. Passing both with
+            different values is an error.
         """
         # Import the enum from the lightweight module so reference models do
         # not execute the eager, Warp-backed dynamics package initializer.
@@ -825,8 +829,11 @@ class BaseModelMixin(abc.ABC):
         nc = self.model_config.neighbor_config
         if nc is None:
             return []
-        if neighbor_backend is None:
-            neighbor_backend = getattr(self, "backend", None)
+        if backend is not None and neighbor_backend is not None and backend != neighbor_backend:
+            raise ValueError("backend and neighbor_backend must agree when both are set")
+        selected_backend = backend if backend is not None else neighbor_backend
+        if selected_backend is None:
+            selected_backend = getattr(self, "backend", None)
         return [
             NeighborListHook(
                 nc,
@@ -834,6 +841,6 @@ class BaseModelMixin(abc.ABC):
                 max_neighbors=max_neighbors,
                 method=neighbor_list_method,
                 stage=DynamicsStage.BEFORE_COMPUTE,
-                backend=neighbor_backend,
+                backend=selected_backend,
             )
         ]

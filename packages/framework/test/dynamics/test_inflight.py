@@ -23,8 +23,6 @@ This module tests the full inflight batching workflow including:
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import torch
 
@@ -37,6 +35,7 @@ from nvalchemi.dynamics.base import (
 from nvalchemi.dynamics.sampler import SizeAwareSampler
 from nvalchemi.dynamics.sinks import HostMemory
 from nvalchemi.models.demo import DemoModel, DemoModelWrapper
+from test.dynamics.conftest import selected_test_backend
 
 # -----------------------------------------------------------------------------
 # Mock Dataset for Inflight Batching Tests
@@ -295,7 +294,7 @@ class TestFusedStageInflight:
             next_rank=1,
             buffer_config=BufferConfig(num_systems=4, num_nodes=12, num_edges=0),
             device_type="cpu",
-            backend=os.environ.get("NVALCHEMI_TEST_BACKEND"),
+            backend=selected_test_backend(),
         )
         batch = sampler.build_initial_batch()
         initialize_batch_for_dynamics(batch)

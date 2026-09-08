@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-import os
-
 import torch
 
 from nvalchemi.dynamics.hooks._utils import (
@@ -27,11 +25,7 @@ from nvalchemi.dynamics.hooks._utils import (
     temperature_per_graph,
 )
 from nvalchemi.hooks.periodic import wrap_positions_into_cell
-
-
-def _test_backend() -> str | None:
-    """Select the explicit reference backend when requested by the test run."""
-    return os.environ.get("NVALCHEMI_TEST_BACKEND") or None
+from test.dynamics.conftest import selected_test_backend as _test_backend
 
 # ---------------------------------------------------------------------------
 # scatter_reduce_per_graph

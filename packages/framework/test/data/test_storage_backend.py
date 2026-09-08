@@ -5,13 +5,16 @@
 from __future__ import annotations
 
 import os
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import torch
 
 from nvalchemi.data.level_storage import SegmentedLevelStorage, UniformLevelStorage
+from nvalchemi.data.storage_backend import TorchStorageBackend
 
 
 def test_public_data_import_does_not_load_warp() -> None:
@@ -36,6 +39,41 @@ print(AtomicData.__name__, Batch.__name__)
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "AtomicData Batch"
+
+
+def test_level_storage_uses_torch_as_the_documented_default() -> None:
+    """The data model has a stable HCU-safe default independent of Warp."""
+    storage = UniformLevelStorage(data={"x": torch.zeros(1, 1)}, validate=False)
+    assert isinstance(storage._backend, TorchStorageBackend)
+    assert storage._backend.name == "torch"
+
+
+@pytest.mark.xfail(
+    importlib.util.find_spec("warp") is None,
+    strict=True,
+    reason="WARP-EQUIV-001: run the explicit storage equivalence path on NVIDIA/Warp",
+)
+def test_explicit_warp_storage_matches_torch_put_contract() -> None:
+    """Warp remains an explicit comparison backend, never an implicit default."""
+    from nvalchemi.data.warp_storage_backend import WarpStorageBackend
+
+    source_data = {
+        "x": torch.tensor([[1.0], [2.0]]),
+        "y": torch.tensor([[10.0], [20.0]]),
+    }
+    outputs = []
+    for backend in (TorchStorageBackend(), WarpStorageBackend()):
+        source = UniformLevelStorage(data=source_data, validate=False, backend=backend)
+        dest = UniformLevelStorage(
+            data={"x": torch.zeros(3, 1), "y": torch.zeros(3, 1)},
+            validate=False,
+            backend=backend,
+        )
+        dest.put(source, torch.tensor([True, True]))
+        outputs.append((dest["x"].clone(), dest["y"].clone(), source._copied_mask.clone()))
+    torch.testing.assert_close(outputs[0][0], outputs[1][0])
+    torch.testing.assert_close(outputs[0][1], outputs[1][1])
+    assert torch.equal(outputs[0][2], outputs[1][2])
 
 
 def test_uniform_multi_attribute_put_reuses_slots_and_mask() -> None:

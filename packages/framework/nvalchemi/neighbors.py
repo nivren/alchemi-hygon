@@ -34,9 +34,9 @@ path you use.
 from __future__ import annotations
 
 import torch
-from nvalchemiops.backend import BackendUnavailableError
 from nvalchemiops.torch_backend import dispatch_neighbor_list
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.data.level_storage import SegmentedLevelStorage
 from nvalchemi.models.base import NeighborConfig, NeighborListFormat
@@ -276,8 +276,19 @@ def compute_neighbors(
         pbc = None
         cell = None
 
-    selected_backend = "warp" if backend is None else backend
-    if selected_backend in ("torch_reference", "auto"):
+    selection = resolve_compute_backend(
+        backend,
+        operation="neighbor_list",
+        device=batch.positions.device,
+        dtype=batch.positions.dtype,
+        features={
+            "periodic" if pbc is not None else "no_pbc",
+            "half" if half_list else "full",
+            "matrix" if format == NeighborListFormat.MATRIX else "coo",
+        },
+    )
+    selected_backend = selection.selected
+    if selected_backend != "warp":
         if max_neighbors is None and pbc is None:
             max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
         result = dispatch_neighbor_list(
@@ -306,11 +317,6 @@ def compute_neighbors(
             backend=selected_backend,
         )
         return
-    if selected_backend != "warp":
-        raise BackendUnavailableError(
-            f"backend {selected_backend!r} is not registered for framework.compute_neighbors"
-        )
-
     # Warp imports stay on the legacy path so importing this module and using
     # the explicit Torch reference backend does not require Warp.
     from nvalchemiops.neighbors.neighbor_utils import estimate_max_neighbors

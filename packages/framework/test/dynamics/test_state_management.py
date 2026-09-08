@@ -23,18 +23,13 @@ Tests for BaseDynamics per-system _state batch lifecycle:
 
 from __future__ import annotations
 
-import os
 from unittest.mock import Mock
 
 import pytest
 import torch
 
 from nvalchemi.data import AtomicData, Batch
-
-
-def _test_backend() -> str | None:
-    """Return an explicit backend for reference test runs, if requested."""
-    return os.environ.get("NVALCHEMI_TEST_BACKEND")
+from test.dynamics.conftest import selected_test_backend as _test_backend
 
 # ---------------------------------------------------------------------------
 # Shared helpers

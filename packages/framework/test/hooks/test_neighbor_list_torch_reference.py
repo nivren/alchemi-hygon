@@ -17,7 +17,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 import torch
@@ -110,11 +113,25 @@ def test_reference_hook_supports_full_pbc_and_writes_shifts():
 
 
 def test_shared_dynamics_stage_keeps_stage_timing_domain_without_warp():
-    from nvalchemi._dynamics_stage import DynamicsStage
-    from nvalchemi.hooks.stage_timing import _stage_domain
-
-    assert _stage_domain(DynamicsStage.BEFORE_COMPUTE) == "dynamics"
-    assert "nvalchemi.dynamics" not in sys.modules
+    framework = Path(__file__).parents[2]
+    environment = os.environ | {"PYTHONPATH": f"{framework}:{framework.parent / 'ops'}"}
+    script = """
+import sys
+from nvalchemi._dynamics_stage import DynamicsStage
+from nvalchemi.hooks.stage_timing import _stage_domain
+assert _stage_domain(DynamicsStage.BEFORE_COMPUTE) == 'dynamics'
+assert 'nvalchemi.dynamics' not in sys.modules
+assert 'warp' not in sys.modules
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=framework.parent.parent,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_reference_hook_rejects_method_selection():
