@@ -73,3 +73,17 @@ HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 230 \
 `torch_reference` 组合证据。它验证了真实 MACE/FIRE2 batching 与 2000 步
 上限下的收敛流程，不构成 cell-list、Triton/HIP 生产 kernel、变胞 stress、
 NVT/Langevin、checkpoint/restart、长轨迹 occupancy 或无干扰性能结论。
+
+## 2026-09-08 原参数复跑
+
+按上面的同一数据、模型和参数重新运行（`fmax=0.01`、`max_steps=2000`、
+`dt=0.01`、`skin=0.5`、单 HCU、`OMP_NUM_THREADS=1`），结果为：
+
+- `status=passed`，32/32 体系收敛，`step_count=835`；
+- `num_nodes=2944`，最终邻居边数 `75074`；
+- `max_final_fmax=0.009996769018471241 eV/Å`；
+- `elapsed_s=81.58037368883379`，设备为 `BW200, UBB BW1000`。
+
+这与此前第 834 步、约 79.5--79.8 秒的结果一致，差异属于 HCU 运行波动；
+两次均只作为单卡固定晶胞 reference 功能证据，不作为无干扰性能基线。
+本次完整日志见 `artifacts/g2/mace-fire2-batch32-rerun-20260908.log`。
