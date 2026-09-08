@@ -258,8 +258,8 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 ### 下次从这里开始
 
 1. no-PBC `neighbor_list` 的设备端装配已完成 CPU 与 BW200 HCU 0 的 full/half、批边界、
-   距离/向量和 overlap/overflow 合同，以及短 JSON probe；下一步在同一 harness 中补齐
-   no-PBC 与 periodic full-list 的固定结构阶梯基线，并强制加入 `[46,92]` mixed
+   距离/向量和 overlap/overflow 合同；统一 no-PBC/periodic harness 已完成 CPU smoke，
+   下一步在主机权限低干扰窗口补 HCU 固定结构阶梯和 periodic `[46,92]` mixed
    MACE/FIRE2 100 步端到端测量，不把 shared-HCU 数字当作发布性能门槛。
 2. registry 已集中 operation/dtype/device/gradient/features 选择；任何继续的 framework
    接线或优化后端必须先登记 capability，不能重新增加局部字符串分支。
