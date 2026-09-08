@@ -270,3 +270,14 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
    candidate 和回归指针；每轮独立更新 STATUS 当前快照、时间线和 DoD。
 
 暂停时没有遗留运行中的 pytest 或 benchmark 进程。
+
+## 12. 统一 benchmark 进展（2026-09-08）
+
+- 已补齐 unified reference benchmark 的输入元数据：每个 case 记录 CIF 路径、原始
+  `source_pbc`、实际 `effective_pbc`、原子数和晶胞体积，避免将同一 CIF 的 periodic
+  与 no-PBC 算法边界测量混淆。详见 `reports/g2-unified-reference-benchmark-cpu.md`。
+- CPU neighbor/E2E smoke 已通过；HCU 小范围 smoke 也已通过：periodic/no-PBC full/half
+  的 46/92 原子及 batch=1 契约检查退出码 `0`，设备为 `BW200, UBB BW1000`。详见
+  `reports/g2-unified-reference-benchmark-hcu-smoke.md`。
+- 下一小步是继续同一 harness 的 HCU `perf_46/92/184/368` 规模与 batch 阶梯，随后运行
+  periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步；完整结果前不启动 cell-list 实现。
