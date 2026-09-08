@@ -394,32 +394,59 @@ def neighbor_list(
     cutoff_sq = cutoff * cutoff
     for system in range(ptr.numel() - 1):
         start, end = int(ptr[system].item()), int(ptr[system + 1].item())
-        for i in range(start, end):
-            candidates = torch.arange(start, end, device=positions.device, dtype=torch.long)
-            candidates = candidates[candidates != i]
-            if half_fill:
-                candidates = candidates[candidates > i]
-            if candidates.numel() == 0:
-                continue
-            rij = positions[i].unsqueeze(0) - positions.index_select(0, candidates)
-            d2 = rij.square().sum(dim=1)
-            active = d2 < cutoff_sq
-            if torch.any(d2[active] == 0):
-                raise ValueError("neighbor list contains an overlapping active pair")
-            selected = candidates[active]
-            selected_d2 = d2[active]
-            count = int(selected.numel())
-            if count > max_neighbors:
-                raise NeighborOverflowError(
-                    f"neighbor capacity {max_neighbors} is smaller than row {i} count {count}"
-                )
-            if count:
-                matrix[i, :count] = selected.to(torch.int32)
-                counts[i] = count
-                if distances is not None:
-                    distances[i, :count] = selected_d2.sqrt()
-                if vectors is not None:
-                    vectors[i, :count] = positions[i] - positions.index_select(0, selected)
+        local_positions = positions[start:end]
+        local_count = end - start
+        if local_count == 0:
+            continue
+
+        # ``nonzero`` is row-major, matching the upstream row fill order:
+        # every source row is visited in ascending order and each target is
+        # ascending within the row.  All pair discovery and output writes stay
+        # on the tensor device; only batch-system boundaries remain eager.
+        vectors_local = (
+            local_positions[:, None, :] - local_positions[None, :, :]
+        )
+        distance_sq = vectors_local.square().sum(dim=-1)
+        active = distance_sq < cutoff_sq
+        diagonal = torch.eye(local_count, dtype=torch.bool, device=positions.device)
+        active = active & ~diagonal
+        if half_fill:
+            active = active & torch.triu(
+                torch.ones_like(diagonal), diagonal=1
+            )
+        if bool(torch.any(distance_sq[active] == 0)):
+            raise ValueError("neighbor list contains an overlapping active pair")
+
+        active_indices = torch.nonzero(active, as_tuple=False)
+        local_rows = active_indices[:, 0]
+        local_columns = active_indices[:, 1]
+        local_counts = torch.bincount(local_rows, minlength=local_count)
+        if bool(torch.any(local_counts > max_neighbors)):
+            overflow_row = int(torch.nonzero(local_counts > max_neighbors)[0].item())
+            overflow_count = int(local_counts[overflow_row].item())
+            raise NeighborOverflowError(
+                f"neighbor capacity {max_neighbors} is smaller than row "
+                f"{start + overflow_row} count {overflow_count}"
+            )
+        counts[start:end].copy_(local_counts.to(torch.int32))
+        if active_indices.numel() == 0:
+            continue
+
+        offsets = torch.cat(
+            [
+                torch.zeros(1, dtype=local_counts.dtype, device=positions.device),
+                local_counts.cumsum(0)[:-1],
+            ]
+        )
+        ranks = torch.arange(
+            active_indices.shape[0], device=positions.device, dtype=local_counts.dtype
+        ) - offsets.index_select(0, local_rows)
+        global_rows = local_rows + start
+        matrix[global_rows, ranks] = (local_columns + start).to(torch.int32)
+        if distances is not None:
+            distances[global_rows, ranks] = distance_sq[local_rows, local_columns].sqrt()
+        if vectors is not None:
+            vectors[global_rows, ranks] = vectors_local[local_rows, local_columns]
 
     if return_neighbor_list:
         row_ids = torch.arange(n_atoms, device=positions.device, dtype=torch.int32)

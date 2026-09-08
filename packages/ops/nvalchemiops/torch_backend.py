@@ -21,7 +21,11 @@ from typing import Any
 
 import torch
 
-from nvalchemiops.backend import BackendName, resolve_backend
+from nvalchemiops.backend import (
+    BackendName,
+    BackendUnavailableError,
+    resolve_backend,
+)
 from nvalchemiops.torch_reference import lj_energy_forces as _lj_energy_forces
 from nvalchemiops.torch_reference import neighbor_list as _neighbor_list
 
@@ -46,7 +50,27 @@ def dispatch_neighbor_list(
     **kwargs: object,
 ) -> Any:
     """Dispatch neighbor construction and optionally return its audit record."""
-    selection = resolve_backend(backend, operation="neighbor_list", device=positions.device)
+    features = {
+        "periodic" if cell is not None or pbc is not None else "no_pbc",
+        "half" if half_fill else "full",
+        "coo" if return_neighbor_list else "matrix",
+    }
+    if return_distances:
+        features.add("distances")
+    if return_vectors:
+        features.add("vectors")
+    selection = resolve_backend(
+        backend,
+        operation="neighbor_list",
+        device=positions.device,
+        dtype=positions.dtype,
+        features=features,
+    )
+    if selection.selected != "torch_reference":
+        raise BackendUnavailableError(
+            "the Torch dispatcher does not execute legacy Warp; use the framework "
+            "legacy entry point or request a registered Torch backend"
+        )
     result = _neighbor_list(
         positions,
         cutoff,
@@ -84,9 +108,24 @@ def dispatch_lj_energy_forces(
     return_backend: bool = False,
 ) -> Any:
     """Dispatch LJ energy/force evaluation and optionally return its audit record."""
+    features = {
+        "periodic" if neighbor_matrix_shifts is not None else "no_pbc",
+        "half" if half_list else "full",
+        "forces",
+    }
     selection = resolve_backend(
-        backend, operation="lj_energy_forces", device=positions.device
+        backend,
+        operation="lj_energy_forces",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=2,
+        features=features,
     )
+    if selection.selected != "torch_reference":
+        raise BackendUnavailableError(
+            "the Torch dispatcher does not execute legacy Warp; use the framework "
+            "legacy entry point or request a registered Torch backend"
+        )
     result = _lj_energy_forces(
         positions,
         neighbor_matrix,

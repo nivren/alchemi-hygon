@@ -82,6 +82,36 @@ def test_neighbor_list_batch_full_half_and_coo():
     )
 
 
+def test_no_pbc_vectorized_assembly_preserves_row_order_and_error_contract():
+    """Tier-1 no-PBC assembly keeps the former matrix/COO semantics exactly."""
+    from nvalchemiops.torch_reference import NeighborOverflowError, neighbor_list
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [10.0, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+    matrix, counts, distances, vectors = neighbor_list(
+        positions,
+        1.5,
+        batch_ptr=torch.tensor([0, 3, 4]),
+        return_distances=True,
+        return_vectors=True,
+    )
+    assert matrix.tolist() == [[1, 4], [0, 2], [1, 4], [4, 4]]
+    assert counts.tolist() == [1, 2, 1, 0]
+    assert distances.tolist() == [[1.0, 0.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]
+    assert vectors[:, 0].tolist() == [
+        [-1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+    ]
+    with pytest.raises(NeighborOverflowError, match="row 1 count 2"):
+        neighbor_list(positions, 1.5, batch_ptr=torch.tensor([0, 3, 4]), max_neighbors=1)
+    with pytest.raises(ValueError, match="overlapping active pair"):
+        neighbor_list(torch.zeros(2, 3), 1.0)
+
+
 def test_lj_energy_force_and_second_derivative_match_list_conventions():
     """LJ energy and force agree for full/half lists and retain grad history."""
     from nvalchemiops.torch_reference import (  # noqa: PLC0415
@@ -324,7 +354,10 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
         "selected": "torch_reference",
         "operation": "neighbor_list",
         "device": "cpu",
-        "reason": "auto selected the only registered backend in this slice",
+        "dtype": "float64",
+        "gradient_order": 0,
+        "features": ["full", "matrix", "no_pbc"],
+        "reason": "auto selected the highest-priority verified capability",
     }
 
     coordinates = positions.clone().requires_grad_()
@@ -342,6 +375,6 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
     assert forces.shape == (2, 3)
     assert lj_selection.selected == "torch_reference"
     assert lj_selection.operation == "lj_energy_forces"
-    assert resolve_backend("torch_reference", operation="test").device == "unspecified"
-    with pytest.raises(BackendUnavailableError, match="not registered"):
+    assert resolve_backend("torch_reference", operation="neighbor_list").device == "unspecified"
+    with pytest.raises(BackendUnavailableError, match="no verified capability"):
         dispatch_neighbor_list(positions, 2.0, backend="triton")
