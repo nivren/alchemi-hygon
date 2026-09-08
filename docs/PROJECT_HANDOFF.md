@@ -285,5 +285,6 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
   全部通过；periodic steady 为 `3.243/3.702/5.753/13.969 ms`。
 - `perf_92` 的 HCU batch=1/4/8/16/32 阶梯现已完成；periodic steady 为
   `3.768/9.789/17.819/33.571/65.577 ms`，batch=32 与 Tier-1 `54,760` 边基线连续。
-  下一小步运行 periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步端到端，记录总耗时、
-  steady step 和 stage timing，再决定 cell-list 的切入位置。
+  periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步端到端也已通过；总耗时
+  `11.1279105 s`，100 步平均 `0.1112791 s/step`。由于 stage timing 存在明显抖动，
+  仍需低干扰窗口复测后再决定 cell-list 的切入位置。
