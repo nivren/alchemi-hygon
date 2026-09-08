@@ -66,6 +66,27 @@ def _load_structures(paths: list[Path]) -> list[Any]:
     return structures
 
 
+def _structure_metadata(
+    paths: list[Path],
+    structures: list[Any] | None = None,
+    *,
+    effective_periodic: bool | None = None,
+) -> dict[str, Any]:
+    if structures is None:
+        structures = _load_structures(paths)
+    source_pbc = [atoms.pbc.tolist() for atoms in structures]
+    effective_pbc = source_pbc
+    if effective_periodic is not None:
+        effective_pbc = [[effective_periodic] * 3 for _ in structures]
+    return {
+        "paths": [str(path) for path in paths],
+        "atom_counts": [len(atoms) for atoms in structures],
+        "source_pbc": source_pbc,
+        "effective_pbc": effective_pbc,
+        "cell_volumes": [float(atoms.cell.volume) for atoms in structures],
+    }
+
+
 def _make_batch(
     paths: list[Path],
     device: torch.device,
@@ -120,6 +141,7 @@ def _run_neighbor_case(
     warmup: int,
     steady: int,
 ) -> dict[str, Any]:
+    structures = _load_structures(paths)
     batch = _make_batch(paths, device, periodic=periodic)
     config = model.model_config.neighbor_config
     if config is None:
@@ -149,7 +171,7 @@ def _run_neighbor_case(
         "status": "passed",
         "path": "periodic" if periodic else "no_pbc",
         "half_list": half_list,
-        "atom_counts": [len(atoms) for atoms in _load_structures(paths)],
+        **_structure_metadata(paths, structures, effective_periodic=periodic),
         "num_nodes": batch.num_nodes,
         "cold_s": cold_s,
         "warmup_s": warmup_s,
@@ -181,6 +203,7 @@ def _run_end_to_end(
     steps: int,
     skin: float,
 ) -> dict[str, Any]:
+    structures = _load_structures(paths)
     batch = _make_dynamics_batch(paths, device)
     convergence = ConvergenceHook.from_fmax(
         threshold=-1.0, source_status=0, target_status=1
@@ -221,7 +244,7 @@ def _run_end_to_end(
         "case": "periodic_mixed_46_92_e2e",
         "status": "passed",
         "path": "periodic",
-        "atom_counts": [46, 92],
+        **_structure_metadata(paths, structures, effective_periodic=True),
         "steps": steps,
         "skin": skin,
         "dt": 0.01,

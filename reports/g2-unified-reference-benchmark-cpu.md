@@ -17,6 +17,20 @@ no-PBC 使用与 periodic case 相同的 CIF 坐标但关闭 PBC，作为算法�
 当前真实 MACE 生产链仍以 periodic case 为主。端到端模式默认运行 100 步，
 CPU smoke 使用 2 步验证载体，HCU 正式基线必须使用 100 步。
 
+## 输入确认
+
+“periodic 46/92”指的是原子数加上 CIF 中的三维周期边界条件，不是把一个
+非周期分子强行命名为 periodic。当前按排序后的第一个 CIF 选取：
+
+| case | CIF | 原子数 | source `pbc` | 晶胞体积 (Å³) |
+|---|---|---:|---|---:|
+| periodic 46 | `/data/csp_data/perf_46/formal_c1_1_100_z1_46.cif` | 46 | `[true,true,true]` | 1405.25 |
+| periodic 92 | `/data/csp_data/perf_92/formal_c1_2_1000_z1_46.cif` | 92 | `[true,true,true]` | 2623.32 |
+
+no-PBC 行仍使用这两个 CIF 的坐标和晶胞，但在传入邻居算子前将 effective
+`pbc` 设为全 `false`；新 harness 同时记录 `source_pbc` 和 `effective_pbc`，避免
+把这两种口径混淆。
+
 ## CPU neighbor smoke
 
 命令：
@@ -38,6 +52,15 @@ PYTHONPATH=packages/framework:packages/ops OMP_NUM_THREADS=1 \
 - no-PBC batch 1（92 原子）：1536 edges，steady mean 约 `1.153 ms`。
 
 所有 case 的 `cross_system_edges=0`，结果 schema 和边界检查通过。
+
+92 原子 periodic case 显著慢于 46 原子并不矛盾：当前 reference 周期实现按体系
+构造 `delta[N,N,3]`，再对候选周期 image 计算距离并执行 `nonzero`。这不是按最终
+edge 数线性工作；在两个输入上候选 image 数都为 512，因此主要的 dense pair/image
+张量工作从 `46²×512` 增长到 `92²×512`，约为 4 倍。当前 CPU smoke 的 steady
+均值为约 `55.31 ms → 278.89 ms`（约 5.0 倍），额外差异来自张量分配、归约和
+缓存/调度开销。92 原子 case 的边数约为 2.1 倍，不能用边数预测该实现的耗时。
+这解释的是当前 reference 邻居 kernel 的 CPU 成本；HCU 统一阶梯和周期 `[46,92]`
+端到端 100 步仍需单独实测，不能从此 CPU smoke 外推。
 
 ## CPU end-to-end smoke
 
