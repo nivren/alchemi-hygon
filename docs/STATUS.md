@@ -8,6 +8,10 @@
 - M1 已于 2026-09-09 完成；B0 团队基础开发版本已通过 CPU/HCU smoke gate，并按用户授权由
   `team/dev-baseline-v0.1` fast-forward 合入 `develop`；M2 尚未开始。`backend=None` 的 legacy 语义、显式 `auto` 策略、operation-specific neighbor
   strategy、单次解析和 checkpoint plan hash 是已锁定的设计约束。
+- B1 executor binding 已在 `codex/refactor-executor-binding` 完成代码迁移：registry metadata
+  现在声明 executor module、entrypoints 和 owner；通用 binding 负责 lazy load/call，legacy
+  handler 保留在 framework 调用点。当前 CPU gate 已覆盖该 binding，HCU 候选 gate 尚待在
+  B0 式集成指针上运行；未合入或推送共享分支。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 
@@ -588,7 +592,8 @@
   登记，resolver 不导入 executor。
 - `compute_neighbors` 和 `NeighborListHook` 的 cell-list 用法改为
   `backend="torch_reference", method="cell_list"`；Torch dispatcher 按 implementation ID
-  执行并接受 framework 的预解析 selection。旧的未发布全局名称明确失败；`None`/Warp
+  执行并接受 framework 的预解析 selection（该处为 M1 历史记录，B1 已改为声明式
+  entrypoint binding）。旧的未发布全局名称明确失败；`None`/Warp
   default 与 auto dense default 均保持不变，auto strategy 在 M2 profile 前显式失败。
 - CPU：ops registry/reference/cell-list `25 passed, 1 warning`，framework neighbor/Hook
   `22 passed, 1 warning`。BW200/gfx936 HCU 0：ops `25 passed, 1 warning`（19.39 s），
@@ -661,3 +666,25 @@
   `scripts/check_cpu_reference.sh` 重新运行退出码 `0`：ops `27 passed, 1 warning`、framework
   golden-path `121 passed, 1 deselected`、state `22 passed, 34 deselected`、VV/FIRE/FIRE2
   `24 passed, 73 deselected`；本轮没有新增 HCU 或产品实现证据。
+
+### 2026-09-09：B1 executor binding
+
+- 在新开发分支 `codex/refactor-executor-binding` 完成 B1。`Implementation` 非 legacy 条目现在
+  声明 executor module、entrypoint 元组和 `executor_owner`；legacy 条目固定为 framework-owned、
+  `executor=None`、空 entrypoints。`load_entrypoint` 独立于 registry 对象并保持 lazy import。
+- framework/ops dispatcher 已改为传递预解析 `BackendSelection`，由通用
+  `execute_selected(selection, entrypoint_name, legacy_fn, ...)` 调用声明的 entrypoint；adapter
+  不含 operation 分派表，legacy Warp 的 operation-specific handler 仍是调用点局部闭包。
+  VV、FIRE/FIRE2、LJ、neighbors、periodic、kinetics/segmented 和 observer 路径已完成接线。
+- R1 验收约束已落地：ADD_TORCH_OPERATION 和教程明确 entrypoint ABI 必须匹配 operation
+  dispatcher；第二 implementation 测试实际调用 unchanged neighbor dispatcher。R5 错误信息现在
+  明确给出 `ops-owned package`/`framework-owned package` 归属；静态 guard 防止 dispatcher
+  重新出现 implementation-ID 分支。
+- B1 分步提交：`90c43fb`、`98da458`、`0b1698c`、`0f8b9dd`、`f5eb064`、`efedb58`；随后
+  executor-binding compatibility test 已纳入 `scripts/check_cpu_reference.sh`。本轮 CPU gate
+  的完整结果和命令见 `reports/b1-executor-binding.md`。
+- 本轮没有扩大 `FEATURE_COMPATIBILITY.yaml` 的功能宽度，也没有新增 Triton/HIP、性能或物理
+  数值结论。B1 的 HCU smoke 仍为 pending，必须沿用 B0 候选集成分支模式在显式分配设备上运行；
+  gate 通过后才可将对应窄 slice 写成 HCU verified。
+- 下一步：先完成人工 review 和 B1 候选 HCU gate，再启动 `TORCH-NVT-LANGEVIN`；周期
+  cell-list 与 NHC 继续作为独立 T1 任务，M2 profile/planner 继续延期。

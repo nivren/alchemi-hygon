@@ -29,6 +29,7 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
 
 "$_baseline_python" -m pytest -q \
   packages/framework/test/compatibility/test_dynamics_import_boundary.py \
+  packages/framework/test/compatibility/test_executor_binding.py \
   packages/framework/test/compatibility/test_backend_selection_propagation.py \
   packages/framework/test/compatibility/test_dynamics_reference_velocity_verlet.py \
   packages/framework/test/compatibility/test_dynamics_reference_fire.py \

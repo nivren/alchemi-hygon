@@ -16,9 +16,11 @@ NVTLangevin
     │  初始化时解析一次 BackendSelection
     ▼
 framework dispatcher: dynamics/_ops/langevin.py
-    │  按精确 implementation_id 分流
-    ├── torch_reference → _dynamics_reference/langevin.py
-    └── legacy Warp     → 原有 Warp custom op
+    │  提供 Langevin ABI 和局部 legacy handler
+    ▼
+generic executor binding
+    ├── catalog entrypoint → _dynamics_reference/langevin.py
+    └── legacy handler     → 原有 Warp custom op
 ```
 
 Torch reference 是用 Torch 张量在当前目标设备上执行的正确性基线，不是把数据搬到 CPU
@@ -383,9 +385,11 @@ sed -n '1,240p' packages/framework/nvalchemi/dynamics/_ops/velocity_verlet.py
 1. Warp custom op 放在私有/延迟边界；
 2. 对外 dispatcher 保留旧参数，并额外接受可选 `selection`；
 3. 有 selection 时检查 `selection.operation == "langevin"`；
-4. `implementation_id == "torch_reference.langevin-v1"` 时 lazy import reference；
-5. legacy selection 走原有 Warp；
-6. 其他 family/ID 明确报错。
+4. 将固定的 operation entrypoint 名称和 framework 局部 legacy handler 交给通用
+   `execute_selected(selection, entrypoint_name, legacy_fn, ...)`；
+5. binding 按 registry 声明的 executor 模块和 entrypoint lazy import/call；它不包含 Langevin
+   或其他 operation 的分派表；
+6. legacy selection 走原有 Warp handler，未知或未登记 capability 仍明确报错。
 
 不要让 dispatcher 根据原始字符串再解析一次。framework 应在第一个 concrete batch 到来
 时解析并缓存 selection，pre/post 两个阶段复用同一个 selection。
@@ -421,8 +425,8 @@ def langevin_half_step(
 
 ```text
 selection.operation == "langevin"
-selection.implementation_id == "torch_reference.langevin-v1"
 selection.device/dtype/features 与实际调用一致
+entrypoint 名称和参数签名与 Langevin dispatcher ABI 一致
 ```
 
 selection 错误时抛出清楚的 `BackendUnavailableError` 或 `ValueError`。不要看到 selection
@@ -444,6 +448,8 @@ Implementation(
     operation="langevin",
     family="torch_reference",
     executor="nvalchemi._dynamics_reference.langevin",
+    entrypoints=("langevin_half_step", "langevin_finalize"),
+    executor_owner="framework",
     features=frozenset({"fixed_cell", "stochastic", "per_graph"}),
     max_gradient_order=0,
     evidence="T1 Torch-reference Langevin contract",
@@ -453,7 +459,7 @@ Implementation(
 
 具体字段以当前 `Implementation` 定义为准。记住：
 
-- catalog 只能保存 metadata 和字符串，不能导入 reference executor；
+- catalog 只能保存 metadata、模块路径、entrypoint 元组和 owner，不能导入 reference executor；
 - implementation ID 必须唯一；
 - `operation="langevin"` 是统一 contract，half/final 是同一 selection 下的两个阶段；
 - `fixed_cell`、`stochastic`、`per_graph` 是能力要求，不是装饰性标签；
@@ -693,7 +699,7 @@ HCU 完成后更新 `docs/FEATURE_COMPATIBILITY.yaml`、`docs/STATUS.md` 和
 | 温度差约 `KB_EV` 倍 | Kelvin 与内部 kT 重复或漏转换 | wrapper 只转换一次，reference 消费 state 中的 kT |
 | 同 seed 两次结果不同 | 使用全局 RNG 状态或共享 generator 未重置 | 每次调用按 step seed 使用确定的设备内 RNG |
 | 旧测试参数错位 | 新关键字参数插入旧位置参数 | 新参数放末尾并使用 keyword-only |
-| 新请求悄悄走另一实现 | dispatcher 写了宽泛 fallback | 按精确 ID 分支，其余明确报错 |
+| 新实现悄悄走错路径 | dispatcher 搬入中央 operation 分派表 | entrypoint 由 catalog 声明，binding 通用化；未知 capability 明确报错 |
 | catalog 导入 Warp | metadata 文件顶层导入 executor | 只写 `Implementation` 和字符串路径 |
 | 默认值被改成 Torch | 混淆显式 reference 与默认 legacy | 恢复 `None` legacy，单测显式传 reference |
 | CPU 通过、HCU 失败仍报告通过 | 把 reference 当 CPU fallback | 写 HCU pending/blocked，不能改写结果 |

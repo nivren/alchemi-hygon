@@ -67,9 +67,11 @@ rg -n "目标符号或功能名" packages/framework packages/ops packages probes
 ### 3.1 共同规则
 
 ops 的 backend.py 提供 `ImplementationRegistry`、开放的 `BackendRequest`、
-`BackendSelection` 和 `BackendUnavailableError`；torch_backend.py 依据稳定
-implementation ID 调用具体实现。新增实现或 strategy 时优先扩展这条集中路径，不要在
-每个组件中各自维护一套互相矛盾的字符串判断。
+`BackendSelection` 和 `BackendUnavailableError`；`dispatch.py` 将预解析 selection
+交给通用 executor binding，由 catalog 声明的模块路径和 entrypoint 完成 lazy load。
+`torch_backend.py` 只是兼容导出层，不维护 operation 或 implementation-ID 分派表。新增实现
+或 strategy 时只需登记 metadata、实现声明的 ABI 并补实际调用验收，不要在每个组件中各自
+维护一套互相矛盾的字符串判断。
 
 默认实现清单已按操作族放在私有的
 `packages/ops/nvalchemiops/_backend_catalog/`：它只能声明 `Implementation` metadata，不能

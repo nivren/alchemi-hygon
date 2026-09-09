@@ -21,7 +21,8 @@ no-PBC synthetic CPU/HCU 合同；真实规模和 periodic cell-list 的正确�
 
 固定晶胞的 NVE、FIRE、FIRE2、LJ model，以及 periodic、kinetics、segmented
 reduction 和 observer 辅助路径，均由 framework 按 operation 解析一次
-`BackendSelection`，再传给 dispatcher；dispatcher 不会用原始 backend 请求再次解析。
+`BackendSelection`，再传给 dispatcher 的通用 executor binding；binding 按 catalog 声明的
+entrypoint lazy load，不会用原始 backend 请求再次解析，也不维护 operation 分派表。
 FIRE 与 FIRE2 使用独立的 operation/implementation ID：
 `torch_reference.fire-v1` 和 `torch_reference.fire2-v1`。
 

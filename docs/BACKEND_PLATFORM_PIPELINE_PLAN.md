@@ -1,6 +1,7 @@
 # 后端能力、平台策略与 Pipeline 执行计划
 
-状态：M1 已完成（2026-09-09）；基础开发版本 B0 已合入 `develop`；M2 尚未开始。
+状态：M1 已完成（2026-09-09）；基础开发版本 B0 已合入 `develop`；B1 executor binding
+已在开发分支完成 CPU gate，候选 HCU gate pending；M2 尚未开始。
 
 本文是后续重构的权威计划。它解决三个不同问题：实现是否具备某项能力、某个平台/工作负载推荐什么实现、一次 pipeline 如何在不重复解析的情况下执行。三者不能再由一个后端字符串或若干局部 `if` 同时承担。
 
@@ -115,7 +116,9 @@ component explicit override
 
 - `ImplementationRegistry` 已替换固定 `BackendName`/known-backend 集合；选择记录包含 request、implementation ID、family、strategy 和 profile ID 占位。
 - Warp legacy、Torch dense reference 与 no-PBC Torch cell-list 已登记。cell-list 现在通过 `backend="torch_reference", method="cell_list"` 选择；未发布的 `torch_reference_cell_list` 请求明确失败。
-- framework `compute_neighbors` 与 `NeighborListHook` 将同一 selection 传入 Torch dispatcher；dispatcher 按 implementation ID 执行，不二次解析。
+- framework `compute_neighbors` 与 `NeighborListHook` 将同一 selection 传入 Torch dispatcher；
+  M1 当时按 implementation ID 绑定，B1 已将运行时绑定升级为 catalog entrypoint + generic
+  adapter，不二次解析。
 - CPU ops/framework 回归为 `25 passed`/`22 passed`；BW200/gfx936 HCU ops 为 `25 passed`，M1 新增 framework strategy smoke 为 `2 passed`。完整命令和限制见 `reports/g2-backend-registry-m1.md` 与 ADR 0006。
 
 #### M1 follow-up：operation selection propagation（2026-09-09）
@@ -152,6 +155,50 @@ component explicit override
 门槛：catalog 不导入 executor/Warp，CPU gate 可重跑且通过，HCU script 的设备与失败行为明确，
 `backend=None` legacy reverse guard 保持。B0 不改变任何 feature support 宽度；HCU 批未运行时
 只能写 pending。
+
+### B1：兑现 executor 字段，消除实现绑定漂移
+
+状态：代码与 CPU gate 已完成（2026-09-09）；HCU 需在 B0 式候选集成指针上运行，尚未合入或
+推送共享分支。B1 不增加 operation capability，也不启动 M2。
+
+B1 的问题边界是：catalog 中的 `executor` 不能继续只是描述字符串。实现绑定必须由 registry
+metadata 驱动，否则每增加一个 implementation 都要同时修改 catalog 和多个 operation 的
+`if-elif` dispatcher，容易产生声明与执行漂移，并放大多人并行时的共享文件冲突。
+
+锁定以下约束：
+
+1. `Implementation` 为非 legacy 实现声明 dotted executor module、entrypoint 名称元组和
+   `executor_owner`（`ops`/`framework`）；legacy 条目固定为 framework-owned、`executor=None`、
+   空 entrypoints。
+2. `load_entrypoint` 是独立于 registry 方法的 lazy loader：它校验 selection 与 metadata、
+   owner、entrypoint 声明和 callable，并在导入/装载失败时报告 implementation、operation 和
+   包归属（ops-owned/framework-owned）。
+3. 通用 `execute_selected(selection, entrypoint_name, legacy_fn, ...)` 只包含一次 legacy
+   implementation 边界和声明式加载/调用。operation-specific legacy 逻辑以调用方局部闭包
+   传入；adapter 不得包含 operation 分派表。framework/ops dispatcher 不得为新 implementation
+   增加 ID 分支。
+4. entrypoint ABI 必须与对应 operation dispatcher 的公开调用签名兼容；文档明确该契约，验收
+   至少实际调用一个第二 implementation，不能只检查 import 或 callable。多阶段操作在同一个
+   selection 下声明多个 entrypoint，但每个 entrypoint 都必须实际遵守其阶段 ABI。
+5. `backend=None`、`backend="warp"` 和默认 Warp handler 不变；显式 reference、未知实现、
+   缺失包和未登记能力均明确失败，不得静默 CPU fallback。
+
+按可审查的小提交实施并逐步通过 `scripts/check_cpu_reference.sh`：
+
+1. schema/loader/catalog/segmented-reduce migration：`90c43fb`；
+2. ops generic dispatcher and compatibility shim：`98da458`；
+3. fixed-cell VV、periodic、kinetics/segmented paths：`0b1698c`；
+4. FIRE/FIRE2 paths：`0f8b9dd`；
+5. high-level neighbors/LJ/Hook routes and implementation-branch static guard：`f5eb064`；
+6. executor ownership diagnostics：`efedb58`；并将 executor-binding compatibility test 纳入
+   CPU gate。
+
+当前 CPU 验收覆盖 registry metadata、legacy reverse guard、lazy import、实际第二实现调用、
+   framework entrypoint importability、dispatcher static guard、neighbors/LJ/VV/FIRE/FIRE2/
+   kinetics/periodic/observer golden paths、state lifecycle、compileall 和 diff check。HCU gate
+   沿用 B0 的候选集成分支模式；在分配设备上运行后，才把 B1 的对应范围登记为 HCU verified。
+   在此之前报告为 CPU verified / HCU pending。B1 完成后，下一任务才是 `TORCH-NVT-LANGEVIN`；
+   `TORCH-NEIGHBOR-PBC-CELL` 与 `TORCH-NVT-NHC` 保持独立队列。
 
 ### T1：基础版后的首批并行任务
 

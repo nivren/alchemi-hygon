@@ -4,6 +4,9 @@
 - Date: 2026-09-09
 - Scope: M1 backend registry semantics and Torch neighbor dispatch
 
+ADR 0007 supersedes the runtime implementation-ID binding detail below; this ADR remains the
+historical record for the M1 registry and neighbor-strategy decision.
+
 ## Context
 
 The prior capability table used one ``BackendName`` literal for policy tokens,

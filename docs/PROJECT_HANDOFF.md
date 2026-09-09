@@ -330,7 +330,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 - `LennardJonesModelWrapper`、NVE、FIRE/FIRE2、`WrapPeriodicHook`、Logging、
   energy-drift monitor、reporting scalar 和相关分布式 FIRE wrapper 已改为由 framework
   按 operation 解析一次 `BackendSelection`，再传给 dispatcher/辅助函数。dispatcher
-  按精确 implementation ID 执行，不用原始 backend request 二次解析。
+  当时按精确 implementation ID 执行，不用原始 backend request 二次解析；B1 已将运行时
+  绑定升级为 catalog entrypoint + generic adapter，历史条目不代表当前实现方式。
 - 固定晶胞的 selection 在相应 workflow/model 生命周期中缓存；observer 中不同 operation
   各自只解析一次。变胞 FIRE/FIRE2 在初始化时声明 `variable_cell` 要求；当前 Torch
   reference 没有该 capability，显式请求会明确失败，默认仍保持 legacy Warp。
@@ -368,3 +369,26 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。当前两道 gate 均已通过，
   两道 gate 已通过且 B0 已合入 `develop`，下一步进入 T1 的邻居后端或常用积分器移植；
   M2 仍不启动。
+
+## 18. B1 Executor Binding 交接（2026-09-09）
+
+- 用户已确认按 B1 计划实施；当前开发分支为 `codex/refactor-executor-binding`，未推送、未合入
+  `develop`。B1 目的为兑现 catalog 的 `executor` 字段，消除实现声明与 22 处局部 dispatcher
+  分支之间的人工绑定地雷，不改变公共 API、`backend=None` legacy 语义或现有 capability 宽度。
+- 已完成提交顺序：`90c43fb`（schema/loader/catalog/segmented-reduce）、`98da458`（ops
+  generic dispatcher）、`0b1698c`（VV/periodic/kinetics/segmented）、`0f8b9dd`（FIRE/FIRE2）、
+  `f5eb064`（高层 neighbors/LJ/Hook 与静态 guard）、`efedb58`（owner diagnostics）。
+- 实现约束：非 legacy metadata 声明 module、entrypoint 元组和 owner；loader 独立于 registry
+  并 lazy import；adapter 只做一次 legacy 比较和声明式调用；legacy 逻辑由各 dispatcher 的
+  局部闭包保留；entrypoint ABI 必须与 operation dispatcher 签名兼容。第二实现测试实际调用
+  未修改的 dispatcher，不能只测 import/callable。
+- CPU gate 现已把 `test_executor_binding.py` 纳入 framework 分进程测试；完整命令、退出码和
+  分层结果见 `reports/b1-executor-binding.md`。代码与文档均已通过 `git diff --check`，
+  `FEATURE_COMPATIBILITY.yaml` 不变，因为 B1 只改变绑定机制。
+- HCU 需用 B0 式候选集成指针执行：从本分支最终提交创建本地候选指针，经人工 review 后在
+  主机权限和显式 `HIP_VISIBLE_DEVICES=<assigned>` 下运行
+  `scripts/check_hcu_reference_smoke.sh`；失败不得切 CPU。HCU 完成前不要写 HCU verified，
+  也不要自动 push 或 merge。
+- HCU gate 通过后的唯一下一步是 `TORCH-NVT-LANGEVIN`：先读上游 Langevin contract，建立
+  BAOAB/随机数/state/restart 的 CPU reference 与测试，再登记 capability；周期 cell-list
+  和 NHC 不与其合并，M2 继续延期。

@@ -20,9 +20,10 @@ flowchart LR
     subgraph O[packages/ops\nnvalchemiops]
         REG[ImplementationRegistry\nbackend.py]
         CAT[_backend_catalog\nmetadata-only inventory]
-        OD[Ops Torch dispatcher\ntorch_backend.py]
+        OD[Ops Torch dispatcher\ndispatch.py]
         OR[Ops Torch reference\ntorch_reference.py\nneighbors / LJ]
         OW[Ops Warp boundary\nlegacy upstream path]
+        XB[Generic executor binding\nload_entrypoint / execute_selected\nno operation table]
     end
 
     subgraph P[执行后端]
@@ -44,10 +45,11 @@ flowchart LR
     REG --> SEL[BackendSelection\nimplementation_id / operation / strategy]
     SEL --> FD
     SEL --> OD
-    FD --> FR
-    FD --> OW
-    OD --> OR
-    OD --> OW
+    FD --> XB
+    OD --> XB
+    XB --> FR
+    XB --> OR
+    FD -. local legacy handler .-> OW
     FR --> T
     OR --> T
     OW --> W
@@ -75,7 +77,9 @@ flowchart LR
    得到 `BackendSelection` 后向下传递。
 3. 当前已经接通单次 selection 的主要路径是 neighbors、LJ、固定晶胞 VV/FIRE/FIRE2、
    periodic、kinetics 和 observer。dispatcher 不应再次解析同一 request。
-4. `backend=None` 仍指向上游 Warp legacy。显式 `backend="torch_reference"` 才进入当前
+4. dispatcher 将 operation 的固定 entrypoint ABI 和 framework 局部 legacy handler 交给通用
+   binding；binding 只负责一次 legacy 边界、声明式 lazy load 和调用，不包含 operation 分派表。
+5. `backend=None` 仍指向上游 Warp legacy。显式 `backend="torch_reference"` 才进入当前
    Torch reference；Triton/HIP 只有在有真实能力和数值证据后才能画成可用路径。
 
 ## 2. 一条 golden path 如何流动
@@ -118,19 +122,21 @@ sequenceDiagram
 flowchart TD
     Q[组件或 workflow 的 backend 参数]
     A[framework resolve_compute_backend]
-    B[ops resolve_backend]
+    R[ops resolve_backend]
     C[ImplementationRegistry]
     S[BackendSelection\n请求 / 精确 ID / operation / strategy / reason]
-    D[对应 dispatcher]
-    E[精确 executor]
-    L[legacy Warp executor]
+    D[对应 dispatcher\noperation ABI + local legacy handler]
+    EB[通用 executor binding\n一次 legacy 比较]
+    E[声明的模块 entrypoint]
+    L[legacy Warp handler]
     ERR[明确失败\nunknown / capability 不满足]
 
-    Q --> A --> B --> C
+    Q --> A --> R --> C
     C --> S
     S --> D
-    D --> E
-    C -->|None / warp legacy| L
+    D --> EB
+    EB --> E
+    D -->|legacy closure| L
     C -->|未知或不满足| ERR
 ```
 
@@ -156,7 +162,7 @@ flowchart TD
 | 新增 Torch reference 算法 | `packages/framework/nvalchemi/_dynamics_reference/` 或 `packages/ops/nvalchemiops/torch_reference.py` | 先看同类已完成 reference；保持设备内 Torch，不导入 Warp |
 | 修改公共 Dynamics/Model/Hook | `packages/framework/nvalchemi/` | 保持上游 API 和 Batch/state 生命周期 |
 | 修改 framework backend 接线 | `packages/framework/nvalchemi/_backend.py`、对应 `dynamics/_ops` 或模型/hook 文件 | framework 解析一次并传 selection |
-| 登记实现能力 | `packages/ops/nvalchemiops/_backend_catalog/` | 只写 `Implementation` metadata 和 executor 字符串 |
+| 登记实现能力 | `packages/ops/nvalchemiops/_backend_catalog/` | 只写 `Implementation` metadata、模块路径、entrypoint 元组和 owner |
 | 修改 registry 语义 | `packages/ops/nvalchemiops/backend.py` | 保持 public API、legacy/default 和未知请求错误 |
 | 新增生产 Triton/HIP | `packages/ops` 对应算子族和构建入口 | 先有 reference、契约、HCU 数值和性能证据 |
 | 新增测试 | 对应 package 的 test，当前跨包行为放 `packages/framework/test/compatibility/` | framework/ops pytest 分进程运行；根 `tests/` 是未来集中测试的规划入口 |
@@ -200,6 +206,7 @@ flowchart TD
   → 写 CPU Torch reference 与最小测试
   → 登记 registry capability
   → 接 framework dispatcher，传递同一个 BackendSelection
+  → 用通用 binding 调用声明的 entrypoint，保留局部 legacy handler
   → 运行 scripts/check_cpu_reference.sh
   → 在分配的 HCU 上运行对应 probe
   → 更新 STATUS、FEATURE_COMPATIBILITY、report
@@ -219,6 +226,9 @@ HIP_VISIBLE_DEVICES=0 scripts/check_hcu_reference_smoke.sh
 
 没有真实 HCU 运行记录时，只能报告 CPU verified 或 HCU pending。HCU 失败后不能自动切到
 CPU 并报告成功。
+
+新增实现的验收还必须实际调用至少一个第二实现，验证 entrypoint 签名与 operation dispatcher
+ABI 兼容；仅有模块可导入或对象 callable 不足以证明绑定正确。
 
 ## 7. 阅读顺序建议
 

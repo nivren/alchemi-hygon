@@ -18,7 +18,9 @@ gate、以及显式的 HCU 批验证入口。
 | fixed-cell dynamics | VV、FIRE、FIRE2、kinetics；异构 Batch 与 workflow state 窄 slice | `nvalchemi._dynamics_reference`；dynamics reference、state、public wrapper tests |
 | periodic + observer | periodic wrap、segmented reduction、Logging/energy-drift observer reference | `nvalchemi._dynamics_reference.periodic`；hook utility、periodic、observer tests |
 
-所有这些路径均通过 registry 解析精确 `BackendSelection` 后交给 dispatcher。`backend=None`
+所有这些路径均通过 registry 解析精确 `BackendSelection` 后交给通用 executor binding。dispatcher
+提供 operation 的固定 ABI，legacy handler 留在 framework 调用点；binding 不含 operation 分派表。
+`backend=None`
 仍是上游 Warp legacy 路径；`backend="torch_reference"` 才是当前 reference 路径。不要把
 HCU 可见性、`torch.cuda` 命名或缺 Warp 自动解释为切换后端的理由。
 
@@ -53,7 +55,9 @@ strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回�
 - 来源、shape/dtype/layout、单位、PBC/full-half、空输入/错误、mutation、stream、确定性和
   梯度等级写入契约。
 - CPU reference 与针对正确性/失败行为的最小测试存在；不以示例替代回归。
-- registry metadata、framework 的单次 `BackendSelection` 传递、dispatcher 精确 ID 校验均已接线。
+- registry metadata（含 executor 模块、entrypoint ABI 和 owner）、framework 的单次
+  `BackendSelection` 传递、通用 executor binding 和 legacy 反向守护均已接线；至少一个第二
+  implementation 已被实际调用验收。
 - `backend=None` legacy 反向守护未变；未知和未登记请求明确失败。
 - `scripts/check_cpu_reference.sh` 通过；HCU 批次按实际运行结果追加证据，未运行时明确 pending。
 - `FEATURE_COMPATIBILITY.yaml`、`STATUS.md` 和 report 只登记实际覆盖的切片与限制。
