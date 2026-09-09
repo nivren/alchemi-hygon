@@ -1,7 +1,7 @@
 # B1 executor binding
 
-日期：2026-09-09  
-开发分支：`codex/refactor-executor-binding`  
+日期：2026-09-09
+开发分支：`codex/refactor-executor-binding`
 状态：CPU verified；B0 式候选 HCU golden-path smoke verified；未合入、未推送共享分支
 
 ## 目标与实现
