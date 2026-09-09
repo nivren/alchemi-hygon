@@ -64,16 +64,27 @@ def test_compute_neighbors_torch_reference_preserves_batch_boundaries():
 
 
 def test_compute_neighbors_torch_reference_cell_list_preserves_batch_boundaries():
-    """The opt-in cell-list backend keeps the framework batch contract."""
+    """The opt-in cell-list strategy keeps the framework batch contract."""
     batch = _make_batch()
     compute_neighbors(
         batch,
         cutoff=2.0,
         format=NeighborListFormat.MATRIX,
-        backend="torch_reference_cell_list",
+        backend="torch_reference",
+        method="cell_list",
     )
     assert batch.neighbor_matrix.tolist() == [[1], [0], [3], [2]]
     assert batch.num_neighbors.tolist() == [1, 1, 1, 1]
+
+
+def test_compute_neighbors_rejects_unpublished_cell_list_backend_name():
+    """The pre-M1 global strategy spelling is not part of the public API."""
+    with pytest.raises(RuntimeError, match="unknown backend request"):
+        compute_neighbors(
+            _make_batch(),
+            cutoff=2.0,
+            backend="torch_reference_cell_list",
+        )
 
 
 def test_compute_neighbors_rejects_unregistered_optimized_backend():

@@ -1,6 +1,6 @@
 # 后端能力、平台策略与 Pipeline 执行计划
 
-状态：已确认，未开始实施（2026-09-08）。
+状态：M1 已完成（2026-09-09）；M2 尚未开始。
 
 本文是后续重构的权威计划。它解决三个不同问题：实现是否具备某项能力、某个平台/工作负载推荐什么实现、一次 pipeline 如何在不重复解析的情况下执行。三者不能再由一个后端字符串或若干局部 `if` 同时承担。
 
@@ -111,6 +111,13 @@ component explicit override
 
 门槛：registry 单测、dense/cell-list CPU/HCU contract、未知/未注册请求显式失败、legacy/default reverse guard、operation 文档审计通过。完成后停止并确认下一阶段。
 
+#### M1 完成记录（2026-09-09）
+
+- `ImplementationRegistry` 已替换固定 `BackendName`/known-backend 集合；选择记录包含 request、implementation ID、family、strategy 和 profile ID 占位。
+- Warp legacy、Torch dense reference 与 no-PBC Torch cell-list 已登记。cell-list 现在通过 `backend="torch_reference", method="cell_list"` 选择；未发布的 `torch_reference_cell_list` 请求明确失败。
+- framework `compute_neighbors` 与 `NeighborListHook` 将同一 selection 传入 Torch dispatcher；dispatcher 按 implementation ID 执行，不二次解析。
+- CPU ops/framework 回归为 `25 passed`/`22 passed`；BW200/gfx936 HCU ops 为 `25 passed`，M1 新增 framework strategy smoke 为 `2 passed`。完整命令和限制见 `reports/g2-backend-registry-m1.md` 与 ADR 0006。
+
 ### M2：PlatformFingerprint、Profile 与 Frozen Plan
 
 交付：
@@ -164,7 +171,7 @@ component explicit override
 3. 默认 fallback 为显式错误；reference fallback 只有在 profile 允许时生效并记录影响。
 4. 生产不运行时 benchmark 选后端；tuning 产物必须经过审阅和版本化。
 5. checkpoint 默认严格复用 plan；跨环境必须显式 replan。
-6. 当前 cell-list 工作树改动尚未提交，迁移名称和 API 时以本计划为准，不额外承诺兼容未发布的过渡名称。
+6. cell-list 过渡基线已封存在 `codex/feat-reference-cell-list`；M1 已完成名称/API 迁移，不额外承诺兼容未发布的过渡名称。
 
 ## 7. 后续 Codex session 恢复方式
 
@@ -172,5 +179,5 @@ component explicit override
 
 1. 先读根目录 `AGENTS.md`，再读 `docs/PROJECT_HANDOFF.md`、`docs/STATUS.md` 和本文。
 2. 运行 `git status --short --branch`，保留当前用户改动；不要 reset、checkout 或覆盖式复制。
-3. 以本文 M1 为唯一下一步实现范围；开始前报告将修改的文件、契约和测试，完成一个小里程碑后停下汇报并等待确认。
+3. M1 已完成。下一阶段在用户确认后以 M2 为唯一实现范围；开始前报告将修改的文件、契约和测试，完成一个小里程碑后停下汇报并等待确认。
 4. 如果工作树被清理或换了 clone，只有已提交并推送到共享分支的文档才能恢复；本次新增文档目前需要与现有改动一起由人类决定何时提交/同步。

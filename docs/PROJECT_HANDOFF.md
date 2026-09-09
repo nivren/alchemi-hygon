@@ -300,7 +300,24 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 profile → 全 pipeline planner → 冻结 BackendPlan”重构计划保存在
 [`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)。
 
-该计划当前只完成文档落盘，尚未开始 M1 实施。下一 session 应先读该文档，从 M1
-“Registry 语义收敛”开始；每个小里程碑完成后停止，报告实现/测试/数值/未验证假设，
-等待用户确认下一步。计划要求 `backend=None` 保留 legacy 上游语义、`auto` 仅是显式
-策略请求、cell-list 迁移为 neighbor operation strategy，并由 planner 一次生成冻结计划。
+该计划的 M1 已于 2026-09-09 完成；下一阶段在用户确认后从 M2 开始。M1 保持
+`backend=None` legacy 语义、将 cell-list 迁移为 neighbor operation strategy，并使
+framework→dispatcher 传递同一 selection；未实现 profile、planner 或冻结计划。
+
+## 14. M1 Registry 语义收敛（2026-09-09）
+
+- 已从干净前置分支 `codex/feat-reference-cell-list` 创建
+  `codex/refactor-backend-plan-m1`。前置 cell-list 与计划文档分别封存为
+  `a33932b`、`afad629`；未推送、未改写历史。
+- `ImplementationRegistry` 取代固定 backend literal。选择记录包含 request、stable
+  implementation ID、family、strategy 与 profile ID 占位；legacy Warp、dense Torch
+  reference 与 no-PBC cell-list 均已登记，executor 仍为 lazy metadata。
+- cell-list 公开用法为 `backend="torch_reference", method="cell_list"`；旧的未发布
+  `torch_reference_cell_list` 请求明确失败。`None`/`warp` 仍是上游 legacy，`auto`
+  仍只选 dense default strategy，未在 M2 前选择任何 strategy。
+- CPU：ops `25 passed`、framework neighbor/Hook `22 passed`。BW200/gfx936 HCU：ops
+  `25 passed`，新增 one-shot/Hook cell-list strategy `2 passed`；完整命令、退出码和
+  载体限制见 `reports/g2-backend-registry-m1.md`。这不是 cell-list 性能、周期
+  cell-list、BackendProfile 或 PipelinePlanner 的通过证据。
+- 下一步仅在用户确认后进入 M2：PlatformFingerprint、版本化 BackendProfile 与
+  Frozen BackendPlan；不得在 runtime benchmark 或改变 `backend=None` 的前提下推进。

@@ -5,9 +5,9 @@
 - 后续 backend 架构重构以 [`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)
   为准：`PlatformFingerprint → ImplementationRegistry → BackendProfile → PipelinePlanner →
   Frozen BackendPlan`。
-- 计划已由用户确认并完成文档落盘；当前尚未实施 M1。`backend=None` 的 legacy 语义、显式
-  `auto` 策略、operation-specific neighbor strategy、单次解析和 checkpoint plan hash 是
-  已锁定的设计约束。
+- M1 已于 2026-09-09 完成；M2 尚未开始。`backend=None` 的 legacy 语义、显式 `auto`
+  策略、operation-specific neighbor strategy、单次解析和 checkpoint plan hash 是已锁定
+  的设计约束。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 
@@ -78,7 +78,7 @@
 - 统一 benchmark 的 HCU 单体系阶梯已通过：`perf_46/92/184/368` 的 periodic full、no-PBC full/half 全部退出 0；periodic steady 为 `3.243/3.702/5.753/13.969 ms`，no-PBC full 为 `1.853/1.852/1.859/1.880 ms`。首个 periodic cold 样本包含约 `4.209 s` 的 HCU context/kernel 初始化，不与 steady 混比。该证据仍不覆盖 batch 阶梯或端到端 MACE/FIRE2。报告见 `reports/g2-unified-reference-benchmark-hcu-scale.md`。
 - 统一 benchmark 的 HCU `perf_92` batch 阶梯已通过：batch `1/4/8/16/32` 的 periodic full steady 为 `3.768/9.789/17.819/33.571/65.577 ms`，no-PBC full 为 `1.856/3.931/6.705/12.232/23.316 ms`；batch=32 的 periodic 边数 `54,760`、steady `0.065577 s` 与既有 Tier-1 结果连续。该证据仍不覆盖 MACE/FIRE2 端到端。报告见 `reports/g2-unified-reference-benchmark-hcu-batch92.md`。
 - 统一 benchmark 的 HCU periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步已通过：总耗时 `11.1279105 s`，100 步平均 `0.1112791 s/step`，最后邻居边数 `3,284`；`StageTimingHook` 的 `BEFORE_COMPUTE→AFTER_COMPUTE` total 为 `10.439570 s`，但最大单样本 `6.586 s`、std `0.671 s`，因此只能作为共享 HCU 下的端到端相对基线。报告见 `reports/g2-unified-reference-benchmark-hcu-e2e.md`。
-- no-PBC cell-list 第一小步已完成：新增显式 `torch_reference_cell_list` capability 和 device-side uniform-cell candidate path；不改变 `torch_reference`、`auto` 或默认 Warp。ops CPU/HCU 均为 `10 passed`，framework 接线 CPU/HCU 均为 `3 passed, 2 deselected`，支持 synthetic full/half、MATRIX/COO、batch 边界、距离/向量、空输入和显式 overflow。真实规模性能仍待统一 benchmark。报告见 `reports/g2-torch-reference-cell-list-contract.md`，契约见 `adr/0005-torch-reference-cell-list.md`。
+- M1 registry 已完成：`ImplementationRegistry` 记录 implementation ID/family/strategy，cell-list 改为 `backend="torch_reference", method="cell_list"`，旧未发布名称显式失败；`None`/Warp 与 auto dense default 语义不变。CPU ops/framework 为 `25 passed`/`22 passed`；BW200/gfx936 HCU ops `25 passed`、M1 framework strategy `2 passed`。证据见 `reports/g2-backend-registry-m1.md` 与 ADR 0006；真实规模性能、周期 cell-list、BackendProfile 和 planner 仍未完成。
 - 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `11 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
 - 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
 - skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。Hook staging 已有自动容量处理，算子层仍保留显式 overflow 防御。
@@ -575,3 +575,25 @@
 - 本步尚未把 LJ、动力学和 observer 的所有 dispatcher 改为 selection 传递，也未改变
   `auto` 优先级；下一步继续处理其余 compute backend 调用点并补 operation-scoped 文档
   和回归。
+
+### 2026-09-09：M1 ImplementationRegistry 与 neighbor strategy
+
+- 前置 cell-list 和计划文档已分别封存在本地 `codex/feat-reference-cell-list` 的
+  `a33932b`、`afad629`；从该干净基线创建当前
+  `codex/refactor-backend-plan-m1`，未推送、未改写任何提交。
+- 固定 `BackendName`/capability tuple 已替换为 `ImplementationRegistry`。每个选择记录
+  request、implementation ID、family、strategy 和 profile ID 占位；Warp legacy、Torch
+  dense reference、no-PBC Torch cell-list 与现有 reference operation 均为 lazy metadata
+  登记，resolver 不导入 executor。
+- `compute_neighbors` 和 `NeighborListHook` 的 cell-list 用法改为
+  `backend="torch_reference", method="cell_list"`；Torch dispatcher 按 implementation ID
+  执行并接受 framework 的预解析 selection。旧的未发布全局名称明确失败；`None`/Warp
+  default 与 auto dense default 均保持不变，auto strategy 在 M2 profile 前显式失败。
+- CPU：ops registry/reference/cell-list `25 passed, 1 warning`，framework neighbor/Hook
+  `22 passed, 1 warning`。BW200/gfx936 HCU 0：ops `25 passed, 1 warning`（19.39 s），
+  新增 framework one-shot/Hook cell-list strategy `2 passed`（16.84 s），退出码均为 0。
+  完整 framework HCU suite 的 compiled-entrypoint 运行没有产生可恢复完成记录，不计为
+  通过证据。报告见 `reports/g2-backend-registry-m1.md`。
+- M1 不实现 PlatformFingerprint、BackendProfile、Frozen BackendPlan、runtime fallback
+  或性能选择；真实规模/周期 cell-list 与 auto profile 仍未验证。下一步仅在用户确认后
+  进入 M2，并先建立 fingerprint/profile/plan 的独立契约和测试。

@@ -209,9 +209,11 @@ class NeighborListHook:
         ``None``; when ``None`` the hook fires at
         ``DynamicsStage.BEFORE_COMPUTE`` (see the class description above).
     method : str | None, optional
-        Explicit ``nvalchemiops`` neighbor-list method to use.  When ``None``
-        (default), the hook selects an appropriate method from the batch shape
-        and periodic-cell metadata.
+        Neighbor operation strategy for an explicit backend family. For the
+        current reference path, ``backend="torch_reference",
+        method="cell_list"`` selects the no-PBC uniform cell-list
+        implementation. The legacy Warp path retains its upstream method
+        handling when ``backend`` is ``None`` or ``"warp"``.
     backend : str | None, optional
         Compute backend request. It is resolved for this operation and its
         requested features by :func:`nvalchemiops.backend.resolve_backend`;
@@ -219,8 +221,7 @@ class NeighborListHook:
         authoritative capability table. ``None`` preserves the upstream Warp
         path. The current reference hook supports full periodic lists and a
         small-input cached skin path; unsupported combinations fail
-        explicitly. The no-PBC uniform-cell implementation is opt-in and is
-        not selected by ``"auto"``.
+        explicitly. ``auto`` does not choose an operation strategy in M1.
     """
 
     def __init__(
@@ -311,8 +312,11 @@ class NeighborListHook:
                 if self.config.format == NeighborListFormat.MATRIX
                 else "coo",
             },
+            strategy=(
+                self.method if self.backend not in (None, "warp") else None
+            ),
         )
-        if selection.selected in {"torch_reference", "torch_reference_cell_list"}:
+        if selection.family == "torch_reference":
             self._rebuild_reference(ctx.batch, selection=selection)
             return
 
@@ -333,11 +337,6 @@ class NeighborListHook:
         self, batch: Batch, *, selection: BackendSelection
     ) -> None:
         """Run the restricted Warp-independent reference neighbor path."""
-        if self.method is not None:
-            raise NotImplementedError(
-                "Torch reference NeighborListHook does not support method selection"
-            )
-
         pbc = getattr(batch, "pbc", None)
         cell = getattr(batch, "cell", None)
         if pbc is not None and not bool(pbc.any()):

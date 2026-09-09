@@ -188,6 +188,7 @@ def compute_neighbors(
     max_neighbors: int | None = None,
     half_list: bool = False,
     backend: str | None = None,
+    method: str | None = None,
 ) -> None:
     """Compute a neighbor list and write results into *batch* in-place.
 
@@ -229,10 +230,12 @@ def compute_neighbors(
         requested features by :func:`nvalchemiops.backend.resolve_backend`;
         see :func:`nvalchemiops.backend.backend_capabilities` for the
         authoritative capability table. ``None`` preserves the upstream Warp
-        path. Unsupported combinations fail explicitly. The current neighbor
-        reference supports full periodic lists, while the no-PBC uniform-cell
-        implementation is an explicit opt-in and is not selected by
-        ``"auto"``.
+        path. Unsupported combinations fail explicitly.
+    method : str | None, optional
+        Neighbor operation strategy for an explicit registered family. Use
+        ``backend="torch_reference", method="cell_list"`` for the current
+        no-PBC cell-list implementation. ``None`` selects the family's
+        default dense strategy; ``auto`` does not choose a strategy in M1.
 
     Raises
     ------
@@ -289,6 +292,7 @@ def compute_neighbors(
             "half" if half_list else "full",
             "matrix" if format == NeighborListFormat.MATRIX else "coo",
         },
+        strategy=method,
     )
     selected_backend = selection.selected
     if selected_backend != "warp":

@@ -66,8 +66,9 @@ rg -n "目标符号或功能名" packages/framework packages/ops packages tests 
 
 ### 3.1 共同规则
 
-ops 的 backend.py 提供 BackendName、BackendSelection、BackendUnavailableError 和选择记录；
-torch_backend.py 负责将公共参数交给具体实现。新增 backend 时优先扩展这条集中路径，不要在
+ops 的 backend.py 提供 `ImplementationRegistry`、开放的 `BackendRequest`、
+`BackendSelection` 和 `BackendUnavailableError`；torch_backend.py 依据稳定
+implementation ID 调用具体实现。新增实现或 strategy 时优先扩展这条集中路径，不要在
 每个组件中各自维护一套互相矛盾的字符串判断。
 
 选择后端不能只看 device.type == "cuda" 或设备名中是否含 cuda：海光 HIP Torch 也使用
@@ -78,6 +79,8 @@ dtype、梯度等级和实际 benchmark。
 
 - backend=None：保持上游默认（通常是 Warp）；不要为了 HCU smoke 改掉它；
 - backend="torch_reference"：显式选择正确性优先 reference；
+- neighbor 的 cell-list：显式使用 `backend="torch_reference",
+  method="cell_list"`；它是 operation strategy，不是全局 backend；
 - backend="triton" / "hip"：未注册时必须抛 BackendUnavailableError；实现和测试完成后才
   能登记；
 - backend="auto"：只在能力过滤、后端注册和证据齐全时选择；当前 slice 只会选已注册的

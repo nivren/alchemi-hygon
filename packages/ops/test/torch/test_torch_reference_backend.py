@@ -351,6 +351,9 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
     )
     assert neighbor_selection.as_dict() == {
         "requested": "auto",
+        "implementation_id": "torch_reference.neighbor.dense-v1",
+        "family": "torch_reference",
+        "strategy": "dense",
         "selected": "torch_reference",
         "operation": "neighbor_list",
         "device": "cpu",
@@ -358,6 +361,7 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
         "gradient_order": 0,
         "features": ["full", "matrix", "no_pbc"],
         "reason": "auto selected the highest-priority verified capability",
+        "profile_id": None,
     }
 
     coordinates = positions.clone().requires_grad_()

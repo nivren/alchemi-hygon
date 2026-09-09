@@ -1,16 +1,16 @@
 # ADR 0005: opt-in no-PBC Torch reference cell-list
 
-- Status: proposed implementation slice
+- Status: superseded in part by ADR 0006
 - Date: 2026-09-08
 - Scope: `nvalchemiops` neighbor dispatcher and framework `compute_neighbors`
 
 ## Decision
 
-Add `torch_reference_cell_list` as an explicit, capability-registered backend for
-no-PBC neighbor construction. Keep `torch_reference` as the semantic oracle and
-keep `None`/`warp` as the unchanged upstream default. `auto` does not select the
-cell-list backend in this slice; choosing it requires a later benchmark-backed
-priority decision.
+At the time of this decision, `torch_reference_cell_list` was introduced as an
+explicit, capability-registered backend for no-PBC neighbor construction. Keep
+`torch_reference` as the semantic oracle and keep `None`/`warp` as the unchanged
+upstream default. `auto` does not select the cell-list backend in this slice;
+choosing it requires a later benchmark-backed priority decision.
 
 ## Contract
 
@@ -33,8 +33,16 @@ priority decision.
 
 ## Consequences
 
-The backend can be compared against the existing dense `torch_reference` on the
-same inputs before it is considered for `auto` or production use. Framework
-one-shot `compute_neighbors` accepts the new backend; dynamic Hook support uses
-the existing reference staging/grow contract but remains outside this first
-performance claim. The default path and all periodic behavior are unchanged.
+The implementation can be compared against the existing dense
+`torch_reference` on the same inputs before it is considered for `auto` or
+production use. Framework one-shot `compute_neighbors` accepts the strategy;
+dynamic Hook support uses the existing reference staging/grow contract but
+remains outside this first performance claim. The default path and all periodic
+behavior are unchanged.
+
+## Supersession
+
+ADR 0006 replaces the public backend-name decision: the implementation is now
+selected as `backend="torch_reference", method="cell_list"`, not by the
+unpublished `torch_reference_cell_list` global request. This ADR remains the
+algorithm and narrow-contract record for the implementation.

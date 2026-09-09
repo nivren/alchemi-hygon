@@ -134,14 +134,23 @@ assert 'warp' not in sys.modules
     assert result.returncode == 0, result.stderr
 
 
-def test_reference_hook_rejects_method_selection():
+def test_reference_hook_selects_cell_list_strategy():
     hook = NeighborListHook(
+        NeighborConfig(cutoff=2.0),
+        method="cell_list",
+        backend="torch_reference",
+    )
+    batch = _batch()
+    _call_eager(hook, batch)
+    assert batch.neighbor_list.tolist() == [[0, 1], [1, 0], [2, 3], [3, 2]]
+
+    unsupported = NeighborListHook(
         NeighborConfig(cutoff=2.0),
         method="naive",
         backend="torch_reference",
     )
-    with pytest.raises(NotImplementedError, match="does not support method selection"):
-        _call_eager(hook, _batch())
+    with pytest.raises(RuntimeError, match="no verified capability"):
+        _call_eager(unsupported, _batch())
 
 
 def test_reference_hook_rejects_negative_skin():

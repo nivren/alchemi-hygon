@@ -1,8 +1,9 @@
 # G2 no-PBC Torch reference cell-list：契约与回归
 
-日期：2026-09-08。此次里程碑新增显式 backend
-`torch_reference_cell_list`，只覆盖 no-PBC 邻居构建；没有改变默认 `None`/Warp 或
-显式 `torch_reference` 路径，也没有让 `auto` 选择 cell-list。
+日期：2026-09-08。本报告记录 M1 前的 `torch_reference_cell_list` 过渡实现，只覆盖 no-PBC 邻居构建；
+没有改变默认 `None`/Warp 或显式 `torch_reference` 路径，也没有让 `auto` 选择
+cell-list。自 ADR 0006 起，公开用法已迁移为
+`backend="torch_reference", method="cell_list"`；旧名称不再是公开请求。
 
 ## 实现范围
 
@@ -12,7 +13,7 @@
 - 支持 full/half、MATRIX/COO、距离/向量、空输入、异构 Batch、确定性 row-major
   `(source,target)` 顺序和显式邻居容量溢出。
 - 中央 registry 注册 no-PBC capability；`compute_neighbors(...,
-  backend="torch_reference_cell_list")` 已接线。periodic、target rows、pair callbacks、
+  backend="torch_reference", method="cell_list")` 已接线。periodic、target rows、pair callbacks、
   scratch 和动态 rebuild 参数显式失败。
 
 ## 回归命令与结果

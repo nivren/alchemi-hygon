@@ -1,59 +1,51 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Capability-aware backend selection shared by device-neutral dispatchers.
+"""Capability registry for device-neutral operation dispatch.
 
-The registry deliberately selects implementations without importing a backend.
-In particular, ``warp`` is a legacy framework-owned execution path: resolving
-it records the choice, but does not import or probe Warp.  This lets HCU
-reference imports remain Warp-free while preserving the upstream default.
+The registry answers only whether a concrete implementation can satisfy an
+operation contract. Platform policy and whole-pipeline planning are separate
+M2/M3 concerns.
 """
 
 from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, TypeAlias
 
-BackendName = Literal[
-    "auto",
-    "torch_reference",
-    "torch_reference_cell_list",
-    "triton",
-    "hip",
-    "warp",
-]
-_KNOWN_BACKENDS = (
-    "auto",
-    "torch_reference",
-    "torch_reference_cell_list",
-    "triton",
-    "hip",
-    "warp",
-)
-_AUTO_PRIORITY = ("triton", "hip", "torch_reference")
+BackendRequest: TypeAlias = str | None
+BackendFamily: TypeAlias = str
+ImplementationId: TypeAlias = str
+
+_AUTO_FAMILIES = ("triton", "hip", "torch_reference")
+_LEGACY_IMPLEMENTATION_ID = "warp.legacy-upstream-v1"
 
 
 class BackendUnavailableError(RuntimeError):
-    """Raised when no registered backend can honour a request."""
+    """Raised when a request has no registered implementation for its contract."""
 
 
 class BackendAutoSelectionWarning(UserWarning):
-    """Emitted once when ``auto`` selects a verified non-legacy backend."""
+    """Emitted once when an explicit ``auto`` request selects an implementation."""
 
 
 @dataclass(frozen=True)
-class BackendCapability:
-    """A verified implementation width for one operation."""
+class Implementation:
+    """One registered operation implementation and its verified capability width."""
 
-    backend: str
+    implementation_id: ImplementationId
     operation: str
-    features: frozenset[str]
+    family: BackendFamily
+    strategy: str | None = None
+    executor: str | None = None
+    features: frozenset[str] = frozenset()
     dtypes: frozenset[str] = frozenset({"float32", "float64"})
     max_gradient_order: int = 0
     devices: frozenset[str] = frozenset({"cpu", "cuda"})
     excluded_feature_sets: tuple[frozenset[str], ...] = ()
     evidence: str = ""
+    default_strategy: bool = False
 
     def supports(
         self,
@@ -63,6 +55,7 @@ class BackendCapability:
         gradient_order: int,
         features: frozenset[str],
     ) -> bool:
+        """Return whether this implementation can honour the request contract."""
         return (
             (device == "unspecified" or device in self.devices)
             and (dtype is None or dtype in self.dtypes)
@@ -71,31 +64,48 @@ class BackendCapability:
             and not any(excluded.issubset(features) for excluded in self.excluded_feature_sets)
         )
 
+    @property
+    def backend(self) -> str:
+        """Compatibility view for capability inventory callers."""
+        return self.family
+
 
 @dataclass(frozen=True)
 class BackendSelection:
-    """Auditable result of a backend selection decision."""
+    """An auditable, pre-resolved implementation decision."""
 
-    requested: str
-    selected: str
+    requested: BackendRequest
+    implementation_id: ImplementationId
+    family: BackendFamily
+    strategy: str | None
     operation: str
     device: str
     dtype: str | None
     gradient_order: int
     features: tuple[str, ...]
     reason: str
+    profile_id: str | None = None
+
+    @property
+    def selected(self) -> str:
+        """Compatibility view for family-based legacy call sites."""
+        return self.family
 
     def as_dict(self) -> dict[str, str | int | list[str] | None]:
-        """Return a serialization-friendly record for logs and probe reports."""
+        """Return a serialization-friendly decision record."""
         return {
             "requested": self.requested,
-            "selected": self.selected,
+            "implementation_id": self.implementation_id,
+            "family": self.family,
+            "strategy": self.strategy,
+            "selected": self.family,
             "operation": self.operation,
             "device": self.device,
             "dtype": self.dtype,
             "gradient_order": self.gradient_order,
             "features": list(self.features),
             "reason": self.reason,
+            "profile_id": self.profile_id,
         }
 
 
@@ -118,217 +128,373 @@ def _feature_set(features: Iterable[str] | None) -> frozenset[str]:
     return frozenset(features or ())
 
 
-_CAPABILITIES: tuple[BackendCapability, ...] = (
-    BackendCapability(
-        backend="torch_reference",
-        operation="neighbor_list",
-        features=frozenset(
-            {
-                "no_pbc",
-                "periodic",
-                "full",
-                "half",
-                "matrix",
-                "coo",
-                "distances",
-                "vectors",
-            }
-        ),
-        excluded_feature_sets=(frozenset({"periodic", "half"}),),
-        evidence="G1/G2 Torch-reference neighbor contracts",
-    ),
-    BackendCapability(
-        backend="torch_reference_cell_list",
-        operation="neighbor_list",
-        features=frozenset(
-            {
-                "no_pbc",
-                "full",
-                "half",
-                "matrix",
-                "coo",
-                "distances",
-                "vectors",
-            }
-        ),
-        devices=frozenset({"cpu", "cuda"}),
-        evidence="G2 opt-in no-PBC Torch reference cell-list contract",
-    ),
-    BackendCapability(
-        backend="torch_reference",
-        operation="lj_energy_forces",
-        features=frozenset({"no_pbc", "periodic", "full", "half", "forces"}),
-        excluded_feature_sets=(frozenset({"periodic", "half"}),),
-        max_gradient_order=2,
-        evidence="G1 Torch-reference LJ force/curvature contracts",
-    ),
-    BackendCapability(
-        backend="torch_reference",
-        operation="velocity_verlet",
-        features=frozenset({"fixed_cell"}),
-        max_gradient_order=1,
-        evidence="G2 velocity-Verlet reference contracts",
-    ),
-    BackendCapability(
-        backend="torch_reference",
-        operation="fire",
-        features=frozenset({"fixed_cell"}),
-        max_gradient_order=1,
-        evidence="G2 FIRE/FIRE2 reference contracts",
-    ),
-    BackendCapability(
-        backend="torch_reference",
-        operation="kinetics",
-        features=frozenset({"per_graph"}),
-        max_gradient_order=1,
-        evidence="G2 kinetic-energy/temperature reference contracts",
-    ),
-    BackendCapability(
-        backend="torch_reference",
-        operation="periodic_wrap",
-        features=frozenset({"inplace", "periodic"}),
-        evidence="G2 periodic-hook reference contracts",
-    ),
-    BackendCapability(
-        backend="torch_reference",
-        operation="segmented_reduce",
-        features=frozenset({"per_graph"}),
-        evidence="G2 observer reference contracts",
-    ),
-)
-
-_AUTO_WARNED: set[tuple[str, str, str | None, int, tuple[str, ...]]] = set()
+def validate_backend_request(requested: BackendRequest) -> None:
+    """Validate request shape; registry membership is resolved centrally."""
+    if requested is not None and (not isinstance(requested, str) or not requested):
+        raise ValueError("backend request must be a non-empty string or None")
 
 
-def backend_capabilities(*, operation: str | None = None) -> tuple[BackendCapability, ...]:
-    """Return registered capabilities without importing implementations."""
-    if operation is None:
-        return _CAPABILITIES
-    return tuple(capability for capability in _CAPABILITIES if capability.operation == operation)
+# Framework constructors still use the historical helper name.
+validate_backend_name = validate_backend_request
 
 
-def validate_backend_name(requested: str | None) -> None:
-    """Validate a public backend spelling without selecting an implementation."""
-    if requested is not None and requested not in _KNOWN_BACKENDS:
-        choices = ", ".join(_KNOWN_BACKENDS)
-        raise ValueError(f"unknown backend {requested!r}; choices are: {choices}")
+class ImplementationRegistry:
+    """Ordered registry of lazy implementation metadata."""
 
+    def __init__(self, implementations: Iterable[Implementation] = ()) -> None:
+        self._implementations: list[Implementation] = []
+        self._by_id: dict[ImplementationId, Implementation] = {}
+        for implementation in implementations:
+            self.register(implementation)
 
-def _matching_capabilities(
-    backend: str,
-    *,
-    operation: str,
-    device: str,
-    dtype: str | None,
-    gradient_order: int,
-    features: frozenset[str],
-) -> tuple[BackendCapability, ...]:
-    return tuple(
-        capability
-        for capability in _CAPABILITIES
-        if capability.backend == backend
-        and capability.operation == operation
-        and capability.supports(
+    def register(self, implementation: Implementation) -> None:
+        """Register an implementation, rejecting duplicate stable identifiers."""
+        if implementation.implementation_id in self._by_id:
+            raise ValueError(
+                "duplicate implementation_id "
+                f"{implementation.implementation_id!r}"
+            )
+        if not implementation.operation:
+            raise ValueError("implementation operation must be non-empty")
+        if not implementation.family:
+            raise ValueError("implementation family must be non-empty")
+        self._by_id[implementation.implementation_id] = implementation
+        self._implementations.append(implementation)
+
+    def implementations(self, *, operation: str | None = None) -> tuple[Implementation, ...]:
+        """Return registered metadata without importing any executor."""
+        if operation is None:
+            return tuple(self._implementations)
+        return tuple(
+            implementation
+            for implementation in self._implementations
+            if implementation.operation in {operation, "*"}
+        )
+
+    def _legacy_selection(
+        self,
+        *,
+        requested: BackendRequest,
+        operation: str,
+        device: str,
+        dtype: str | None,
+        gradient_order: int,
+        features: tuple[str, ...],
+        strategy: str | None,
+    ) -> BackendSelection:
+        if strategy is not None:
+            raise BackendUnavailableError(
+                "legacy Warp request does not resolve an operation strategy; "
+                "use an explicit registered backend family"
+            )
+        legacy = self._by_id[_LEGACY_IMPLEMENTATION_ID]
+        return BackendSelection(
+            requested=requested,
+            implementation_id=legacy.implementation_id,
+            family=legacy.family,
+            strategy=None,
+            operation=operation,
             device=device,
             dtype=dtype,
             gradient_order=gradient_order,
             features=features,
+            reason="legacy upstream Warp default; execution remains framework-owned",
         )
+
+    def _matching(
+        self,
+        candidates: Iterable[Implementation],
+        *,
+        operation: str,
+        strategy: str | None,
+        device: str,
+        dtype: str | None,
+        gradient_order: int,
+        features: frozenset[str],
+    ) -> tuple[Implementation, ...]:
+        return tuple(
+            implementation
+            for implementation in candidates
+            if implementation.operation == operation
+            and (
+                (strategy is None and implementation.default_strategy)
+                or strategy == implementation.strategy
+            )
+            and implementation.supports(
+                device=device,
+                dtype=dtype,
+                gradient_order=gradient_order,
+                features=features,
+            )
+        )
+
+    def resolve(
+        self,
+        requested: BackendRequest,
+        *,
+        operation: str,
+        device: Any = None,
+        dtype: Any = None,
+        gradient_order: int = 0,
+        features: Iterable[str] | None = None,
+        strategy: str | None = None,
+    ) -> BackendSelection:
+        """Resolve one operation request without importing an executor."""
+        validate_backend_request(requested)
+        if gradient_order < 0:
+            raise ValueError("gradient_order must be non-negative")
+        if strategy is not None and not strategy:
+            raise ValueError("strategy must be a non-empty string or None")
+
+        device_label = _device_label(device)
+        dtype_label = _dtype_label(dtype)
+        feature_set = _feature_set(features)
+        feature_labels = tuple(sorted(feature_set))
+
+        if requested in (None, "warp", _LEGACY_IMPLEMENTATION_ID):
+            return self._legacy_selection(
+                requested=requested,
+                operation=operation,
+                device=device_label,
+                dtype=dtype_label,
+                gradient_order=gradient_order,
+                features=feature_labels,
+                strategy=strategy,
+            )
+
+        if requested == "auto" and strategy is not None:
+            raise BackendUnavailableError(
+                "backend='auto' does not select an operation strategy without a "
+                "BackendProfile; request an implementation family explicitly"
+            )
+
+        if requested == "auto":
+            families = _AUTO_FAMILIES
+            request_candidates: tuple[Implementation, ...] = ()
+            effective_strategy = strategy
+        elif requested in self._by_id:
+            families = ("__exact_implementation__",)
+            request_candidates = (self._by_id[requested],)
+            effective_strategy = (
+                request_candidates[0].strategy if strategy is None else strategy
+            )
+        else:
+            families = (requested,)
+            request_candidates = ()
+            effective_strategy = strategy
+
+        for family in families:
+            candidates: Iterable[Implementation]
+            if request_candidates:
+                candidates = request_candidates
+            else:
+                candidates = (
+                    implementation
+                    for implementation in self._implementations
+                    if implementation.family == family
+                )
+            matches = self._matching(
+                candidates,
+                operation=operation,
+                strategy=effective_strategy,
+                device=device_label,
+                dtype=dtype_label,
+                gradient_order=gradient_order,
+                features=feature_set,
+            )
+            if not matches:
+                continue
+            implementation = matches[0]
+            is_auto = requested == "auto"
+            reason = (
+                "auto selected the highest-priority verified capability"
+                if is_auto
+                else "explicit verified implementation capability"
+            )
+            selection = BackendSelection(
+                requested=requested,
+                implementation_id=implementation.implementation_id,
+                family=implementation.family,
+                strategy=implementation.strategy,
+                operation=operation,
+                device=device_label,
+                dtype=dtype_label,
+                gradient_order=gradient_order,
+                features=feature_labels,
+                reason=reason,
+            )
+            if is_auto:
+                warning_key = (
+                    operation,
+                    device_label,
+                    dtype_label,
+                    gradient_order,
+                    feature_labels,
+                )
+                if warning_key not in _AUTO_WARNED:
+                    _AUTO_WARNED.add(warning_key)
+                    warnings.warn(
+                        "backend='auto' selected "
+                        f"{implementation.implementation_id!r} for {operation!r}: {reason}",
+                        BackendAutoSelectionWarning,
+                        stacklevel=3,
+                    )
+            return selection
+
+        feature_text = ", ".join(feature_labels) or "none"
+        known = {
+            "auto",
+            "warp",
+            *_AUTO_FAMILIES,
+            *self._by_id,
+            *(item.family for item in self._implementations),
+        }
+        request_text = (
+            f"unknown backend request {requested!r}"
+            if requested not in known
+            else f"backend request {requested!r} has no verified capability"
+        )
+        raise BackendUnavailableError(
+            f"{request_text} for {operation!r} (device={device_label}, "
+            f"dtype={dtype_label}, gradient_order={gradient_order}, "
+            f"strategy={strategy!r}, features={feature_text})"
+        )
+
+
+def _default_implementations() -> tuple[Implementation, ...]:
+    return (
+        Implementation(
+            implementation_id=_LEGACY_IMPLEMENTATION_ID,
+            operation="*",
+            family="warp",
+            executor="framework-owned legacy Warp path",
+            evidence="locked upstream default semantics",
+        ),
+        Implementation(
+            implementation_id="torch_reference.neighbor.dense-v1",
+            operation="neighbor_list",
+            family="torch_reference",
+            strategy="dense",
+            executor="nvalchemiops.torch_reference.neighbor_list",
+            features=frozenset({"no_pbc", "periodic", "full", "half", "matrix", "coo", "distances", "vectors"}),
+            excluded_feature_sets=(frozenset({"periodic", "half"}),),
+            evidence="G1/G2 Torch-reference neighbor contracts",
+            default_strategy=True,
+        ),
+        Implementation(
+            implementation_id="torch_reference.neighbor.cell_list-v1",
+            operation="neighbor_list",
+            family="torch_reference",
+            strategy="cell_list",
+            executor="nvalchemiops.torch_reference_cell_list.neighbor_list",
+            features=frozenset({"no_pbc", "full", "half", "matrix", "coo", "distances", "vectors"}),
+            evidence="G2 opt-in no-PBC Torch reference cell-list contract",
+        ),
+        Implementation(
+            implementation_id="torch_reference.lj_energy_forces-v1",
+            operation="lj_energy_forces",
+            family="torch_reference",
+            executor="nvalchemiops.torch_reference.lj_energy_forces",
+            features=frozenset({"no_pbc", "periodic", "full", "half", "forces"}),
+            excluded_feature_sets=(frozenset({"periodic", "half"}),),
+            max_gradient_order=2,
+            evidence="G1 Torch-reference LJ force/curvature contracts",
+            default_strategy=True,
+        ),
+        Implementation(
+            implementation_id="torch_reference.velocity_verlet-v1",
+            operation="velocity_verlet",
+            family="torch_reference",
+            executor="nvalchemi._dynamics_reference.velocity_verlet",
+            features=frozenset({"fixed_cell"}),
+            max_gradient_order=1,
+            evidence="G2 velocity-Verlet reference contracts",
+            default_strategy=True,
+        ),
+        Implementation(
+            implementation_id="torch_reference.fire-v1",
+            operation="fire",
+            family="torch_reference",
+            executor="nvalchemi._dynamics_reference.fire",
+            features=frozenset({"fixed_cell"}),
+            max_gradient_order=1,
+            evidence="G2 FIRE/FIRE2 reference contracts",
+            default_strategy=True,
+        ),
+        Implementation(
+            implementation_id="torch_reference.kinetics-v1",
+            operation="kinetics",
+            family="torch_reference",
+            executor="nvalchemi._dynamics_reference.kinetics",
+            features=frozenset({"per_graph"}),
+            max_gradient_order=1,
+            evidence="G2 kinetic-energy/temperature reference contracts",
+            default_strategy=True,
+        ),
+        Implementation(
+            implementation_id="torch_reference.periodic_wrap-v1",
+            operation="periodic_wrap",
+            family="torch_reference",
+            executor="nvalchemi._dynamics_reference.periodic.wrap_positions_into_cell",
+            features=frozenset({"inplace", "periodic"}),
+            evidence="G2 periodic-hook reference contracts",
+            default_strategy=True,
+        ),
+        Implementation(
+            implementation_id="torch_reference.segmented_reduce-v1",
+            operation="segmented_reduce",
+            family="torch_reference",
+            executor="nvalchemi._dynamics_reference.segmented_reduce",
+            features=frozenset({"per_graph"}),
+            evidence="G2 observer reference contracts",
+            default_strategy=True,
+        ),
     )
 
 
+DEFAULT_IMPLEMENTATION_REGISTRY = ImplementationRegistry(_default_implementations())
+_AUTO_WARNED: set[tuple[str, str, str | None, int, tuple[str, ...]]] = set()
+
+
+def backend_capabilities(*, operation: str | None = None) -> tuple[Implementation, ...]:
+    """Return implementation metadata for the requested operation."""
+    return DEFAULT_IMPLEMENTATION_REGISTRY.implementations(operation=operation)
+
+
 def resolve_backend(
-    requested: str | None = "torch_reference",
+    requested: BackendRequest = "torch_reference",
     *,
     operation: str,
     device: Any = None,
     dtype: Any = None,
     gradient_order: int = 0,
     features: Iterable[str] | None = None,
+    strategy: str | None = None,
 ) -> BackendSelection:
-    """Resolve a request against verified operation capabilities.
-
-    ``None`` and ``"warp"`` preserve the framework's legacy Warp default.
-    They are intentionally not capability-probed here. Direct Torch
-    dispatchers reject such a selection because they do not own Warp's
-    executor.
-    """
-    validate_backend_name(requested)
-    if gradient_order < 0:
-        raise ValueError("gradient_order must be non-negative")
-
-    effective_requested = "warp" if requested is None else requested
-    device_label = _device_label(device)
-    dtype_label = _dtype_label(dtype)
-    feature_set = _feature_set(features)
-    feature_labels = tuple(sorted(feature_set))
-
-    if effective_requested == "warp":
-        return BackendSelection(
-            requested="warp" if requested is None else effective_requested,
-            selected="warp",
-            operation=operation,
-            device=device_label,
-            dtype=dtype_label,
-            gradient_order=gradient_order,
-            features=feature_labels,
-            reason="legacy upstream Warp default; execution remains framework-owned",
-        )
-
-    candidates = _AUTO_PRIORITY if effective_requested == "auto" else (effective_requested,)
-    for candidate in candidates:
-        matches = _matching_capabilities(
-            candidate,
-            operation=operation,
-            device=device_label,
-            dtype=dtype_label,
-            gradient_order=gradient_order,
-            features=feature_set,
-        )
-        if not matches:
-            continue
-        reason = (
-            "explicit verified backend capability"
-            if effective_requested != "auto"
-            else "auto selected the highest-priority verified capability"
-        )
-        selection = BackendSelection(
-            requested=effective_requested,
-            selected=candidate,
-            operation=operation,
-            device=device_label,
-            dtype=dtype_label,
-            gradient_order=gradient_order,
-            features=feature_labels,
-            reason=reason,
-        )
-        if effective_requested == "auto":
-            warning_key = (operation, device_label, dtype_label, gradient_order, feature_labels)
-            if warning_key not in _AUTO_WARNED:
-                _AUTO_WARNED.add(warning_key)
-                warnings.warn(
-                    "backend='auto' selected "
-                    f"{candidate!r} for {operation!r}: {reason}",
-                    BackendAutoSelectionWarning,
-                    stacklevel=2,
-                )
-        return selection
-
-    feature_text = ", ".join(feature_labels) or "none"
-    raise BackendUnavailableError(
-        f"backend {effective_requested!r} has no verified capability for {operation!r} "
-        f"(device={device_label}, dtype={dtype_label}, gradient_order={gradient_order}, "
-        f"features={feature_text})"
+    """Resolve one operation through the default implementation registry."""
+    return DEFAULT_IMPLEMENTATION_REGISTRY.resolve(
+        requested,
+        operation=operation,
+        device=device,
+        dtype=dtype,
+        gradient_order=gradient_order,
+        features=features,
+        strategy=strategy,
     )
 
 
 __all__ = [
     "BackendAutoSelectionWarning",
-    "BackendCapability",
-    "BackendName",
+    "BackendFamily",
+    "BackendRequest",
     "BackendSelection",
     "BackendUnavailableError",
+    "DEFAULT_IMPLEMENTATION_REGISTRY",
+    "Implementation",
+    "ImplementationId",
+    "ImplementationRegistry",
     "backend_capabilities",
     "resolve_backend",
     "validate_backend_name",
+    "validate_backend_request",
 ]

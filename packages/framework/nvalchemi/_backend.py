@@ -19,6 +19,7 @@ def resolve_compute_backend(
     dtype: Any = None,
     gradient_order: int = 0,
     features: Iterable[str] = (),
+    strategy: str | None = None,
 ) -> BackendSelection:
     """Resolve framework compute work through the shared ops capability table."""
     return resolve_backend(
@@ -28,6 +29,7 @@ def resolve_compute_backend(
         dtype=dtype,
         gradient_order=gradient_order,
         features=features,
+        strategy=strategy,
     )
 
 

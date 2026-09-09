@@ -22,7 +22,7 @@ from typing import Any
 import torch
 
 from nvalchemiops.backend import (
-    BackendName,
+    BackendRequest,
     BackendSelection,
     BackendUnavailableError,
     resolve_backend,
@@ -49,16 +49,17 @@ def dispatch_neighbor_list(
     return_distances: bool = False,
     return_vectors: bool = False,
     target_indices: torch.Tensor | None = None,
-    backend: BackendName = "torch_reference",
+    backend: BackendRequest = "torch_reference",
+    method: str | None = None,
     selection: BackendSelection | None = None,
     return_backend: bool = False,
     **kwargs: object,
 ) -> Any:
     """Dispatch neighbor construction and optionally return its audit record.
 
-    ``selection`` is an optional pre-resolved registry decision supplied by a
-    framework facade.  When present, it avoids resolving the same request a
-    second time; direct ops callers can continue to pass ``backend``.
+    ``method`` is the neighbor operation strategy. ``selection`` is an
+    optional pre-resolved registry decision supplied by a framework facade;
+    when present, it avoids resolving the same request a second time.
     """
     features = {
         "periodic" if cell is not None or pbc is not None else "no_pbc",
@@ -76,22 +77,23 @@ def dispatch_neighbor_list(
             device=positions.device,
             dtype=positions.dtype,
             features=features,
+            strategy=method,
         )
     elif selection.operation != "neighbor_list":
         raise ValueError(
             "pre-resolved backend selection must target operation "
             f"'neighbor_list', got {selection.operation!r}"
         )
-    if selection.selected not in {"torch_reference", "torch_reference_cell_list"}:
+    implementations = {
+        "torch_reference.neighbor.dense-v1": _neighbor_list,
+        "torch_reference.neighbor.cell_list-v1": _neighbor_list_cell_list,
+    }
+    neighbor_impl = implementations.get(selection.implementation_id)
+    if neighbor_impl is None:
         raise BackendUnavailableError(
             "the Torch dispatcher does not execute legacy Warp; use the framework "
             "legacy entry point or request a registered Torch backend"
         )
-    neighbor_impl = (
-        _neighbor_list
-        if selection.selected == "torch_reference"
-        else _neighbor_list_cell_list
-    )
     result = neighbor_impl(
         positions,
         cutoff,
@@ -125,7 +127,7 @@ def dispatch_lj_energy_forces(
     cell: torch.Tensor | None = None,
     batch_idx: torch.Tensor | None = None,
     neighbor_matrix_shifts: torch.Tensor | None = None,
-    backend: BackendName = "torch_reference",
+    backend: BackendRequest = "torch_reference",
     return_backend: bool = False,
 ) -> Any:
     """Dispatch LJ energy/force evaluation and optionally return its audit record."""
@@ -142,7 +144,7 @@ def dispatch_lj_energy_forces(
         gradient_order=2,
         features=features,
     )
-    if selection.selected != "torch_reference":
+    if selection.implementation_id != "torch_reference.lj_energy_forces-v1":
         raise BackendUnavailableError(
             "the Torch dispatcher does not execute legacy Warp; use the framework "
             "legacy entry point or request a registered Torch backend"
