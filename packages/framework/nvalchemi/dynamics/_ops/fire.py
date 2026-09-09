@@ -47,7 +47,8 @@ from __future__ import annotations
 
 import torch
 import torch.library
-from nvalchemiops.backend import BackendSelection, BackendUnavailableError
+from nvalchemiops.backend import BackendSelection
+from nvalchemiops.executor import execute_selected
 
 from nvalchemi._backend import resolve_compute_backend
 
@@ -333,71 +334,92 @@ def fire_step(
         features={"fixed_cell"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.fire-v1":
-        from nvalchemi._dynamics_reference.fire import fire_step as reference_step
 
-        return reference_step(
-            positions,
-            velocities,
-            forces,
-            masses,
-            alpha,
-            dt,
-            n_steps_positive,
-            alpha_start,
-            f_alpha,
-            dt_min,
-            dt_max,
-            maxstep,
-            n_min,
-            f_dec,
-            f_inc,
-            uphill_flag,
-            vf=vf,
-            vv=vv,
-            ff=ff,
-            batch_idx=batch_idx,
+    def legacy_step(
+        legacy_positions: torch.Tensor,
+        legacy_velocities: torch.Tensor,
+        legacy_forces: torch.Tensor,
+        legacy_masses: torch.Tensor,
+        legacy_alpha: torch.Tensor,
+        legacy_dt: torch.Tensor,
+        legacy_n_steps_positive: torch.Tensor,
+        legacy_alpha_start: torch.Tensor,
+        legacy_f_alpha: torch.Tensor,
+        legacy_dt_min: torch.Tensor,
+        legacy_dt_max: torch.Tensor,
+        legacy_maxstep: torch.Tensor,
+        legacy_n_min: torch.Tensor,
+        legacy_f_dec: torch.Tensor,
+        legacy_f_inc: torch.Tensor,
+        legacy_uphill_flag: torch.Tensor,
+        *,
+        vf: torch.Tensor | None = None,
+        vv: torch.Tensor | None = None,
+        ff: torch.Tensor | None = None,
+        batch_idx: torch.Tensor | None = None,
+        compute_reductions: bool = True,
+    ) -> None:
+        M = legacy_alpha.shape[0]
+        dtype = legacy_positions.dtype
+        device = legacy_positions.device
+        if vf is None:
+            vf = torch.zeros(M, dtype=dtype, device=device)
+        if vv is None:
+            vv = torch.zeros(M, dtype=dtype, device=device)
+        if ff is None:
+            ff = torch.zeros(M, dtype=dtype, device=device)
+        if batch_idx is None:
+            batch_idx = torch.zeros(
+                legacy_positions.shape[0], dtype=torch.int32, device=device
+            )
+        _fire_step_op(
+            legacy_positions,
+            legacy_velocities,
+            legacy_forces,
+            legacy_masses,
+            legacy_alpha,
+            legacy_dt,
+            legacy_alpha_start,
+            legacy_f_alpha,
+            legacy_dt_min,
+            legacy_dt_max,
+            legacy_maxstep,
+            legacy_n_steps_positive,
+            legacy_n_min,
+            legacy_f_dec,
+            legacy_f_inc,
+            legacy_uphill_flag,
+            vf,
+            vv,
+            ff,
+            batch_idx,
             compute_reductions=compute_reductions,
         )
 
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "FIRE dispatcher has no executor for selected implementation "
-            f"{resolved.implementation_id!r}"
-        )
-
-    M = alpha.shape[0]
-    dtype = positions.dtype
-    device = positions.device
-    if vf is None:
-        vf = torch.zeros(M, dtype=dtype, device=device)
-    if vv is None:
-        vv = torch.zeros(M, dtype=dtype, device=device)
-    if ff is None:
-        ff = torch.zeros(M, dtype=dtype, device=device)
-    if batch_idx is None:
-        batch_idx = torch.zeros(positions.shape[0], dtype=torch.int32, device=device)
-    _fire_step_op(
+    return execute_selected(
+        resolved,
+        "fire_step",
+        legacy_step,
         positions,
         velocities,
         forces,
         masses,
         alpha,
         dt,
+        n_steps_positive,
         alpha_start,
         f_alpha,
         dt_min,
         dt_max,
         maxstep,
-        n_steps_positive,
         n_min,
         f_dec,
         f_inc,
         uphill_flag,
-        vf,
-        vv,
-        ff,
-        batch_idx,
+        vf=vf,
+        vv=vv,
+        ff=ff,
+        batch_idx=batch_idx,
         compute_reductions=compute_reductions,
     )
 
@@ -478,63 +500,80 @@ def fire_update(
         features={"fixed_cell"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.fire-v1":
-        from nvalchemi._dynamics_reference.fire import fire_update as reference_update
 
-        return reference_update(
-            velocities,
-            forces,
-            alpha,
-            dt,
-            n_steps_positive,
-            alpha_start,
-            f_alpha,
-            dt_min,
-            dt_max,
-            n_min,
-            f_dec,
-            f_inc,
-            vf=vf,
-            vv=vv,
-            ff=ff,
-            batch_idx=batch_idx,
+    def legacy_update(
+        legacy_velocities: torch.Tensor,
+        legacy_forces: torch.Tensor,
+        legacy_alpha: torch.Tensor,
+        legacy_dt: torch.Tensor,
+        legacy_n_steps_positive: torch.Tensor,
+        legacy_alpha_start: torch.Tensor,
+        legacy_f_alpha: torch.Tensor,
+        legacy_dt_min: torch.Tensor,
+        legacy_dt_max: torch.Tensor,
+        legacy_n_min: torch.Tensor,
+        legacy_f_dec: torch.Tensor,
+        legacy_f_inc: torch.Tensor,
+        *,
+        vf: torch.Tensor | None = None,
+        vv: torch.Tensor | None = None,
+        ff: torch.Tensor | None = None,
+        batch_idx: torch.Tensor | None = None,
+        compute_reductions: bool = True,
+    ) -> None:
+        M = legacy_alpha.shape[0]
+        dtype = legacy_velocities.dtype
+        device = legacy_velocities.device
+        if vf is None:
+            vf = torch.zeros(M, dtype=dtype, device=device)
+        if vv is None:
+            vv = torch.zeros(M, dtype=dtype, device=device)
+        if ff is None:
+            ff = torch.zeros(M, dtype=dtype, device=device)
+        if batch_idx is None:
+            batch_idx = torch.zeros(
+                legacy_velocities.shape[0], dtype=torch.int32, device=device
+            )
+        _fire_update_op(
+            legacy_velocities,
+            legacy_forces,
+            legacy_alpha,
+            legacy_dt,
+            legacy_alpha_start,
+            legacy_f_alpha,
+            legacy_dt_min,
+            legacy_dt_max,
+            legacy_n_steps_positive,
+            legacy_n_min,
+            legacy_f_dec,
+            legacy_f_inc,
+            vf,
+            vv,
+            ff,
+            batch_idx,
             compute_reductions=compute_reductions,
         )
 
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "FIRE dispatcher has no executor for selected implementation "
-            f"{resolved.implementation_id!r}"
-        )
-
-    M = alpha.shape[0]
-    dtype = velocities.dtype
-    device = velocities.device
-    if vf is None:
-        vf = torch.zeros(M, dtype=dtype, device=device)
-    if vv is None:
-        vv = torch.zeros(M, dtype=dtype, device=device)
-    if ff is None:
-        ff = torch.zeros(M, dtype=dtype, device=device)
-    if batch_idx is None:
-        batch_idx = torch.zeros(velocities.shape[0], dtype=torch.int32, device=device)
-    _fire_update_op(
+    return execute_selected(
+        resolved,
+        "fire_update",
+        legacy_update,
         velocities,
         forces,
         alpha,
         dt,
+        n_steps_positive,
         alpha_start,
         f_alpha,
         dt_min,
         dt_max,
-        n_steps_positive,
         n_min,
         f_dec,
         f_inc,
-        vf,
-        vv,
-        ff,
-        batch_idx,
+        vf=vf,
+        vv=vv,
+        ff=ff,
+        batch_idx=batch_idx,
         compute_reductions=compute_reductions,
     )
 
@@ -624,17 +663,39 @@ def fire2_step_coord(
         features={"fixed_cell"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.fire2-v1":
-        from nvalchemi._dynamics_reference.fire import fire2_step_coord as reference_step
 
-        return reference_step(
-            positions,
-            velocities,
-            forces,
-            batch_idx,
-            alpha,
-            dt,
-            nsteps_inc,
+    def legacy_step(
+        legacy_positions: torch.Tensor,
+        legacy_velocities: torch.Tensor,
+        legacy_forces: torch.Tensor,
+        legacy_batch_idx: torch.Tensor,
+        legacy_alpha: torch.Tensor,
+        legacy_dt: torch.Tensor,
+        legacy_nsteps_inc: torch.Tensor,
+        *,
+        vf: torch.Tensor | None = None,
+        v_sumsq: torch.Tensor | None = None,
+        f_sumsq: torch.Tensor | None = None,
+        max_norm: torch.Tensor | None = None,
+        delaystep: int = 60,
+        dtgrow: float = 1.05,
+        dtshrink: float = 0.75,
+        alphashrink: float = 0.985,
+        alpha0: float = 0.09,
+        tmax: float = 0.08,
+        tmin: float = 0.005,
+        maxstep: float = 0.1,
+    ) -> None:
+        from nvalchemiops.torch.fire2 import fire2_step_coord as _fire2_coord
+
+        _fire2_coord(
+            legacy_positions,
+            legacy_velocities,
+            legacy_forces,
+            legacy_batch_idx,
+            legacy_alpha,
+            legacy_dt,
+            legacy_nsteps_inc,
             vf=vf,
             v_sumsq=v_sumsq,
             f_sumsq=f_sumsq,
@@ -648,14 +709,11 @@ def fire2_step_coord(
             tmin=tmin,
             maxstep=maxstep,
         )
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "FIRE2 dispatcher has no executor for selected implementation "
-            f"{resolved.implementation_id!r}"
-        )
-    from nvalchemiops.torch.fire2 import fire2_step_coord as _fire2_coord
 
-    _fire2_coord(
+    return execute_selected(
+        resolved,
+        "fire2_step_coord",
+        legacy_step,
         positions,
         velocities,
         forces,
@@ -755,22 +813,45 @@ def fire2_step_coord_cell(
         features={"variable_cell"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.fire2-v1":
-        from nvalchemi._dynamics_reference.fire import (
-            fire2_step_coord_cell as reference_step,
-        )
 
-        return reference_step(
-            positions,
-            velocities,
-            forces,
-            cell,
-            cell_velocities,
-            cell_force,
-            batch_idx,
-            alpha,
-            dt,
-            nsteps_inc,
+    def legacy_step(
+        legacy_positions: torch.Tensor,
+        legacy_velocities: torch.Tensor,
+        legacy_forces: torch.Tensor,
+        legacy_cell: torch.Tensor,
+        legacy_cell_velocities: torch.Tensor,
+        legacy_cell_force: torch.Tensor,
+        legacy_batch_idx: torch.Tensor,
+        legacy_alpha: torch.Tensor,
+        legacy_dt: torch.Tensor,
+        legacy_nsteps_inc: torch.Tensor,
+        *,
+        vf: torch.Tensor | None = None,
+        v_sumsq: torch.Tensor | None = None,
+        f_sumsq: torch.Tensor | None = None,
+        max_norm: torch.Tensor | None = None,
+        delaystep: int = 60,
+        dtgrow: float = 1.05,
+        dtshrink: float = 0.75,
+        alphashrink: float = 0.985,
+        alpha0: float = 0.09,
+        tmax: float = 0.08,
+        tmin: float = 0.005,
+        maxstep: float = 0.1,
+    ) -> None:
+        from nvalchemiops.torch.fire2 import fire2_step_coord_cell as _fire2_coord_cell
+
+        _fire2_coord_cell(
+            legacy_positions,
+            legacy_velocities,
+            legacy_forces,
+            legacy_cell,
+            legacy_cell_velocities,
+            legacy_cell_force,
+            legacy_batch_idx,
+            legacy_alpha,
+            legacy_dt,
+            legacy_nsteps_inc,
             vf=vf,
             v_sumsq=v_sumsq,
             f_sumsq=f_sumsq,
@@ -784,14 +865,11 @@ def fire2_step_coord_cell(
             tmin=tmin,
             maxstep=maxstep,
         )
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "FIRE2 dispatcher has no executor for selected implementation "
-            f"{resolved.implementation_id!r}"
-        )
-    from nvalchemiops.torch.fire2 import fire2_step_coord_cell as _fire2_coord_cell
 
-    _fire2_coord_cell(
+    return execute_selected(
+        resolved,
+        "fire2_step_coord_cell",
+        legacy_step,
         positions,
         velocities,
         forces,
