@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import torch
@@ -21,7 +22,15 @@ from nvalchemiops.backend import (
     backend_capabilities,
     resolve_backend,
 )
-from nvalchemiops.executor import load_entrypoint
+from nvalchemiops.executor import clear_entrypoint_cache, load_entrypoint
+
+
+@pytest.fixture(autouse=True)
+def _reset_entrypoint_cache() -> None:
+    """Keep module/entrypoint replacement tests isolated from the process cache."""
+    clear_entrypoint_cache()
+    yield
+    clear_entrypoint_cache()
 
 
 def test_explicit_neighbor_reference_requires_a_registered_width() -> None:
@@ -276,6 +285,49 @@ def test_entrypoint_load_failure_identifies_executor_package_owner() -> None:
 
     with pytest.raises(BackendUnavailableError, match="framework-owned package"):
         load_entrypoint(selection, "run", registry=registry)
+
+
+def test_entrypoint_cache_can_be_cleared_after_module_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "nvalchemiops_test_reloadable_executor"
+    first_module = ModuleType(module_name)
+    second_module = ModuleType(module_name)
+
+    def first_run(value: int) -> str:
+        return f"first:{value}"
+
+    def second_run(value: int) -> str:
+        return f"second:{value}"
+
+    first_module.run = first_run
+    second_module.run = second_run
+    implementation = Implementation(
+        implementation_id="test.reloadable.executor-v1",
+        operation="test_operation",
+        family="test",
+        strategy="default",
+        executor=module_name,
+        entrypoints=("run",),
+        executor_owner="ops",
+        default_strategy=True,
+    )
+    registry = ImplementationRegistry([implementation])
+    selection = registry.resolve(
+        implementation.implementation_id,
+        operation=implementation.operation,
+        device="cpu",
+        strategy=implementation.strategy,
+    )
+
+    monkeypatch.setitem(sys.modules, module_name, first_module)
+    assert load_entrypoint(selection, "run", registry=registry)(1) == "first:1"
+
+    monkeypatch.setitem(sys.modules, module_name, second_module)
+    assert load_entrypoint(selection, "run", registry=registry)(1) == "first:1"
+
+    clear_entrypoint_cache()
+    assert load_entrypoint(selection, "run", registry=registry)(1) == "second:1"
 
 
 def test_fire_and_fire2_are_independent_operation_contracts() -> None:

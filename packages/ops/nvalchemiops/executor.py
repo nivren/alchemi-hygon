@@ -26,6 +26,17 @@ ExecutorCallable = Callable[..., Any]
 _ENTRYPOINT_CACHE: dict[tuple[str, str], ExecutorCallable] = {}
 
 
+def clear_entrypoint_cache() -> None:
+    """Clear cached entrypoints for test isolation or supported module reloads.
+
+    Normal production processes do not need invalidation: executor module paths
+    are stable for the lifetime of the process.  Tests and development tools
+    that replace a module or entrypoint explicitly may use this hook before
+    resolving it again.
+    """
+    _ENTRYPOINT_CACHE.clear()
+
+
 def _error(
     message: str, *, cause: BaseException | None = None
 ) -> "BackendUnavailableError":
@@ -222,4 +233,4 @@ def execute_selected(
     return load_entrypoint(selection, entrypoint_name)(*args, **kwargs)
 
 
-__all__ = ["execute_selected", "load_entrypoint"]
+__all__ = ["clear_entrypoint_cache", "execute_selected", "load_entrypoint"]
