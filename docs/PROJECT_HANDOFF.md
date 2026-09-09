@@ -372,8 +372,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 
 ## 18. B1 Executor Binding 交接（2026-09-09）
 
-- 用户已确认按 B1 计划实施；当前开发分支为 `codex/refactor-executor-binding`，未推送、未合入
-  `develop`。B1 目的为兑现 catalog 的 `executor` 字段，消除实现声明与 22 处局部 dispatcher
+- 用户已确认按 B1 计划实施；B1 已从 `codex/refactor-executor-binding` 快进合入本地
+  `develop`，个人分支仍保留。B1 目的为兑现 catalog 的 `executor` 字段，消除实现声明与 22 处局部 dispatcher
   分支之间的人工绑定地雷，不改变公共 API、`backend=None` legacy 语义或现有 capability 宽度。
 - 已完成提交顺序：`90c43fb`（schema/loader/catalog/segmented-reduce）、`98da458`（ops
   generic dispatcher）、`0b1698c`（VV/periodic/kinetics/segmented）、`0f8b9dd`（FIRE/FIRE2）、
@@ -390,10 +390,9 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   权限、DTK 26.04、显式 `HIP_VISIBLE_DEVICES=0` 的 HCU 0 上运行
   `scripts/check_hcu_reference_smoke.sh`，五个 probe 退出码均为 `0`，且均报告
   `warp_imported=false`。该结果只覆盖当前 golden-path 窄 slice，不是完整 DCU production 或
-  性能结论；没有自动 push 或 merge。
-- 人工 review 通过后的唯一下一步是 `TORCH-NVT-LANGEVIN`：先读上游 Langevin contract，建立
-  BAOAB/随机数/state/restart 的 CPU reference 与测试，再登记 capability；周期 cell-list
-  和 NHC 不与其合并，M2 继续延期。
+  性能结论；本次用户授权的同步目标仅为 `local-origin/develop` 和 `github-origin/develop`。
+- 本次同步完成后暂停开发，不启动 `TORCH-NVT-LANGEVIN`；周期 cell-list 和 NHC 不与其合并，
+  M2 继续延期。
 - cache 约束：生产 dispatch 使用稳定 callable cache，不自动检测模块变化；测试或受支持的
   module reload 工具必须显式调用 `clear_entrypoint_cache()`。不要在每个 dynamics step 增加
   `sys.modules`/module identity 检查。

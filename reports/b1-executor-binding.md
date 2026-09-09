@@ -2,7 +2,8 @@
 
 日期：2026-09-09
 开发分支：`codex/refactor-executor-binding`
-状态：CPU verified；B0 式候选 HCU golden-path smoke verified；未合入、未推送共享分支
+状态：CPU verified；B0 式候选 HCU golden-path smoke verified；已 fast-forward 合入 `develop`；
+本次 handoff 同步 `local-origin/develop` 与 `github-origin/develop`
 
 ## 目标与实现
 

@@ -158,8 +158,9 @@ component explicit override
 
 ### B1：兑现 executor 字段，消除实现绑定漂移
 
-状态：代码与 CPU gate 已完成（2026-09-09）；B0 式候选集成指针的 HCU gate 已通过，尚未
-合入或推送共享分支。B1 不增加 operation capability，也不启动 M2。
+状态：代码与 CPU gate 已完成（2026-09-09）；B0 式候选集成指针的 HCU gate 已通过，现已
+fast-forward 合入 `develop`，本次 handoff 同步两个产品远端的 `develop`。B1 不增加 operation
+capability，也不启动 M2。
 
 B1 的问题边界是：catalog 中的 `executor` 不能继续只是描述字符串。实现绑定必须由 registry
 metadata 驱动，否则每增加一个 implementation 都要同时修改 catalog 和多个 operation 的

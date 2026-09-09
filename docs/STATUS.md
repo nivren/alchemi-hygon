@@ -11,7 +11,8 @@
 - B1 executor binding 已在 `codex/refactor-executor-binding` 完成代码迁移：registry metadata
   现在声明 executor module、entrypoints 和 owner；通用 binding 负责 lazy load/call，legacy
   handler 保留在 framework 调用点。当前 CPU gate 已覆盖该 binding，B0 式候选 HCU gate
-  已在本地候选指针和 HCU 0 通过；未合入或推送共享分支。
+  已在本地候选指针和 HCU 0 通过；现已按用户授权 fast-forward 合入 `develop`，本次
+  handoff 将只同步 `local-origin/develop` 与 `github-origin/develop`。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 
@@ -687,8 +688,8 @@
   算法结论。B1 候选 HCU smoke 已在主机权限、DTK 26.04、HCU 0、显式
   `HIP_VISIBLE_DEVICES=0` 下通过五个 probe，故现有 golden-path 窄 slice 可写成 HCU verified；
   该结果不等于完整 DCU production support。
-- 下一步：完成人工 review 后再决定是否按项目授权合入共享分支，然后启动 `TORCH-NVT-LANGEVIN`；周期
-  cell-list 与 NHC 继续作为独立 T1 任务，M2 profile/planner 继续延期。
+- 下一步：本次同步完成后暂停开发，不启动 `TORCH-NVT-LANGEVIN`；周期 cell-list 与 NHC
+  继续作为独立 T1 任务，M2 profile/planner 继续延期。
 
 ### 2026-09-09：B1 executor cache isolation follow-up
 
