@@ -689,3 +689,17 @@
   该结果不等于完整 DCU production support。
 - 下一步：完成人工 review 后再决定是否按项目授权合入共享分支，然后启动 `TORCH-NVT-LANGEVIN`；周期
   cell-list 与 NHC 继续作为独立 T1 任务，M2 profile/planner 继续延期。
+
+### 2026-09-09：B1 executor cache isolation follow-up
+
+- 保留 process-local entrypoint callable cache，不增加每步 module identity 检查或自动失效；
+  新增 `clear_entrypoint_cache()` 作为测试隔离和受支持 module reload 工具的显式出口。
+- `test_backend_registry.py` 增加 autouse cache reset fixture 和模块替换回归：同一 executor path
+  在未清理时复用旧 callable，清理后重新加载新 callable。该行为明确了生产稳定性与测试隔离
+  的边界，没有改变 dispatcher 或 compile 路径。
+- 代码提交为 `52663f2`。针对性测试 `17 passed`；完整
+  `scripts/check_cpu_reference.sh` 退出码 `0`，ops `33 passed, 1 warning`，framework
+  golden path `123 passed, 1 deselected`，state `22 passed, 34 deselected`，VV/FIRE/FIRE2
+  `24 passed, 73 deselected`，compileall/diff check 通过。
+- 这是测试基础设施补强，不新增功能 capability；此前 B1 HCU golden-path smoke 证据仍有效，
+  不需要因本次纯 CPU cache 测试补强重新跑 HCU。

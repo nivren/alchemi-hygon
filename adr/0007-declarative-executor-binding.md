@@ -31,6 +31,10 @@ for the number of operations, but not for the product of operations and backend 
   may share one selection, but each phase has its own documented ABI. Loader tests may verify
   importability; acceptance must additionally call at least one second registered implementation
   through an unchanged dispatcher.
+- The process-local callable cache remains intentionally stable for production. A
+  `clear_entrypoint_cache()` hook is provided for tests and supported module reload tooling; tests
+  that replace `sys.modules` use it to avoid cross-test contamination. Production dispatch does not
+  inspect module identity on every step or perform automatic invalidation.
 - `backend=None`, `backend="warp"`, legacy Warp behavior and current capability widths remain
   unchanged. Unsupported requests and missing executor packages fail explicitly; there is no
   implicit CPU fallback.
@@ -43,9 +47,9 @@ legacy closure construction, while the registry owns capability selection and th
 owns lazy executable lookup. This separates capability from execution without starting M2
 PlatformFingerprint/Profile/Planner work.
 
-The public operation API is unchanged. The current proof is CPU-only for B1; the B0-style candidate
-HCU gate remains a separate required evidence step. The existing feature compatibility widths are
-not expanded by this ADR.
+The public operation API is unchanged. The B0-style candidate HCU golden-path gate passed; the
+cache-isolation supplement is test infrastructure and does not require a second device run. The
+existing feature compatibility widths are not expanded by this ADR.
 
 Evidence: `reports/b1-executor-binding.md`; implementation commits are recorded in
 `docs/BACKEND_PLATFORM_PIPELINE_PLAN.md` and `docs/STATUS.md`.

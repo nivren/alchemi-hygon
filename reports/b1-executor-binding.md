@@ -27,7 +27,7 @@ framework/ops dispatcher 分散 `if-elif` 之间的漂移和多人并行冲突�
 
 对应提交（按实施顺序）：
 
-`90c43fb` → `98da458` → `0b1698c` → `0f8b9dd` → `f5eb064` → `efedb58`
+`90c43fb` → `98da458` → `0b1698c` → `0f8b9dd` → `f5eb064` → `efedb58` → `52663f2`
 
 ## CPU 验证
 
@@ -40,7 +40,7 @@ scripts/check_cpu_reference.sh
 
 退出码：`0`。
 
-- ops registry/reference/cell-list：`32 passed, 1 warning`；warning 是已登记的
+- ops registry/reference/cell-list：`33 passed, 1 warning`；warning 是已登记的
   `backend="auto"` 选择提示。
 - framework golden path（含 executor-binding import/ABI static guard）：`123 passed,
   1 deselected`。
@@ -50,6 +50,9 @@ scripts/check_cpu_reference.sh
 
 R5 的缺包归因回归另行确认：framework-owned executor 的故意导入失败包含
 `framework-owned package`。同一 generic loader 对 ops-owned 条目使用对应 owner 标签。
+
+cache isolation follow-up 的针对性回归为 `17 passed`，验证模块替换后显式清理会重新加载
+新 callable；完整 gate 也已包含该测试。
 
 ## 数值结果
 

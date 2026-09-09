@@ -377,7 +377,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   分支之间的人工绑定地雷，不改变公共 API、`backend=None` legacy 语义或现有 capability 宽度。
 - 已完成提交顺序：`90c43fb`（schema/loader/catalog/segmented-reduce）、`98da458`（ops
   generic dispatcher）、`0b1698c`（VV/periodic/kinetics/segmented）、`0f8b9dd`（FIRE/FIRE2）、
-  `f5eb064`（高层 neighbors/LJ/Hook 与静态 guard）、`efedb58`（owner diagnostics）。
+  `f5eb064`（高层 neighbors/LJ/Hook 与静态 guard）、`efedb58`（owner diagnostics）、
+  `52663f2`（cache isolation follow-up）。
 - 实现约束：非 legacy metadata 声明 module、entrypoint 元组和 owner；loader 独立于 registry
   并 lazy import；adapter 只做一次 legacy 比较和声明式调用；legacy 逻辑由各 dispatcher 的
   局部闭包保留；entrypoint ABI 必须与 operation dispatcher 签名兼容。第二实现测试实际调用
@@ -393,3 +394,6 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 - 人工 review 通过后的唯一下一步是 `TORCH-NVT-LANGEVIN`：先读上游 Langevin contract，建立
   BAOAB/随机数/state/restart 的 CPU reference 与测试，再登记 capability；周期 cell-list
   和 NHC 不与其合并，M2 继续延期。
+- cache 约束：生产 dispatch 使用稳定 callable cache，不自动检测模块变化；测试或受支持的
+  module reload 工具必须显式调用 `clear_entrypoint_cache()`。不要在每个 dynamics step 增加
+  `sys.modules`/module identity 检查。

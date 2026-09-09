@@ -191,7 +191,9 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
 4. FIRE/FIRE2 paths：`0f8b9dd`；
 5. high-level neighbors/LJ/Hook routes and implementation-branch static guard：`f5eb064`；
 6. executor ownership diagnostics：`efedb58`；并将 executor-binding compatibility test 纳入
-   CPU gate。
+   CPU gate；
+7. cache isolation follow-up：`52663f2`，增加显式 `clear_entrypoint_cache()` 和模块替换回归；
+   生产路径不自动失效，测试/支持的 module reload 工具显式清理。
 
 当前 CPU 验收覆盖 registry metadata、legacy reverse guard、lazy import、实际第二实现调用、
    framework entrypoint importability、dispatcher static guard、neighbors/LJ/VV/FIRE/FIRE2/
