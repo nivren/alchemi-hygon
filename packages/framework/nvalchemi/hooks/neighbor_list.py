@@ -62,7 +62,6 @@ from enum import Enum
 import torch
 from nvalchemiops.backend import (
     BackendSelection,
-    BackendUnavailableError,
     validate_backend_name,
 )
 from nvalchemiops.dispatch import dispatch_neighbor_list
@@ -316,15 +315,9 @@ class NeighborListHook:
                 self.method if self.backend not in (None, "warp") else None
             ),
         )
-        if selection.implementation_id.startswith("torch_reference.neighbor."):
+        if selection.family != "warp":
             self._rebuild_reference(ctx.batch, selection=selection)
             return
-
-        if selection.implementation_id != "warp.legacy-upstream-v1":
-            raise BackendUnavailableError(
-                "NeighborListHook has no executor for selected implementation "
-                f"{selection.implementation_id!r}"
-            )
 
         self._rebuild(ctx.batch)
 

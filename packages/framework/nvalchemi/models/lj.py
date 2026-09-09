@@ -63,7 +63,6 @@ from typing import Any
 import torch
 from nvalchemiops.backend import (
     BackendSelection,
-    BackendUnavailableError,
     validate_backend_name,
 )
 from nvalchemiops.dispatch import dispatch_lj_energy_forces
@@ -490,13 +489,8 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
                 "forces",
             },
         )
-        if selection.implementation_id == "torch_reference.lj_energy_forces-v1":
+        if selection.family != "warp":
             return self._forward_reference(data, inp, selection=selection)
-        if selection.implementation_id != "warp.legacy-upstream-v1":
-            raise BackendUnavailableError(
-                "LJ framework path has no executor for selected implementation "
-                f"{selection.implementation_id!r}"
-            )
 
         positions = inp["positions"]  # (N, 3)
         neighbor_matrix = inp["neighbor_matrix"]  # (N, K) int32
