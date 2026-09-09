@@ -20,8 +20,16 @@ def resolve_compute_backend(
     gradient_order: int = 0,
     features: Iterable[str] = (),
     strategy: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> BackendSelection:
     """Resolve framework compute work through the shared ops capability table."""
+    if selection is not None:
+        if selection.operation != operation:
+            raise ValueError(
+                "pre-resolved backend selection must target operation "
+                f"{operation!r}, got {selection.operation!r}"
+            )
+        return selection
     return resolve_backend(
         backend,
         operation=operation,

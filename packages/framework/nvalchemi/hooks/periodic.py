@@ -25,7 +25,11 @@ from enum import Enum
 
 import torch
 from jaxtyping import Float
-from nvalchemiops.backend import validate_backend_name
+from nvalchemiops.backend import (
+    BackendSelection,
+    BackendUnavailableError,
+    validate_backend_name,
+)
 
 from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
@@ -82,6 +86,8 @@ def wrap_positions_into_cell(
     pbc: torch.Tensor,
     batch_idx: torch.Tensor,
     backend: str | None = None,
+    *,
+    selection: BackendSelection | None = None,
 ) -> Float[torch.Tensor, "V 3"]:
     """Wrap positions into the unit cell using fractional coordinates.
 
@@ -114,20 +120,27 @@ def wrap_positions_into_cell(
     Float[Tensor, "V 3"]
         The same ``positions`` tensor (modified in-place).
     """
-    selected = resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="periodic_wrap",
         device=positions.device,
         dtype=positions.dtype,
         features={"inplace", "periodic"},
-    ).selected
-    if selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.periodic_wrap-v1":
         from nvalchemi._dynamics_reference.periodic import (
             wrap_positions_into_cell as reference_wrap_positions,
         )
 
         reference_wrap_positions(positions, cell, pbc, batch_idx)
         return positions
+
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "periodic-wrap dispatcher has no executor for selected "
+            f"implementation {resolved.implementation_id!r}"
+        )
 
     original = positions.clone()
     wrapped = _wrap_positions(positions, cell, batch_idx)
@@ -233,7 +246,13 @@ class WrapPeriodicHook:
         self.stage = stage
         self.compute_backend = compute_backend
 
-    def _wrap_positions(self, batch: Batch, backend: str | None = None) -> None:
+    def _wrap_positions(
+        self,
+        batch: Batch,
+        backend: str | None = None,
+        *,
+        selection: BackendSelection | None = None,
+    ) -> None:
         """Wrap positions into the unit cell in-place."""
         if backend is None:
             backend = self.compute_backend
@@ -244,8 +263,20 @@ class WrapPeriodicHook:
             cell = cell.squeeze(1)
         if pbc.dim() == 3:
             pbc = pbc.squeeze(1)
+        if selection is None:
+            selection = resolve_compute_backend(
+                backend,
+                operation="periodic_wrap",
+                device=batch.positions.device,
+                dtype=batch.positions.dtype,
+                features={"inplace", "periodic"},
+            )
         wrap_positions_into_cell(
-            batch.positions, cell, pbc, batch.batch_idx, backend=backend
+            batch.positions,
+            cell,
+            pbc,
+            batch.batch_idx,
+            selection=selection,
         )
 
     def __call__(self, ctx: HookContext, stage: Enum) -> None:
@@ -253,4 +284,11 @@ class WrapPeriodicHook:
         backend = self.compute_backend
         if backend is None:
             backend = getattr(ctx.workflow, "backend", None)
-        self._wrap_positions(ctx.batch, backend=backend)
+        selection = resolve_compute_backend(
+            backend,
+            operation="periodic_wrap",
+            device=ctx.batch.positions.device,
+            dtype=ctx.batch.positions.dtype,
+            features={"inplace", "periodic"},
+        )
+        self._wrap_positions(ctx.batch, selection=selection)

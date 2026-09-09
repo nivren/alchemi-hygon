@@ -422,6 +422,16 @@ def _default_implementations() -> tuple[Implementation, ...]:
             default_strategy=True,
         ),
         Implementation(
+            implementation_id="torch_reference.fire2-v1",
+            operation="fire2",
+            family="torch_reference",
+            executor="nvalchemi._dynamics_reference.fire",
+            features=frozenset({"fixed_cell"}),
+            max_gradient_order=1,
+            evidence="G2 fixed-cell FIRE2 reference contracts",
+            default_strategy=True,
+        ),
+        Implementation(
             implementation_id="torch_reference.kinetics-v1",
             operation="kinetics",
             family="torch_reference",

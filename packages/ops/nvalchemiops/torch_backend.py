@@ -128,22 +128,29 @@ def dispatch_lj_energy_forces(
     batch_idx: torch.Tensor | None = None,
     neighbor_matrix_shifts: torch.Tensor | None = None,
     backend: BackendRequest = "torch_reference",
+    selection: BackendSelection | None = None,
     return_backend: bool = False,
 ) -> Any:
     """Dispatch LJ energy/force evaluation and optionally return its audit record."""
-    features = {
-        "periodic" if neighbor_matrix_shifts is not None else "no_pbc",
-        "half" if half_list else "full",
-        "forces",
-    }
-    selection = resolve_backend(
-        backend,
-        operation="lj_energy_forces",
-        device=positions.device,
-        dtype=positions.dtype,
-        gradient_order=2,
-        features=features,
-    )
+    if selection is None:
+        features = {
+            "periodic" if neighbor_matrix_shifts is not None else "no_pbc",
+            "half" if half_list else "full",
+            "forces",
+        }
+        selection = resolve_backend(
+            backend,
+            operation="lj_energy_forces",
+            device=positions.device,
+            dtype=positions.dtype,
+            gradient_order=2,
+            features=features,
+        )
+    elif selection.operation != "lj_energy_forces":
+        raise ValueError(
+            "pre-resolved backend selection must target operation "
+            f"'lj_energy_forces', got {selection.operation!r}"
+        )
     if selection.implementation_id != "torch_reference.lj_energy_forces-v1":
         raise BackendUnavailableError(
             "the Torch dispatcher does not execute legacy Warp; use the framework "

@@ -61,7 +61,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from nvalchemiops.backend import validate_backend_name
+from nvalchemiops.backend import (
+    BackendSelection,
+    BackendUnavailableError,
+    validate_backend_name,
+)
 from nvalchemiops.torch_backend import dispatch_lj_energy_forces
 from torch import nn
 
@@ -397,6 +401,8 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         self,
         data: AtomicData | Batch,
         inp: dict[str, Any],
+        *,
+        selection: BackendSelection,
     ) -> ModelOutputs:
         """Evaluate the restricted Warp-independent LJ reference path."""
         if self.switch_width != 0.0:
@@ -438,6 +444,7 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
             batch_idx=inp["batch_idx"],
             neighbor_matrix_shifts=neighbor_matrix_shifts,
             backend=self.backend,
+            selection=selection,
         )
         batch_idx = inp["batch_idx"].to(torch.long)
         energies = torch.zeros(
@@ -483,8 +490,13 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
                 "forces",
             },
         )
-        if selection.selected == "torch_reference":
-            return self._forward_reference(data, inp)
+        if selection.implementation_id == "torch_reference.lj_energy_forces-v1":
+            return self._forward_reference(data, inp, selection=selection)
+        if selection.implementation_id != "warp.legacy-upstream-v1":
+            raise BackendUnavailableError(
+                "LJ framework path has no executor for selected implementation "
+                f"{selection.implementation_id!r}"
+            )
 
         positions = inp["positions"]  # (N, 3)
         neighbor_matrix = inp["neighbor_matrix"]  # (N, K) int32

@@ -316,14 +316,14 @@ class NeighborListHook:
                 self.method if self.backend not in (None, "warp") else None
             ),
         )
-        if selection.family == "torch_reference":
+        if selection.implementation_id.startswith("torch_reference.neighbor."):
             self._rebuild_reference(ctx.batch, selection=selection)
             return
 
-        if selection.selected != "warp":
+        if selection.implementation_id != "warp.legacy-upstream-v1":
             raise BackendUnavailableError(
-                f"NeighborListHook has no executor for selected backend "
-                f"{selection.selected!r}"
+                "NeighborListHook has no executor for selected implementation "
+                f"{selection.implementation_id!r}"
             )
 
         self._rebuild(ctx.batch)

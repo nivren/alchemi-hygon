@@ -155,3 +155,36 @@ def test_auto_never_selects_an_operation_strategy_without_a_profile() -> None:
             features={"no_pbc", "full", "matrix"},
             strategy="cell_list",
         )
+
+
+def test_fire_and_fire2_are_independent_operation_contracts() -> None:
+    fire = resolve_backend(
+        "torch_reference",
+        operation="fire",
+        device="cpu",
+        dtype=torch.float64,
+        gradient_order=1,
+        features={"fixed_cell"},
+    )
+    fire2 = resolve_backend(
+        "torch_reference",
+        operation="fire2",
+        device="cpu",
+        dtype=torch.float64,
+        gradient_order=1,
+        features={"fixed_cell"},
+    )
+
+    assert fire.implementation_id == "torch_reference.fire-v1"
+    assert fire.operation == "fire"
+    assert fire2.implementation_id == "torch_reference.fire2-v1"
+    assert fire2.operation == "fire2"
+    with pytest.raises(BackendUnavailableError, match="no verified capability"):
+        resolve_backend(
+            "torch_reference",
+            operation="fire2",
+            device="cpu",
+            dtype=torch.float64,
+            gradient_order=1,
+            features={"variable_cell"},
+        )

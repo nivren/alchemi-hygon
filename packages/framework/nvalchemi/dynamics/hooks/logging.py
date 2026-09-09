@@ -49,6 +49,7 @@ import torch
 from tensordict import TensorDict
 from nvalchemiops.backend import validate_backend_name
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.dynamics.base import DynamicsStage
 from nvalchemi.dynamics.hooks._utils import (
@@ -333,6 +334,13 @@ class LoggingHook:
             td.set("energy", batch.energy.reshape(num_graphs))
 
         if batch.forces is not None:
+            reduction_selection = resolve_compute_backend(
+                compute_backend,
+                operation="segmented_reduce",
+                device=batch.forces.device,
+                dtype=batch.forces.dtype,
+                features={"per_graph"},
+            )
             norms = torch.linalg.vector_norm(batch.forces, dim=-1)
             td.set(
                 "fmax",
@@ -341,11 +349,19 @@ class LoggingHook:
                     batch.batch_idx,
                     num_graphs,
                     reduce="amax",
-                    backend=compute_backend,
+                    selection=reduction_selection,
                 ),
             )
 
         if getattr(batch, "velocities", None) is not None:
+            kinetics_selection = resolve_compute_backend(
+                compute_backend,
+                operation="kinetics",
+                device=batch.velocities.device,
+                dtype=batch.velocities.dtype,
+                gradient_order=1,
+                features={"per_graph"},
+            )
             td.set(
                 "temperature",
                 temperature_per_graph(
@@ -354,7 +370,7 @@ class LoggingHook:
                     batch.batch_idx,
                     num_graphs,
                     batch.num_nodes_per_graph,
-                    backend=compute_backend,
+                    selection=kinetics_selection,
                 ),
             )
 

@@ -32,6 +32,7 @@ from typing import Literal
 
 import torch
 from jaxtyping import Float
+from nvalchemiops.backend import BackendSelection, BackendUnavailableError
 
 from nvalchemi._backend import resolve_compute_backend
 
@@ -184,6 +185,8 @@ def scatter_reduce_per_graph(
     num_graphs: int,
     reduce: ScatterReduce = "amax",
     backend: str | None = None,
+    *,
+    selection: BackendSelection | None = None,
 ) -> torch.Tensor:
     """Scatter-reduce a 1-D node-level tensor to graph level.
 
@@ -220,14 +223,15 @@ def scatter_reduce_per_graph(
     Tensor
         1-D tensor of shape ``(B,)`` with per-graph reduced values.
     """
-    selected = resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="segmented_reduce",
         device=values.device,
         dtype=values.dtype,
         features={"per_graph"},
-    ).selected
-    if selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.segmented_reduce-v1":
         idx = batch_idx.to(dtype=torch.long)
         if reduce == "sum":
             out = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
@@ -250,6 +254,11 @@ def scatter_reduce_per_graph(
         )
         return torch.where(counts > 0, sums / counts, torch.zeros_like(sums))
 
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "segmented-reduce dispatcher has no executor for selected "
+            f"implementation {resolved.implementation_id!r}"
+        )
     if reduce == "sum":
         return _segmented_sum(values, batch_idx, num_graphs)
     if reduce == "amax":
@@ -265,6 +274,8 @@ def kinetic_energy_per_graph(
     batch_idx: torch.Tensor,
     num_graphs: int,
     backend: str | None = None,
+    *,
+    selection: BackendSelection | None = None,
 ) -> Float[torch.Tensor, "B 1"]:
     """Compute ``0.5 * sum(m_i * ||v_i||^2)`` per graph.
 
@@ -286,20 +297,26 @@ def kinetic_energy_per_graph(
     Float[Tensor, "B 1"]
         Kinetic energy per graph.
     """
-    selected = resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="kinetics",
         device=velocities.device,
         dtype=velocities.dtype,
         gradient_order=1,
         features={"per_graph"},
-    ).selected
-    if selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.kinetics-v1":
         from nvalchemi._dynamics_reference.kinetics import (
             kinetic_energy_per_graph as reference_kinetic_energy,
         )
 
         return reference_kinetic_energy(velocities, masses, batch_idx, num_graphs)
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "kinetic-energy dispatcher has no executor for selected "
+            f"implementation {resolved.implementation_id!r}"
+        )
     m = masses.squeeze(-1) if masses.dim() > 1 else masses
     ke = _compute_ke(velocities, m, batch_idx, num_graphs)
     return ke.unsqueeze(-1)  # (B, 1)
@@ -313,6 +330,8 @@ def temperature_per_graph(
     atoms_per_graph: torch.Tensor,
     conversion_factor: float = KB_EV,
     backend: str | None = None,
+    *,
+    selection: BackendSelection | None = None,
 ) -> Float[torch.Tensor, "B"]:
     """Compute instantaneous kinetic temperature per graph.
 
@@ -347,7 +366,12 @@ def temperature_per_graph(
         Instantaneous kinetic temperature per graph in Kelvin.
     """
     ke = kinetic_energy_per_graph(
-        velocities, masses, batch_idx, num_graphs, backend=backend
+        velocities,
+        masses,
+        batch_idx,
+        num_graphs,
+        backend=backend,
+        selection=selection,
     ).squeeze(-1)  # (B,)
     n_atoms = atoms_per_graph.float()  # (B,)
     return (2.0 * ke) / (3.0 * n_atoms * conversion_factor)

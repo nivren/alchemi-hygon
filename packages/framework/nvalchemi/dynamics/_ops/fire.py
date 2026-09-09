@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import torch
 import torch.library
+from nvalchemiops.backend import BackendSelection, BackendUnavailableError
 
 from nvalchemi._backend import resolve_compute_backend
 
@@ -261,6 +262,7 @@ def fire_step(
     batch_idx: torch.Tensor | None = None,
     compute_reductions: bool = True,
     backend: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> None:
     r"""Full FIRE optimization step.
 
@@ -322,14 +324,16 @@ def fire_step(
         caller has already filled them with the desired — e.g. mesh-global —
         values); only the per-atom revert still runs.
     """
-    if resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="fire",
         device=positions.device,
         dtype=positions.dtype,
         gradient_order=1,
         features={"fixed_cell"},
-    ).selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.fire-v1":
         from nvalchemi._dynamics_reference.fire import fire_step as reference_step
 
         return reference_step(
@@ -354,6 +358,12 @@ def fire_step(
             ff=ff,
             batch_idx=batch_idx,
             compute_reductions=compute_reductions,
+        )
+
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "FIRE dispatcher has no executor for selected implementation "
+            f"{resolved.implementation_id!r}"
         )
 
     M = alpha.shape[0]
@@ -412,6 +422,7 @@ def fire_update(
     batch_idx: torch.Tensor | None = None,
     compute_reductions: bool = True,
     backend: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> None:
     r"""FIRE velocity mixing and parameter update (no MD integration).
 
@@ -458,14 +469,16 @@ def fire_update(
         caller has already filled them with the desired — e.g. mesh-global —
         values).
     """
-    if resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="fire",
         device=velocities.device,
         dtype=velocities.dtype,
         gradient_order=1,
         features={"fixed_cell"},
-    ).selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.fire-v1":
         from nvalchemi._dynamics_reference.fire import fire_update as reference_update
 
         return reference_update(
@@ -486,6 +499,12 @@ def fire_update(
             ff=ff,
             batch_idx=batch_idx,
             compute_reductions=compute_reductions,
+        )
+
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "FIRE dispatcher has no executor for selected implementation "
+            f"{resolved.implementation_id!r}"
         )
 
     M = alpha.shape[0]
@@ -547,6 +566,7 @@ def fire2_step_coord(
     tmin: float = 0.005,
     maxstep: float = 0.1,
     backend: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> None:
     r"""Full FIRE2 coordinate-only optimization step.
 
@@ -595,14 +615,16 @@ def fire2_step_coord(
     maxstep : float
         Maximum displacement per step.  Default 0.1.
     """
-    if resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
-        operation="fire",
+        operation="fire2",
         device=positions.device,
         dtype=positions.dtype,
         gradient_order=1,
         features={"fixed_cell"},
-    ).selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.fire2-v1":
         from nvalchemi._dynamics_reference.fire import fire2_step_coord as reference_step
 
         return reference_step(
@@ -625,6 +647,11 @@ def fire2_step_coord(
             tmax=tmax,
             tmin=tmin,
             maxstep=maxstep,
+        )
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "FIRE2 dispatcher has no executor for selected implementation "
+            f"{resolved.implementation_id!r}"
         )
     from nvalchemiops.torch.fire2 import fire2_step_coord as _fire2_coord
 
@@ -676,6 +703,7 @@ def fire2_step_coord_cell(
     tmin: float = 0.005,
     maxstep: float = 0.1,
     backend: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> None:
     r"""Full FIRE2 variable-cell optimization step.
 
@@ -718,14 +746,16 @@ def fire2_step_coord_cell(
     delaystep, dtgrow, dtshrink, alphashrink, alpha0, tmax, tmin, maxstep
         FIRE2 hyperparameters (same semantics as :func:`fire2_step_coord`).
     """
-    if resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
-        operation="fire",
+        operation="fire2",
         device=positions.device,
         dtype=positions.dtype,
         gradient_order=1,
         features={"variable_cell"},
-    ).selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.fire2-v1":
         from nvalchemi._dynamics_reference.fire import (
             fire2_step_coord_cell as reference_step,
         )
@@ -753,6 +783,11 @@ def fire2_step_coord_cell(
             tmax=tmax,
             tmin=tmin,
             maxstep=maxstep,
+        )
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "FIRE2 dispatcher has no executor for selected implementation "
+            f"{resolved.implementation_id!r}"
         )
     from nvalchemiops.torch.fire2 import fire2_step_coord_cell as _fire2_coord_cell
 

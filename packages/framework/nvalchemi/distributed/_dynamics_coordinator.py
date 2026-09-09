@@ -357,6 +357,7 @@ def _make_global_fire_step(strategy: ParallelizationStrategy):
         vv=None,
         ff=None,
         batch_idx=None,
+        selection=None,
     ):
         M = alpha.shape[0]
         dev, dtype = velocities.device, velocities.dtype
@@ -391,6 +392,7 @@ def _make_global_fire_step(strategy: ParallelizationStrategy):
             ff=ff,
             batch_idx=batch_idx,
             compute_reductions=False,
+            selection=selection,
         )
 
     return _global_fire_step
@@ -421,6 +423,7 @@ def _make_global_fire_update(strategy: ParallelizationStrategy):
         vv=None,
         ff=None,
         batch_idx=None,
+        selection=None,
     ):
         M = alpha.shape[0]
         dev, dtype = velocities.device, velocities.dtype
@@ -451,6 +454,7 @@ def _make_global_fire_update(strategy: ParallelizationStrategy):
             ff=ff,
             batch_idx=batch_idx,
             compute_reductions=False,
+            selection=selection,
         )
 
     return _global_fire_update

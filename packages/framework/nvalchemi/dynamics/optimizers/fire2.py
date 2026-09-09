@@ -51,6 +51,8 @@ from nvalchemi.data import Batch
 from nvalchemi.dynamics._ops._bridge import _make_state_batch, _to_per_system
 from nvalchemi.dynamics._ops.fire import fire2_step_coord, fire2_step_coord_cell
 from nvalchemi.dynamics.base import BaseDynamics
+from nvalchemi._backend import resolve_compute_backend
+from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.dynamics.base import ConvergenceHook
@@ -125,6 +127,8 @@ class FIRE2(BaseDynamics):
         Initial hooks.
     convergence_hook : ConvergenceHook or dict, optional
         Convergence criterion.
+    backend : str | None, optional
+        Backend request for the fixed/variable-cell FIRE2 operation path.
     **kwargs
         Forwarded to :class:`~nvalchemi.dynamics.base.BaseDynamics`.
 
@@ -174,6 +178,7 @@ class FIRE2(BaseDynamics):
         self.tmin = tmin
         self.maxstep = maxstep
         self.backend = backend
+        self._backend_selection: BackendSelection | None = None
 
     def _init_state(self, batch: Batch) -> None:
         M = batch.num_graphs
@@ -183,6 +188,14 @@ class FIRE2(BaseDynamics):
         self._state = _make_state_batch(
             _build_state(M, dt, self.alpha0, dtype, dev),
             dev,
+        )
+        self._backend_selection = resolve_compute_backend(
+            self.backend,
+            operation="fire2",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=1,
+            features={"fixed_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
@@ -224,7 +237,7 @@ class FIRE2(BaseDynamics):
             tmax=self.tmax,
             tmin=self.tmin,
             maxstep=self.maxstep,
-            backend=self.backend,
+            selection=self._backend_selection,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -266,6 +279,8 @@ class FIRE2VariableCell(BaseDynamics):
         Initial hooks.
     convergence_hook : ConvergenceHook or dict, optional
         Convergence criterion.
+    backend : str | None, optional
+        Backend request for the variable-cell FIRE2 operation path.
     **kwargs
         Forwarded to :class:`~nvalchemi.dynamics.base.BaseDynamics`.
 
@@ -295,6 +310,7 @@ class FIRE2VariableCell(BaseDynamics):
         n_steps: int | None = None,
         hooks: list[Hook] | None = None,
         convergence_hook: ConvergenceHook | dict | None = None,
+        backend: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -313,6 +329,8 @@ class FIRE2VariableCell(BaseDynamics):
         self.tmax = tmax
         self.tmin = tmin
         self.maxstep = maxstep
+        self.backend = backend
+        self._backend_selection: BackendSelection | None = None
 
     def _init_state(self, batch: Batch) -> None:
         M = batch.num_graphs
@@ -322,6 +340,14 @@ class FIRE2VariableCell(BaseDynamics):
         self._state = _make_state_batch(
             _build_state(M, dt, self.alpha0, dtype, dev, with_cell=True),
             dev,
+        )
+        self._backend_selection = resolve_compute_backend(
+            self.backend,
+            operation="fire2",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=1,
+            features={"variable_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
@@ -373,6 +399,7 @@ class FIRE2VariableCell(BaseDynamics):
             tmax=self.tmax,
             tmin=self.tmin,
             maxstep=self.maxstep,
+            selection=self._backend_selection,
         )
 
     def post_update(self, batch: Batch) -> None:

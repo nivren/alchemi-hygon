@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import torch
 import torch.library
+from nvalchemiops.backend import BackendSelection, BackendUnavailableError
 
 from nvalchemi._backend import resolve_compute_backend
 
@@ -157,20 +158,27 @@ def vv_position_update(
     batch_idx: torch.Tensor,
     *,
     backend: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> None:
     """Dispatch velocity-Verlet position update to the explicit backend."""
-    selected = resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="velocity_verlet",
         device=positions.device,
         dtype=positions.dtype,
         gradient_order=1,
         features={"fixed_cell"},
-    ).selected
-    if selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.velocity_verlet-v1":
         from nvalchemi._dynamics_reference.velocity_verlet import vv_position_update as ref
 
         return ref(positions, velocities, forces, masses, dt, batch_idx)
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "velocity-Verlet dispatcher has no executor for selected "
+            f"implementation {resolved.implementation_id!r}"
+        )
     return _vv_position_update_warp(
         positions, velocities, forces, masses, dt, batch_idx
     )
@@ -184,20 +192,27 @@ def vv_velocity_finalize(
     batch_idx: torch.Tensor,
     *,
     backend: str | None = None,
+    selection: BackendSelection | None = None,
 ) -> None:
     """Dispatch velocity-Verlet velocity finalize to the explicit backend."""
-    selected = resolve_compute_backend(
+    resolved = resolve_compute_backend(
         backend,
         operation="velocity_verlet",
         device=velocities.device,
         dtype=velocities.dtype,
         gradient_order=1,
         features={"fixed_cell"},
-    ).selected
-    if selected == "torch_reference":
+        selection=selection,
+    )
+    if resolved.implementation_id == "torch_reference.velocity_verlet-v1":
         from nvalchemi._dynamics_reference.velocity_verlet import vv_velocity_finalize as ref
 
         return ref(velocities, forces_new, masses, dt, batch_idx)
+    if resolved.implementation_id != "warp.legacy-upstream-v1":
+        raise BackendUnavailableError(
+            "velocity-Verlet dispatcher has no executor for selected "
+            f"implementation {resolved.implementation_id!r}"
+        )
     return _vv_velocity_finalize_warp(
         velocities, forces_new, masses, dt, batch_idx
     )

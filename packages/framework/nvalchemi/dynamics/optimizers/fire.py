@@ -53,6 +53,8 @@ from nvalchemi.dynamics._ops._bridge import _make_state_batch, _to_per_system
 from nvalchemi.dynamics._ops.fire import fire_step, fire_update
 from nvalchemi.dynamics._ops.velocity_verlet import vv_velocity_finalize
 from nvalchemi.dynamics.base import BaseDynamics
+from nvalchemi._backend import resolve_compute_backend
+from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.dynamics.base import ConvergenceHook
@@ -109,6 +111,8 @@ class FIRE(BaseDynamics):
         Initial hooks.
     convergence_hook : ConvergenceHook or dict, optional
         Convergence criterion.
+    backend : str | None, optional
+        Backend request for the fixed/variable-cell FIRE operation paths.
     **kwargs
         Forwarded to :class:`~nvalchemi.dynamics.base.BaseDynamics`.
 
@@ -164,6 +168,7 @@ class FIRE(BaseDynamics):
         self.f_alpha = f_alpha
         self._uphill_init = uphill
         self.backend = backend
+        self._backend_selection: BackendSelection | None = None
 
     def _make_uphill_flag(self, M: int, dev: torch.device) -> torch.Tensor:
         """Convert *uphill* init value to a per-system int32 tensor."""
@@ -213,6 +218,14 @@ class FIRE(BaseDynamics):
                 "ff": torch.zeros(M, dtype=dtype, device=dev),
             },
             dev,
+        )
+        self._backend_selection = resolve_compute_backend(
+            self.backend,
+            operation="fire",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=1,
+            features={"fixed_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
@@ -281,7 +294,7 @@ class FIRE(BaseDynamics):
             vv=self._state.vv,
             ff=self._state.ff,
             batch_idx=batch.batch_idx.int(),
-            backend=self.backend,
+            selection=self._backend_selection,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -329,6 +342,8 @@ class FIREVariableCell(BaseDynamics):
         Initial hooks.
     convergence_hook : ConvergenceHook or dict, optional
         Convergence criterion.
+    backend : str | None, optional
+        Backend request for the variable-cell FIRE operation paths.
     **kwargs
         Forwarded to :class:`~nvalchemi.dynamics.base.BaseDynamics`.
 
@@ -364,6 +379,7 @@ class FIREVariableCell(BaseDynamics):
         n_steps: int | None = None,
         hooks: list[Hook] | None = None,
         convergence_hook: ConvergenceHook | dict | None = None,
+        backend: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -382,6 +398,9 @@ class FIREVariableCell(BaseDynamics):
         self.f_inc = f_inc
         self.alpha_start = alpha_start
         self.f_alpha = f_alpha
+        self.backend = backend
+        self._velocity_verlet_selection: BackendSelection | None = None
+        self._fire_selection: BackendSelection | None = None
 
     def _init_state(self, batch: Batch) -> None:
         M = batch.num_graphs
@@ -420,6 +439,22 @@ class FIREVariableCell(BaseDynamics):
                 "cells_inv": torch.zeros(M, 3, 3, dtype=dtype, device=dev),
             },
             dev,
+        )
+        self._velocity_verlet_selection = resolve_compute_backend(
+            self.backend,
+            operation="velocity_verlet",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=1,
+            features={"variable_cell"},
+        )
+        self._fire_selection = resolve_compute_backend(
+            self.backend,
+            operation="fire",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=1,
+            features={"variable_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
@@ -523,6 +558,7 @@ class FIREVariableCell(BaseDynamics):
             batch.atomic_masses,
             self._state.dt,
             batch.batch_idx.int(),
+            selection=self._velocity_verlet_selection,
         )
         # FIRE velocity mixing on atomic DOFs.
         fire_update(
@@ -542,4 +578,5 @@ class FIREVariableCell(BaseDynamics):
             vv=self._state.vv,
             ff=self._state.ff,
             batch_idx=batch.batch_idx.int(),
+            selection=self._fire_selection,
         )

@@ -42,6 +42,8 @@ from nvalchemi.distributed.strategy import (
 )
 from nvalchemi.dynamics.base import BaseDynamics, DynamicsStage
 from nvalchemi.hooks._context import HookContext
+from nvalchemi._backend import resolve_compute_backend
+from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.data.batch import Batch
@@ -107,6 +109,7 @@ class DomainParallel(BaseDynamics):
         # Runtime state.
         self._n_owned: int = 0
         self._forces_primed: bool = False
+        self._periodic_selection: BackendSelection | None = None
 
         # Pipeline-stage state (2D pipeline x domain). A DomainParallel used as a
         # DistributedPipeline stage spans a domain sub-mesh; the group lead does
@@ -572,7 +575,21 @@ class DomainParallel(BaseDynamics):
                 dtype=torch.long,
                 device=batch.positions.device,
             )
-        wrap_positions_into_cell(batch.positions, cell, wrap_pbc, batch_idx)
+        if self._periodic_selection is None:
+            self._periodic_selection = resolve_compute_backend(
+                getattr(self._dynamics, "backend", None),
+                operation="periodic_wrap",
+                device=batch.positions.device,
+                dtype=batch.positions.dtype,
+                features={"inplace", "periodic"},
+            )
+        wrap_positions_into_cell(
+            batch.positions,
+            cell,
+            wrap_pbc,
+            batch_idx,
+            selection=self._periodic_selection,
+        )
 
     # ------------------------------------------------------------------
     # Gather (trajectory output)

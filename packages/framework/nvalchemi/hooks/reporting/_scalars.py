@@ -24,7 +24,9 @@ from numbers import Real
 from typing import TypeAlias
 
 import torch
+from nvalchemiops.backend import BackendSelection
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.hooks._context import HookContext
 from nvalchemi.hooks.reporting._state import ReporterMessage, ReportingState
 
@@ -286,7 +288,28 @@ def extract_dynamics_scalars(ctx: HookContext) -> dict[str, float]:
             "fmax",
         )
 
-    temperature = _temperature_scalar(batch)
+    temperature_selection = None
+    velocities = _get_tensor_attr(batch, "velocities")
+    atomic_masses = _get_tensor_attr(batch, "atomic_masses")
+    batch_idx = _get_tensor_attr(batch, "batch_idx")
+    num_nodes_per_graph = _get_tensor_attr(batch, "num_nodes_per_graph")
+    num_graphs = getattr(batch, "num_graphs", None)
+    if (
+        velocities is not None
+        and atomic_masses is not None
+        and batch_idx is not None
+        and num_nodes_per_graph is not None
+        and isinstance(num_graphs, int)
+    ):
+        temperature_selection = resolve_compute_backend(
+            getattr(getattr(ctx, "workflow", None), "backend", None),
+            operation="kinetics",
+            device=velocities.device,
+            dtype=velocities.dtype,
+            gradient_order=1,
+            features={"per_graph"},
+        )
+    temperature = _temperature_scalar(batch, selection=temperature_selection)
     if temperature is not None:
         scalars["temperature"] = temperature
 
@@ -566,7 +589,11 @@ def _get_tensor_attr(obj: object, name: str) -> torch.Tensor | None:
     return value if isinstance(value, torch.Tensor) else None
 
 
-def _temperature_scalar(batch: object) -> float | None:
+def _temperature_scalar(
+    batch: object,
+    *,
+    selection: BackendSelection | None = None,
+) -> float | None:
     velocities = _get_tensor_attr(batch, "velocities")
     atomic_masses = _get_tensor_attr(batch, "atomic_masses")
     batch_idx = _get_tensor_attr(batch, "batch_idx")
@@ -588,6 +615,7 @@ def _temperature_scalar(batch: object) -> float | None:
         batch_idx,
         num_graphs,
         num_nodes_per_graph,
+        selection=selection,
     )
     return _tensor_mean_to_float(temperature, "temperature")
 

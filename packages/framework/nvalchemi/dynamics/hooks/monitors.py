@@ -27,8 +27,9 @@ from typing import Literal
 
 import torch
 from loguru import logger
-from nvalchemiops.backend import validate_backend_name
+from nvalchemiops.backend import BackendSelection, validate_backend_name
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.dynamics.base import DynamicsStage
 from nvalchemi.dynamics.hooks._utils import kinetic_energy_per_graph
@@ -169,6 +170,7 @@ class EnergyDriftMonitorHook:
         step_count: int,
         global_rank: int,
         compute_backend: str | None = None,
+        selection: BackendSelection | None = None,
     ) -> None:
         """Compute energy drift and compare against the threshold.
 
@@ -198,12 +200,21 @@ class EnergyDriftMonitorHook:
         energy = batch.energy.squeeze(-1)  # (B,)
 
         if self.include_kinetic and getattr(batch, "velocities", None) is not None:
+            if selection is None:
+                selection = resolve_compute_backend(
+                    compute_backend,
+                    operation="kinetics",
+                    device=batch.velocities.device,
+                    dtype=batch.velocities.dtype,
+                    gradient_order=1,
+                    features={"per_graph"},
+                )
             ke = kinetic_energy_per_graph(
                 batch.velocities,
                 batch.atomic_masses,
                 batch.batch_idx,
                 batch.num_graphs,
-                backend=compute_backend,
+                selection=selection,
             ).squeeze(-1)  # (B,)
             total = energy + ke
         else:
@@ -239,9 +250,20 @@ class EnergyDriftMonitorHook:
         compute_backend = self.compute_backend
         if compute_backend is None:
             compute_backend = getattr(ctx.workflow, "backend", None)
+        selection = None
+        if self.include_kinetic and getattr(ctx.batch, "velocities", None) is not None:
+            selection = resolve_compute_backend(
+                compute_backend,
+                operation="kinetics",
+                device=ctx.batch.velocities.device,
+                dtype=ctx.batch.velocities.dtype,
+                gradient_order=1,
+                features={"per_graph"},
+            )
         self._check_drift(
             ctx.batch,
             ctx.step_count,
             ctx.global_rank or 0,
             compute_backend=compute_backend,
+            selection=selection,
         )

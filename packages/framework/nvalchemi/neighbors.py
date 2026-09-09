@@ -295,7 +295,7 @@ def compute_neighbors(
         strategy=method,
     )
     selected_backend = selection.selected
-    if selected_backend != "warp":
+    if selection.implementation_id != "warp.legacy-upstream-v1":
         result = dispatch_neighbor_list(
             positions=batch.positions,
             cutoff=cutoff,

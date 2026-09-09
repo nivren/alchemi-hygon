@@ -44,6 +44,8 @@ from nvalchemi.dynamics._ops.velocity_verlet import (
 )
 from nvalchemi.dynamics._units import fs_to_internal_time
 from nvalchemi.dynamics.base import BaseDynamics
+from nvalchemi._backend import resolve_compute_backend
+from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.dynamics.base import ConvergenceHook
@@ -112,6 +114,7 @@ class NVE(BaseDynamics):
         )
         self._dt_init = fs_to_internal_time(dt)
         self.backend = backend
+        self._backend_selection: BackendSelection | None = None
 
     def _init_state(self, batch: Batch) -> None:
         """Allocate per-system timestep tensor.
@@ -127,6 +130,14 @@ class NVE(BaseDynamics):
         self._state = _make_state_batch(
             {"dt": _to_per_system(self._dt_init, M, dev, dtype)},
             dev,
+        )
+        self._backend_selection = resolve_compute_backend(
+            self.backend,
+            operation="velocity_verlet",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=1,
+            features={"fixed_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
@@ -161,7 +172,7 @@ class NVE(BaseDynamics):
             batch.atomic_masses,
             self._state.dt,
             batch.batch_idx.int(),
-            backend=self.backend,
+            selection=self._backend_selection,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -178,5 +189,5 @@ class NVE(BaseDynamics):
             batch.atomic_masses,
             self._state.dt,
             batch.batch_idx.int(),
-            backend=self.backend,
+            selection=self._backend_selection,
         )
