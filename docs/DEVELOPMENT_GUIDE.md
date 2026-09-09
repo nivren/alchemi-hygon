@@ -71,6 +71,12 @@ ops 的 backend.py 提供 `ImplementationRegistry`、开放的 `BackendRequest`�
 implementation ID 调用具体实现。新增实现或 strategy 时优先扩展这条集中路径，不要在
 每个组件中各自维护一套互相矛盾的字符串判断。
 
+默认实现清单已按操作族放在私有的
+`packages/ops/nvalchemiops/_backend_catalog/`：它只能声明 `Implementation` metadata，不能
+导入 Torch/Warp/HIP executor。`backend.py` 保留 registry 的公共 API 和历史登记顺序；新增
+operation 应按 [TEAM_DEVELOPMENT_BASELINE.md](TEAM_DEVELOPMENT_BASELINE.md) 和
+[ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md) 完成最小闭环。
+
 选择后端不能只看 device.type == "cuda" 或设备名中是否含 cuda：海光 HIP Torch 也使用
 torch.cuda 命名空间。至少结合构建信息、torch.version.hip、设备可用性、目标架构、输入规模、
 dtype、梯度等级和实际 benchmark。

@@ -5,9 +5,9 @@
 - 后续 backend 架构重构以 [`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)
   为准：`PlatformFingerprint → ImplementationRegistry → BackendProfile → PipelinePlanner →
   Frozen BackendPlan`。
-- M1 已于 2026-09-09 完成；M2 尚未开始。`backend=None` 的 legacy 语义、显式 `auto`
-  策略、operation-specific neighbor strategy、单次解析和 checkpoint plan hash 是已锁定
-  的设计约束。
+- M1 已于 2026-09-09 完成；当前先完成候选 `team/dev-baseline-v0.1` 的团队基础开发版本，
+  M2 尚未开始。`backend=None` 的 legacy 语义、显式 `auto` 策略、operation-specific neighbor
+  strategy、单次解析和 checkpoint plan hash 是已锁定的设计约束。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 
@@ -613,3 +613,21 @@
   lifecycle `22 passed`；import/reference `15 passed`。
   详细范围、命令与限制见 `reports/g2-backend-registry-m1-dispatch-propagation.md`。
 - 本轮未新增 HCU、Triton/HIP 或变胞数值证据；M2 PlatformFingerprint/Profile/Plan 仍未开始。
+
+### 2026-09-09：B0 团队基础开发版本候选
+
+- 从 M1 follow-up `fb11528` 建立候选集成分支 `team/dev-baseline-v0.1`；该分支只可由人工
+  审阅后合入 `develop`，没有自动 push 或 merge。
+- 默认 registry inventory 按 legacy、neighbors、interactions、dynamics、observability 拆入
+  私有 metadata-only catalog。公开 registry API、implementation ID、登记顺序和 executor
+  lazy-load 语义不变；catalog 回归额外确认其导入不会加载 Warp 或 Torch reference executor。
+- 新增 `scripts/check_cpu_reference.sh` 和显式设备要求的
+  `scripts/check_hcu_reference_smoke.sh`，以及协作基线/新增 operation 文档。基础版本不新增
+  产品能力，故 `FEATURE_COMPATIBILITY.yaml` 不变。
+- CPU gate 已退出 `0`：ops `27 passed, 1 warning`、独立 import boundary `1 passed`、framework
+  golden-path `121 passed, 1 deselected`、state `22 passed, 34 deselected`、上游 VV/FIRE/FIRE2
+  op 子集 `24 passed, 73 deselected`，且 compileall/diff check 通过。未设置
+  `HIP_VISIBLE_DEVICES` 的 HCU script 在运行前以退出码 `1` 明确拒绝；这只验证失败保护，
+  HCU 状态仍为 pending，既有 M1 HCU 证据不自动覆盖这次结构改动。详细记录见
+  `reports/team-dev-baseline-v0.1.md`。下一任务从周期 cell-list、NVTLangevin、Nose-Hoover
+  chain 三项中选择一个独立 operation；M2 保持延期。

@@ -300,9 +300,10 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 profile → 全 pipeline planner → 冻结 BackendPlan”重构计划保存在
 [`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)。
 
-该计划的 M1 已于 2026-09-09 完成；下一阶段在用户确认后从 M2 开始。M1 保持
-`backend=None` legacy 语义、将 cell-list 迁移为 neighbor operation strategy，并使
-framework→dispatcher 传递同一 selection；未实现 profile、planner 或冻结计划。
+该计划的 M1 已于 2026-09-09 完成。M1 保持 `backend=None` legacy 语义、将 cell-list
+迁移为 neighbor operation strategy，并使 framework→dispatcher 传递同一 selection；未实现
+profile、planner 或冻结计划。下一阶段先是 B0 团队基础开发版本，再按独立 operation 开始 T1；
+M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 
 ## 14. M1 Registry 语义收敛（2026-09-09）
 
@@ -340,3 +341,17 @@ framework→dispatcher 传递同一 selection；未实现 profile、planner 或�
   详细命令和限制见 `reports/g2-backend-registry-m1-dispatch-propagation.md`。
 - 本轮只新增 CPU selection/dispatch 接线证据，没有新增 HCU、Triton/HIP、变胞或 M2
   planner 证据。下一步仍需用户确认后再进入 M2。
+
+## 16. B0 团队基础开发版本（2026-09-09）
+
+- 候选分支为 `team/dev-baseline-v0.1`，由 M1 follow-up `fb11528` 建立。它不是共享默认分支；
+  人工审阅 CPU/HCU 门槛后才可合入 `develop`，agent 不自动 merge 或 push。
+- 默认 registry inventory 已按 operation family 迁入私有 metadata-only catalog，仍由
+  `nvalchemiops.backend` 提供相同 public API、稳定 ID、注册顺序与 lazy executor 语义。
+- 基线将 neighbors→LJ、fixed-cell VV/FIRE/FIRE2/kinetics、periodic/observer 定为三个
+  reference golden paths，提供 `scripts/check_cpu_reference.sh` 作为每次合入 gate，并以
+  `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh` 作为批 HCU 证据入口。
+- 细化范围、角色边界、DoD 与 T1 队列见
+  [TEAM_DEVELOPMENT_BASELINE.md](TEAM_DEVELOPMENT_BASELINE.md)；新 operation 的最小接线步骤见
+  [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。B0 不扩大 feature contract；本轮 HCU 批
+  未运行前仍是 pending。

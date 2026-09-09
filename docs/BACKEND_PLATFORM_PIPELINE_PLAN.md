@@ -1,6 +1,6 @@
 # 后端能力、平台策略与 Pipeline 执行计划
 
-状态：M1 已完成（2026-09-09）；M2 尚未开始。
+状态：M1 已完成（2026-09-09）；基础开发版本 B0 候选集成中；M2 尚未开始。
 
 本文是后续重构的权威计划。它解决三个不同问题：实现是否具备某项能力、某个平台/工作负载推荐什么实现、一次 pipeline 如何在不重复解析的情况下执行。三者不能再由一个后端字符串或若干局部 `if` 同时承担。
 
@@ -134,6 +134,36 @@ component explicit override
 - 以上不改变 M1 门槛，也不提前开始 M2；新增证据为 CPU 证据，不能替代 HCU、Triton/HIP
   或变胞 reference 验证。
 
+### B0：团队基础开发版本（M1 后、M2 前）
+
+目的不是新增后端策略，而是把已有 reference case 收口为可供 2--3 人并行开发的稳定起点。
+候选分支为 `team/dev-baseline-v0.1`，由人工审阅并合入 `develop`；不得自动合并或推送。
+
+交付：
+
+1. 把默认 registry inventory 按 operation family 拆入 metadata-only private catalog，保留
+   public API、implementation ID、登记顺序和 lazy executor 行为。
+2. 固化三个 golden paths：neighbors→LJ、fixed-cell VV/FIRE/FIRE2/kinetics、periodic/observer。
+3. 提供一个分进程 CPU gate 和一个要求显式 HCU 分配的批 smoke 脚本；每次合入必须通过 CPU，
+   DCU verified 只在 HCU 批实际通过后登记。
+4. 提供简洁的新 Torch operation 模板与任务队列，不引入 hosted CI、复杂审批或 planner。
+
+门槛：catalog 不导入 executor/Warp，CPU gate 可重跑且通过，HCU script 的设备与失败行为明确，
+`backend=None` legacy reverse guard 保持。B0 不改变任何 feature support 宽度；HCU 批未运行时
+只能写 pending。
+
+### T1：基础版后的首批并行任务
+
+按独立 operation 合入，而不是将它们做成一个大分支：
+
+1. `TORCH-NEIGHBOR-PBC-CELL`：周期 full-list cell-list reference；
+2. `TORCH-NVT-LANGEVIN`：固定晶胞 NVTLangevin reference；
+3. `TORCH-NVT-NHC`：固定晶胞 Nose-Hoover chain reference。
+
+每项均先完成 CPU contract，再获得 HCU 批证据；任何 feature/profile/planner 跨项设计必须另立
+小计划。M2 的启动条件是出现多个已验证实现、需要可复现实验策略或必须冻结 pipeline 选择，
+而不是仅因为 registry 已存在。
+
 ### M2：PlatformFingerprint、Profile 与 Frozen Plan
 
 交付：
@@ -195,5 +225,7 @@ component explicit override
 
 1. 先读根目录 `AGENTS.md`，再读 `docs/PROJECT_HANDOFF.md`、`docs/STATUS.md` 和本文。
 2. 运行 `git status --short --branch`，保留当前用户改动；不要 reset、checkout 或覆盖式复制。
-3. M1 已完成。下一阶段在用户确认后以 M2 为唯一实现范围；开始前报告将修改的文件、契约和测试，完成一个小里程碑后停下汇报并等待确认。
+3. M1 已完成；先完成/审阅 B0 团队基础开发版本，再从 T1 选择一个独立 Torch operation。
+   M2 只在出现多个已验证实现或确有可复现策略需求时启动。开始前报告将修改的文件、契约和
+   测试，完成一个小里程碑后停下汇报并等待确认。
 4. 如果工作树被清理或换了 clone，只有已提交并推送到共享分支的文档才能恢复；本次新增文档目前需要与现有改动一起由人类决定何时提交/同步。
