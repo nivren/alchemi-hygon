@@ -23,11 +23,15 @@ import torch
 
 from nvalchemiops.backend import (
     BackendName,
+    BackendSelection,
     BackendUnavailableError,
     resolve_backend,
 )
 from nvalchemiops.torch_reference import lj_energy_forces as _lj_energy_forces
 from nvalchemiops.torch_reference import neighbor_list as _neighbor_list
+from nvalchemiops.torch_reference_cell_list import (
+    neighbor_list as _neighbor_list_cell_list,
+)
 
 
 def dispatch_neighbor_list(
@@ -46,10 +50,16 @@ def dispatch_neighbor_list(
     return_vectors: bool = False,
     target_indices: torch.Tensor | None = None,
     backend: BackendName = "torch_reference",
+    selection: BackendSelection | None = None,
     return_backend: bool = False,
     **kwargs: object,
 ) -> Any:
-    """Dispatch neighbor construction and optionally return its audit record."""
+    """Dispatch neighbor construction and optionally return its audit record.
+
+    ``selection`` is an optional pre-resolved registry decision supplied by a
+    framework facade.  When present, it avoids resolving the same request a
+    second time; direct ops callers can continue to pass ``backend``.
+    """
     features = {
         "periodic" if cell is not None or pbc is not None else "no_pbc",
         "half" if half_fill else "full",
@@ -59,19 +69,30 @@ def dispatch_neighbor_list(
         features.add("distances")
     if return_vectors:
         features.add("vectors")
-    selection = resolve_backend(
-        backend,
-        operation="neighbor_list",
-        device=positions.device,
-        dtype=positions.dtype,
-        features=features,
-    )
-    if selection.selected != "torch_reference":
+    if selection is None:
+        selection = resolve_backend(
+            backend,
+            operation="neighbor_list",
+            device=positions.device,
+            dtype=positions.dtype,
+            features=features,
+        )
+    elif selection.operation != "neighbor_list":
+        raise ValueError(
+            "pre-resolved backend selection must target operation "
+            f"'neighbor_list', got {selection.operation!r}"
+        )
+    if selection.selected not in {"torch_reference", "torch_reference_cell_list"}:
         raise BackendUnavailableError(
             "the Torch dispatcher does not execute legacy Warp; use the framework "
             "legacy entry point or request a registered Torch backend"
         )
-    result = _neighbor_list(
+    neighbor_impl = (
+        _neighbor_list
+        if selection.selected == "torch_reference"
+        else _neighbor_list_cell_list
+    )
+    result = neighbor_impl(
         positions,
         cutoff,
         cell=cell,

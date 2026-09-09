@@ -60,7 +60,11 @@ from __future__ import annotations
 from enum import Enum
 
 import torch
-from nvalchemiops.backend import BackendUnavailableError, validate_backend_name
+from nvalchemiops.backend import (
+    BackendSelection,
+    BackendUnavailableError,
+    validate_backend_name,
+)
 from nvalchemiops.torch_backend import dispatch_neighbor_list
 from nvalchemiops.torch_reference import NeighborOverflowError
 
@@ -208,11 +212,15 @@ class NeighborListHook:
         Explicit ``nvalchemiops`` neighbor-list method to use.  When ``None``
         (default), the hook selects an appropriate method from the batch shape
         and periodic-cell metadata.
-    backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
-        Execution backend. ``None`` preserves the upstream Warp path. The
-        explicit Torch reference path supports full periodic lists and a
-        small-input cached skin path with no method selection; periodic half
-        lists and other unsupported combinations fail explicitly.
+    backend : str | None, optional
+        Compute backend request. It is resolved for this operation and its
+        requested features by :func:`nvalchemiops.backend.resolve_backend`;
+        see :func:`nvalchemiops.backend.backend_capabilities` for the
+        authoritative capability table. ``None`` preserves the upstream Warp
+        path. The current reference hook supports full periodic lists and a
+        small-input cached skin path; unsupported combinations fail
+        explicitly. The no-PBC uniform-cell implementation is opt-in and is
+        not selected by ``"auto"``.
     """
 
     def __init__(
@@ -304,8 +312,8 @@ class NeighborListHook:
                 else "coo",
             },
         )
-        if selection.selected == "torch_reference":
-            self._rebuild_reference(ctx.batch)
+        if selection.selected in {"torch_reference", "torch_reference_cell_list"}:
+            self._rebuild_reference(ctx.batch, selection=selection)
             return
 
         if selection.selected != "warp":
@@ -321,7 +329,9 @@ class NeighborListHook:
             self._init_ref_positions(ctx.batch.positions)
 
     @torch.compiler.disable
-    def _rebuild_reference(self, batch: Batch) -> None:
+    def _rebuild_reference(
+        self, batch: Batch, *, selection: BackendSelection
+    ) -> None:
         """Run the restricted Warp-independent reference neighbor path."""
         if self.method is not None:
             raise NotImplementedError(
@@ -344,7 +354,11 @@ class NeighborListHook:
                     self._write_reference_cache(batch)
                     return
                 self._rebuild_reference_systems(
-                    batch, cell=cell, pbc=pbc, rebuild_flags=rebuild_flags
+                    batch,
+                    cell=cell,
+                    pbc=pbc,
+                    rebuild_flags=rebuild_flags,
+                    selection=selection,
                 )
                 self._write_reference_cache(batch)
                 return
@@ -364,6 +378,7 @@ class NeighborListHook:
             batch_ptr=batch.batch_ptr,
             fill_value=batch.num_nodes,
             capacity=self._max_neighbors,
+            selection=selection,
         )
         neighbor_matrix, num_neighbors, neighbor_matrix_shifts = self._unpack_reference_result(
             result, pbc=pbc
@@ -458,6 +473,7 @@ class NeighborListHook:
         batch_ptr: torch.Tensor | None,
         fill_value: int,
         capacity: int | None,
+        selection: BackendSelection,
     ) -> tuple[tuple[torch.Tensor, ...], int]:
         """Dispatch reference neighbors with staging grow-and-retry semantics."""
 
@@ -472,7 +488,7 @@ class NeighborListHook:
                 max_neighbors=limit,
                 half_fill=self.config.half_list,
                 fill_value=fill_value,
-                backend=self.backend,
+                selection=selection,
             )
 
         if capacity is None:
@@ -587,6 +603,7 @@ class NeighborListHook:
         cell: torch.Tensor | None,
         pbc: torch.Tensor | None,
         rebuild_flags: torch.Tensor,
+        selection: BackendSelection,
     ) -> None:
         """Refresh only systems whose reference skin has become stale.
 
@@ -621,6 +638,7 @@ class NeighborListHook:
                     batch_ptr=None,
                     fill_value=fill_value,
                     capacity=capacity,
+                    selection=selection,
                 )
                 if new_capacity != capacity:
                     self._resize_reference_k(batch.num_nodes, new_capacity, pbc=pbc)

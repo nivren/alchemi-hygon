@@ -1169,7 +1169,7 @@
       "id": "neighbors.topology",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "Torch reference full/half no-PBC 与 full-list periodic MATRIX/COO、批边界、PBC shifts 和基础容量契约；periodic/no-PBC 的 MATRIX/COO 装配均已按体系/设备张量向量化；cell-list、periodic half-list/per-system 扩容仍未完成",
+      "implementation_scope": "Torch reference full/half no-PBC 与 full-list periodic MATRIX/COO、批边界、PBC shifts 和基础容量契约；periodic/no-PBC 的 MATRIX/COO 装配均已按体系/设备张量向量化；no-PBC cell-list 已作为显式 torch_reference_cell_list backend 接线并完成 synthetic 语义回归，真实规模性能与周期 cell-list 仍未完成",
       "scenario": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
       "source": {
         "repository": "ops",
@@ -1306,6 +1306,7 @@
         "dcu_tests": [
           "packages/ops/test/torch/test_backend_registry.py",
           "packages/ops/test/torch/test_torch_reference_backend.py",
+          "packages/ops/test/torch/test_torch_reference_cell_list.py",
           "packages/framework/test/models/test_neighbors_torch_reference.py",
           "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
           "probes/neighbor_lj_reference.py",
@@ -1322,7 +1323,9 @@
           "artifacts/g1/pbc_neighbor_reference_hcu0.json",
           "reports/g2-neighbor-baseline-reference.md",
           "reports/g2-neighbor-tier1-scatter-reference.md",
-          "reports/g2-backend-registry-no-pbc-reference.md"
+          "reports/g2-backend-registry-no-pbc-reference.md",
+          "reports/g2-torch-reference-cell-list-contract.md",
+          "adr/0005-torch-reference-cell-list.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors",
@@ -1332,8 +1335,8 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 时对变化 system 做 eager 重建；periodic full-list 与 no-PBC full/half 的 MATRIX/COO 装配已通过 device-side scatter 替代逐边 Python 写回；默认生产路径仍依赖 Warp，PBC half-list、method/scratch、cell-list、动态溢出扩容和生产性能路径尚未接入",
-        "no-PBC Tier 1 已完成 CPU contract/synthetic probe 及项目 .venv 的 BW200 HCU 0 窄功能 smoke；尚未有低干扰、固定结构阶梯性能基线，Tier 1 前基线与 periodic scatter 后 92 原子 batch=32 对照不能外推到 no-PBC 或 cell-list"
+        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 时对变化 system 做 eager 重建；periodic full-list 与 no-PBC full/half 的 MATRIX/COO 装配已通过 device-side scatter 替代逐边 Python 写回；no-PBC cell-list 仅作为显式 torch_reference_cell_list backend 接线，默认生产路径仍依赖 Warp，PBC half-list、周期 cell-list、method/scratch、动态溢出扩容和生产性能路径尚未接入",
+        "no-PBC Tier 1 与 cell-list synthetic CPU/HCU contract 已通过；尚未有真实 perf_46/92/184/368 的 cell-list 对比、低干扰性能证据或 auto capability 选择依据"
       ],
       "release_gate": "G1"
     },

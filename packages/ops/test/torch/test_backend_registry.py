@@ -29,6 +29,26 @@ def test_explicit_neighbor_reference_requires_a_registered_width() -> None:
     assert selection.as_dict()["dtype"] == "float64"
 
 
+def test_explicit_no_pbc_cell_list_requires_its_registered_width() -> None:
+    """The cell-list backend is explicit and scoped to no-PBC neighbors."""
+    selection = resolve_backend(
+        "torch_reference_cell_list",
+        operation="neighbor_list",
+        device=torch.device("cpu"),
+        dtype=torch.float64,
+        features={"no_pbc", "full", "matrix"},
+    )
+    assert selection.selected == "torch_reference_cell_list"
+    with pytest.raises(BackendUnavailableError, match="no verified capability"):
+        resolve_backend(
+            "torch_reference_cell_list",
+            operation="neighbor_list",
+            device="cpu",
+            dtype=torch.float64,
+            features={"periodic", "full", "matrix"},
+        )
+
+
 def test_periodic_half_list_is_rejected_by_the_capability_table() -> None:
     with pytest.raises(BackendUnavailableError, match="no verified capability"):
         resolve_backend(
@@ -82,5 +102,7 @@ def test_unknown_backend_and_unregistered_optimization_fail_explicitly() -> None
 
 def test_capability_inventory_is_operation_scoped() -> None:
     capabilities = backend_capabilities(operation="neighbor_list")
-    assert len(capabilities) == 1
-    assert capabilities[0].backend == "torch_reference"
+    assert {capability.backend for capability in capabilities} == {
+        "torch_reference",
+        "torch_reference_cell_list",
+    }

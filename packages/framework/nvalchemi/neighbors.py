@@ -224,12 +224,15 @@ def compute_neighbors(
         ``None``.
     half_list : bool
         Whether to build a half neighbor list.  Default: ``False``.
-    backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
-        Execution backend. ``None`` preserves the upstream Warp path. The
-        explicit Torch reference path supports full periodic lists with
-        integer image shifts, while periodic half-list and dynamic rebuild
-        features remain explicit errors. ``"auto"`` currently resolves to the
-        Torch reference path because it is the only registered dispatcher.
+    backend : str | None, optional
+        Compute backend request. It is resolved for this operation and its
+        requested features by :func:`nvalchemiops.backend.resolve_backend`;
+        see :func:`nvalchemiops.backend.backend_capabilities` for the
+        authoritative capability table. ``None`` preserves the upstream Warp
+        path. Unsupported combinations fail explicitly. The current neighbor
+        reference supports full periodic lists, while the no-PBC uniform-cell
+        implementation is an explicit opt-in and is not selected by
+        ``"auto"``.
 
     Raises
     ------
@@ -289,8 +292,6 @@ def compute_neighbors(
     )
     selected_backend = selection.selected
     if selected_backend != "warp":
-        if max_neighbors is None and pbc is None:
-            max_neighbors = max(int(batch.max_num_nodes) - 1, 0)
         result = dispatch_neighbor_list(
             positions=batch.positions,
             cutoff=cutoff,
@@ -300,7 +301,7 @@ def compute_neighbors(
             batch_ptr=batch.batch_ptr,
             max_neighbors=max_neighbors,
             half_fill=half_list,
-            backend=selected_backend,
+            selection=selection,
         )
         if pbc is None:
             neighbor_matrix, num_neighbors = result

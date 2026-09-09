@@ -378,3 +378,36 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
     assert resolve_backend("torch_reference", operation="neighbor_list").device == "unspecified"
     with pytest.raises(BackendUnavailableError, match="no verified capability"):
         dispatch_neighbor_list(positions, 2.0, backend="triton")
+
+
+def test_neighbor_dispatcher_accepts_a_pre_resolved_selection(monkeypatch):
+    """A framework-resolved selection is not resolved a second time."""
+    import nvalchemiops.torch_backend as torch_backend_module  # noqa: PLC0415
+
+    from nvalchemiops.backend import resolve_backend  # noqa: PLC0415
+
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]],
+        dtype=torch.float64,
+    )
+    selection = resolve_backend(
+        "torch_reference",
+        operation="neighbor_list",
+        device=positions.device,
+        dtype=positions.dtype,
+        features={"no_pbc", "full", "matrix"},
+    )
+
+    def fail_if_resolved_again(*args, **kwargs):
+        raise AssertionError("pre-resolved selection must bypass registry resolution")
+
+    monkeypatch.setattr(torch_backend_module, "resolve_backend", fail_if_resolved_again)
+    (matrix, counts), returned = torch_backend_module.dispatch_neighbor_list(
+        positions,
+        2.0,
+        selection=selection,
+        return_backend=True,
+    )
+    assert returned is selection
+    assert matrix.tolist() == [[1], [0]]
+    assert counts.tolist() == [1, 1]

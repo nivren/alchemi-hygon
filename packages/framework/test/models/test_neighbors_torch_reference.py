@@ -63,6 +63,19 @@ def test_compute_neighbors_torch_reference_preserves_batch_boundaries():
     assert coo_batch.neighbor_list.tolist() == [[0, 1], [1, 0], [2, 3], [3, 2]]
 
 
+def test_compute_neighbors_torch_reference_cell_list_preserves_batch_boundaries():
+    """The opt-in cell-list backend keeps the framework batch contract."""
+    batch = _make_batch()
+    compute_neighbors(
+        batch,
+        cutoff=2.0,
+        format=NeighborListFormat.MATRIX,
+        backend="torch_reference_cell_list",
+    )
+    assert batch.neighbor_matrix.tolist() == [[1], [0], [3], [2]]
+    assert batch.num_neighbors.tolist() == [1, 1, 1, 1]
+
+
 def test_compute_neighbors_rejects_unregistered_optimized_backend():
     """A framework caller cannot silently fall back from an unknown backend."""
     with pytest.raises(RuntimeError, match="no verified capability"):

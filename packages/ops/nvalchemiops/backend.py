@@ -15,8 +15,22 @@ import warnings
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
 
-BackendName = Literal["auto", "torch_reference", "triton", "hip", "warp"]
-_KNOWN_BACKENDS = ("auto", "torch_reference", "triton", "hip", "warp")
+BackendName = Literal[
+    "auto",
+    "torch_reference",
+    "torch_reference_cell_list",
+    "triton",
+    "hip",
+    "warp",
+]
+_KNOWN_BACKENDS = (
+    "auto",
+    "torch_reference",
+    "torch_reference_cell_list",
+    "triton",
+    "hip",
+    "warp",
+)
 _AUTO_PRIORITY = ("triton", "hip", "torch_reference")
 
 
@@ -122,6 +136,23 @@ _CAPABILITIES: tuple[BackendCapability, ...] = (
         ),
         excluded_feature_sets=(frozenset({"periodic", "half"}),),
         evidence="G1/G2 Torch-reference neighbor contracts",
+    ),
+    BackendCapability(
+        backend="torch_reference_cell_list",
+        operation="neighbor_list",
+        features=frozenset(
+            {
+                "no_pbc",
+                "full",
+                "half",
+                "matrix",
+                "coo",
+                "distances",
+                "vectors",
+            }
+        ),
+        devices=frozenset({"cpu", "cuda"}),
+        evidence="G2 opt-in no-PBC Torch reference cell-list contract",
     ),
     BackendCapability(
         backend="torch_reference",
