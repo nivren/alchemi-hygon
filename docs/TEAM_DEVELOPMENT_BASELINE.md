@@ -1,7 +1,7 @@
 # 基础开发版本 v0.1
 
-状态：候选集成分支 `team/dev-baseline-v0.1`。该分支由人工审阅后合入 `develop`；agent
-不得自动合并或推送。
+状态：候选集成分支 `team/dev-baseline-v0.1`。CPU gate 和 B0 HCU smoke（HCU 0，2026-09-09）
+已通过；该分支仍需人工审阅后合入 `develop`，agent 不得自动合并或推送。
 
 本版本的目的不是宣称完整 DCU production backend，而是提供一个可供 2--3 人并行开发的
 稳定起点：后端选择边界集中、三个可运行的 Torch-reference golden paths、可重复的 CPU

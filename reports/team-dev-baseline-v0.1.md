@@ -30,11 +30,21 @@
 - `compileall` 与 `git diff --check` 均退出 `0`。
 
 以未设置 `HIP_VISIBLE_DEVICES` 运行 HCU script 的退出码为 `1`，在加载环境或运行 probe 前
-明确报错要求分配设备。这验证了脚本的失败保护，但不是 HCU 测试。此次没有新增 HCU 作业、
-数值结果或性能结论。既有 HCU 窄 slice 的来源仍是 `reports/g2-backend-registry-m1.md` 与
-`reports/g2-backend-registry-m1-dispatch-propagation.md`，不能作为本次改动的重新验证。
+明确报错要求分配设备。这验证了脚本的失败保护，但不是 HCU 测试。
 
-HCU 批验证待获得分配设备后执行：
+随后在主机权限终端、DTK 26.04、项目 `.venv`、`OMP_NUM_THREADS=1` 和空闲 HCU 0 上运行：
+
+~~~bash
+HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 scripts/check_hcu_reference_smoke.sh
+~~~
+
+退出码为 `0`。五个 probe 均通过：neighbor→LJ 的 full/half 能量和力、periodic
+neighbor 的有效矩阵/周期 shift、Velocity Verlet、kinetics、FIRE/FIRE2，设备为
+`BW200, UBB BW1000`。periodic probe 的矩阵容量为 `[2, 16]`，有效邻居数为 `[1, 1]`；
+该结果也修正了原 probe 对“容量列数必须等于有效邻居数”的过严断言。此次 HCU smoke
+只验证 B0 golden paths 的设备回归，不产生生产性能或完整 feature support 结论。
+
+本次 B0 HCU gate 的可重跑命令为：
 
 ~~~bash
 HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh
@@ -42,6 +52,6 @@ HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh
 
 ## 后续动作
 
-人工审阅 CPU gate、选择合适 HCU 窗口补批验证后，决定是否将该候选分支合入 `develop`。合入后，
+人工审阅 CPU/HCU gate 后，决定是否将该候选分支合入 `develop`。合入后，
 优先从 `TORCH-NEIGHBOR-PBC-CELL`、`TORCH-NVT-LANGEVIN`、`TORCH-NVT-NHC` 中选择一个独立任务；
 M2 profile/planner 继续延期。

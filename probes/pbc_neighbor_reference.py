@@ -47,8 +47,10 @@ def main() -> None:
     hook(HookContext(batch=batch), hook.stage)
     torch.cuda.synchronize() if device.type == "cuda" else None
 
-    assert batch.neighbor_matrix.tolist() == [[1], [0]]
-    assert batch.neighbor_matrix_shifts.tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
+    assert batch.num_neighbors.tolist() == [1, 1]
+    assert batch.neighbor_matrix.shape[1] >= 1
+    assert batch.neighbor_matrix[:, :1].tolist() == [[1], [0]]
+    assert batch.neighbor_matrix_shifts[:, :1].tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
     print(
         json.dumps(
             {
@@ -56,8 +58,9 @@ def main() -> None:
                     torch.cuda.get_device_name() if device.type == "cuda" else "cpu"
                 ),
                 "backend": hook.backend,
-                "neighbor_matrix": batch.neighbor_matrix.tolist(),
-                "neighbor_matrix_shifts": batch.neighbor_matrix_shifts.tolist(),
+                "neighbor_matrix_shape": list(batch.neighbor_matrix.shape),
+                "active_neighbor_matrix": batch.neighbor_matrix[:, :1].tolist(),
+                "active_neighbor_matrix_shifts": batch.neighbor_matrix_shifts[:, :1].tolist(),
                 "num_neighbors": batch.num_neighbors.tolist(),
             }
         )

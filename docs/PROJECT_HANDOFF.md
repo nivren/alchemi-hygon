@@ -353,16 +353,18 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh` 作为批 HCU 证据入口。
 - 细化范围、角色边界、DoD 与 T1 队列见
   [TEAM_DEVELOPMENT_BASELINE.md](TEAM_DEVELOPMENT_BASELINE.md)；新 operation 的最小接线步骤见
-  [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。B0 不扩大 feature contract；本轮 HCU 批
-  未运行前仍是 pending。
+  [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。B0 不扩大 feature contract；CPU/HCU gate
+  均已通过，仍需人工审阅后合入 `develop`。
 
 ## 17. 当前恢复入口（2026-09-09）
 
 - 当前开发候选是 `team/dev-baseline-v0.1`，不是共享默认分支；开始工作前仍须运行
   `git status --short --branch` 并确认人类是否已审核/合入该候选。
 - M1 registry、operation selection propagation、B0 catalog 拆分、CPU gate、架构图、开发者指南和
-  Torch operation 教学文档均已落盘。B0 没有扩大 feature contract；HCU 批 gate 尚待在分配设备上运行。
+  Torch operation 教学文档均已落盘。B0 没有扩大 feature contract；HCU 0 上的 B0 smoke gate 已退出
+  `0`，五个 reference probe 均通过。
 - 当前最短恢复路径是：阅读 `docs/STATUS.md` 和 `docs/TEAM_DEVELOPMENT_BASELINE.md`，运行
   `scripts/check_cpu_reference.sh`，再由分配到 HCU 的开发者运行
-  `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。通过人工审核后进入
-  T1 的邻居后端或常用积分器移植；M2 仍不启动。
+  `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。当前两道 gate 均已通过，
+  下一步是人工审核并将候选 fast-forward 合入 `develop`，随后进入 T1 的邻居后端或常用积分器移植；
+  M2 仍不启动。
