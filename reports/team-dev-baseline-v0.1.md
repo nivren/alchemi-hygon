@@ -1,7 +1,7 @@
 # Team development baseline v0.1
 
 日期：2026-09-09
-候选分支：`team/dev-baseline-v0.1`（从 M1 follow-up `fb11528` 建立；不得自动合入或推送）
+候选分支：`team/dev-baseline-v0.1`（从 M1 follow-up `fb11528` 建立；B0 gate 后已按用户授权合入并同步）
 
 ## 实现范围
 
@@ -52,6 +52,6 @@ HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh
 
 ## 后续动作
 
-人工审阅 CPU/HCU gate 后，决定是否将该候选分支合入 `develop`。合入后，
-优先从 `TORCH-NEIGHBOR-PBC-CELL`、`TORCH-NVT-LANGEVIN`、`TORCH-NVT-NHC` 中选择一个独立任务；
+CPU/HCU gate 通过后，`team/dev-baseline-v0.1` 已 fast-forward 合入 `develop`（集成提交
+`da394b6`）。下一步优先从 `TORCH-NEIGHBOR-PBC-CELL`、`TORCH-NVT-LANGEVIN`、`TORCH-NVT-NHC` 中选择一个独立任务；
 M2 profile/planner 继续延期。

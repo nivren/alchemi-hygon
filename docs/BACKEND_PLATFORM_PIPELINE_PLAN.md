@@ -1,6 +1,6 @@
 # 后端能力、平台策略与 Pipeline 执行计划
 
-状态：M1 已完成（2026-09-09）；基础开发版本 B0 候选集成中；M2 尚未开始。
+状态：M1 已完成（2026-09-09）；基础开发版本 B0 已合入 `develop`；M2 尚未开始。
 
 本文是后续重构的权威计划。它解决三个不同问题：实现是否具备某项能力、某个平台/工作负载推荐什么实现、一次 pipeline 如何在不重复解析的情况下执行。三者不能再由一个后端字符串或若干局部 `if` 同时承担。
 
@@ -137,7 +137,8 @@ component explicit override
 ### B0：团队基础开发版本（M1 后、M2 前）
 
 目的不是新增后端策略，而是把已有 reference case 收口为可供 2--3 人并行开发的稳定起点。
-候选分支为 `team/dev-baseline-v0.1`，由人工审阅并合入 `develop`；不得自动合并或推送。
+集成分支为 `team/dev-baseline-v0.1`，已在 CPU/HCU gate 通过后按用户授权 fast-forward 合入
+`develop`；后续变更仍需人工 review，不自动合并或推送。
 
 交付：
 
@@ -225,7 +226,9 @@ component explicit override
 
 1. 先读根目录 `AGENTS.md`，再读 `docs/PROJECT_HANDOFF.md`、`docs/STATUS.md` 和本文。
 2. 运行 `git status --short --branch`，保留当前用户改动；不要 reset、checkout 或覆盖式复制。
-3. M1 已完成；当前 B0 实现和开发者文档已提交在候选分支 `team/dev-baseline-v0.1`，CPU/HCU gate 均已通过，下一步由人类审阅并决定是否合入 `develop`，再从 T1 选择一个独立 Torch operation。
+3. M1 已完成；B0 实现和开发者文档已提交在 `develop`，CPU/HCU gate 均已通过，候选
+   `team/dev-baseline-v0.1` 保留为集成指针；下一步从 T1 选择一个独立 Torch operation。
    M2 只在出现多个已验证实现或确有可复现策略需求时启动。开始前报告将修改的文件、契约和
    测试，完成一个小里程碑后停下汇报并等待确认。
-4. 如果工作树被清理或换了 clone，先从 `git log` 确认候选分支中的提交；候选分支尚未自动合入或推送，是否同步到共享 `develop` 由人类审核决定。
+4. 如果工作树被清理或换了 clone，先从 `git log` 确认 `develop` 与候选指针中的提交；后续
+   operation 仍须经过 CPU gate、必要的 HCU 验证和人工 review 后再同步共享分支。

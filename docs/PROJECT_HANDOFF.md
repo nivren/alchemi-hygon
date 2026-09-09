@@ -344,8 +344,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 
 ## 16. B0 团队基础开发版本（2026-09-09）
 
-- 候选分支为 `team/dev-baseline-v0.1`，由 M1 follow-up `fb11528` 建立。它不是共享默认分支；
-  人工审阅 CPU/HCU 门槛后才可合入 `develop`，agent 不自动 merge 或 push。
+- 候选分支为 `team/dev-baseline-v0.1`，由 M1 follow-up `fb11528` 建立。CPU/HCU 门槛通过后，
+  已按用户授权 fast-forward 合入 `develop`，没有改写共享历史。
 - 默认 registry inventory 已按 operation family 迁入私有 metadata-only catalog，仍由
   `nvalchemiops.backend` 提供相同 public API、稳定 ID、注册顺序与 lazy executor 语义。
 - 基线将 neighbors→LJ、fixed-cell VV/FIRE/FIRE2/kinetics、periodic/observer 定为三个
@@ -354,17 +354,17 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 - 细化范围、角色边界、DoD 与 T1 队列见
   [TEAM_DEVELOPMENT_BASELINE.md](TEAM_DEVELOPMENT_BASELINE.md)；新 operation 的最小接线步骤见
   [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。B0 不扩大 feature contract；CPU/HCU gate
-  均已通过，仍需人工审阅后合入 `develop`。
+  均已通过并已合入 `develop`。
 
 ## 17. 当前恢复入口（2026-09-09）
 
-- 当前开发候选是 `team/dev-baseline-v0.1`，不是共享默认分支；开始工作前仍须运行
-  `git status --short --branch` 并确认人类是否已审核/合入该候选。
+- 当前共享开发基线是 `develop`；`team/dev-baseline-v0.1` 保留为本轮集成指针。开始工作前仍须运行
+  `git status --short --branch` 并确认工作树状态。
 - M1 registry、operation selection propagation、B0 catalog 拆分、CPU gate、架构图、开发者指南和
   Torch operation 教学文档均已落盘。B0 没有扩大 feature contract；HCU 0 上的 B0 smoke gate 已退出
   `0`，五个 reference probe 均通过。
 - 当前最短恢复路径是：阅读 `docs/STATUS.md` 和 `docs/TEAM_DEVELOPMENT_BASELINE.md`，运行
   `scripts/check_cpu_reference.sh`，再由分配到 HCU 的开发者运行
   `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。当前两道 gate 均已通过，
-  下一步是人工审核并将候选 fast-forward 合入 `develop`，随后进入 T1 的邻居后端或常用积分器移植；
+  两道 gate 已通过且 B0 已合入 `develop`，下一步进入 T1 的邻居后端或常用积分器移植；
   M2 仍不启动。

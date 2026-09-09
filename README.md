@@ -178,8 +178,8 @@ docs/UPSTREAM.md 中记录官方 URL、实际来源、SHA、完整历史状态�
   -> 小而独立的 git commit
 ~~~
 
-每位开发者从 `develop` 或经审核的当前阶段/候选分支创建自己的
-`<开发者>/<类型>-<主题>` 分支；本轮候选为 `team/dev-baseline-v0.1`，尚未自动成为共享主线。例如
+每位开发者从已通过 B0 gate 的 `develop` 或经审核的当前阶段分支创建自己的
+`<开发者>/<类型>-<主题>` 分支；本轮集成指针为 `team/dev-baseline-v0.1`，B0 已合入共享主线。例如
 `alice/feature-triton-neighbor`。提交前只暂存自己的路径，运行
 git diff --check、相关测试和可获得的 HCU 探针，并使用 git commit -s。不要修改
 共享提交历史，不自动 push；需要同步上游时另建分支并保留 subtree 历史。

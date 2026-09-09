@@ -1,7 +1,7 @@
 # 基础开发版本 v0.1
 
-状态：候选集成分支 `team/dev-baseline-v0.1`。CPU gate 和 B0 HCU smoke（HCU 0，2026-09-09）
-已通过；该分支仍需人工审阅后合入 `develop`，agent 不得自动合并或推送。
+状态：B0 已合入共享 `develop`（集成提交 `da394b6`）。CPU gate 和 B0 HCU smoke
+（HCU 0，2026-09-09）均已通过；`team/dev-baseline-v0.1` 保留为本轮集成指针。
 
 本版本的目的不是宣称完整 DCU production backend，而是提供一个可供 2--3 人并行开发的
 稳定起点：后端选择边界集中、三个可运行的 Torch-reference golden paths、可重复的 CPU
@@ -42,7 +42,7 @@ API 和默认登记顺序仍由 `nvalchemiops.backend` 保证。
 3. 由指定人员在已分配 HCU 的窗口运行
    `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。没有这条新的真实
    设备记录，变更只能标为 CPU verified，不得标为 DCU verified。
-4. 小提交使用 `git commit -s`，只显式暂存自己的路径；候选分支由人类审阅、合入 `develop`。
+4. 小提交使用 `git commit -s`，只显式暂存自己的路径；完成 review 后由负责人合入 `develop`。
 
 可并行的角色边界由负责人分派，而不是在代码里绑定个人姓名：一人拥有 neighbor contract 与
 strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回归、HCU 批记录和集成。

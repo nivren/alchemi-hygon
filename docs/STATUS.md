@@ -5,8 +5,8 @@
 - 后续 backend 架构重构以 [`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)
   为准：`PlatformFingerprint → ImplementationRegistry → BackendProfile → PipelinePlanner →
   Frozen BackendPlan`。
-- M1 已于 2026-09-09 完成；当前先完成候选 `team/dev-baseline-v0.1` 的团队基础开发版本，
-  B0 CPU/HCU smoke gate 已通过，等待人工审核后更新 `develop`；M2 尚未开始。`backend=None` 的 legacy 语义、显式 `auto` 策略、operation-specific neighbor
+- M1 已于 2026-09-09 完成；B0 团队基础开发版本已通过 CPU/HCU smoke gate，并按用户授权由
+  `team/dev-baseline-v0.1` fast-forward 合入 `develop`；M2 尚未开始。`backend=None` 的 legacy 语义、显式 `auto` 策略、operation-specific neighbor
   strategy、单次解析和 checkpoint plan hash 是已锁定的设计约束。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
@@ -95,7 +95,7 @@
 - `test_state_management.py` 已为固定晶胞 NVE/FIRE/FIRE2 构造器接入 `NVALCHEMI_TEST_BACKEND`：显式 reference 的 lazy init、state shape、Batch invariant、partial removal 和 `_make_new_state` 子集 CPU `20 passed`、HCU `20 passed`；未设置变量的三项反向检查仍在 Warp custom-op 边界失败。该测试载体补丁登记为 `docs/UPSTREAM.md` 的 LP-010。
 - 上游 `test_sampler.py` 的 `SizeAwareSampler` 全部 `51` 项在项目 `.venv` CPU（`0.40 s`）和 DTK 26.04、BW200/gfx936 HCU（`0.13 s`）通过；覆盖异构大小分箱、原子/边/批大小预算、初始批次、replacement 和耗尽语义。报告见 `reports/g2-upstream-sampler-reference.md`。这仍是 sampler 控制流证据，不等于真实 MACE 长轨迹 inflight 或性能通过。
 - 上游 observer hook 子集发现并修复了 `_segmented_max`/kinetic 的隐式 Warp 依赖：`scatter_reduce_per_graph`、`LoggingHook`、`EnergyDriftMonitorHook` 现在支持显式 `compute_backend`，并可由 reference dynamics workflow backend 继承。设置 `NVALCHEMI_TEST_BACKEND=torch_reference` 后，CPU `44 passed, 33 skipped`、HCU `77 passed`；公共 `FIRE(backend="torch_reference")` 不显式设置 observer backend 的 CPU/HCU 单步也通过且未加载 Warp。未设置时单测仍在 Warp 边界失败。报告见 `reports/g2-upstream-observer-reference.md`。
-- 当前快照已包含：公共固定晶胞 NVE/FIRE/FIRE2 reference 的完整短流程、真实 MACE 单卡组合、32×92 批量 FIRE2 弛豫、异构 `[46,92]` 的最小 HostMemory 轨迹和短 inflight 补位，以及上游 FusedStage/状态/HostMemory/Sampler/inflight/observer/StageTimingHook/GPUBuffer/ZarrData 的 CPU/HCU reference 子集；safety/freeze/bias 的 CPU 与 HCU 参数化回归也已通过。`test_hook_utils.py` 与周期 hook 现在可在无 Warp 环境收集并运行；周期 helper 的 Torch reference 已实现，CPU utility `30 passed, 5 skipped`、periodic `15 passed, 11 skipped`，在正确加载 DTK 26.04 的主机权限 HCU 上 probe 退出码 `0`，utility+periodic 上游回归 `61 passed`（含 CUDA compile smoke）。受限沙箱仍会因隐藏 `/dev/kfd` 报 `No HIP GPUs are available`，不作为 HCU 能力失败。Safety/freeze HCU `57 passed`、BiasedPotentialHook HCU `22 passed`、StageTimingHook `42 passed, 1 skipped`（skip 仅 nvtx）、完整 `test_sinks.py` `56 passed`。G2 registry/no-PBC 收尾和 32×92 原参数复跑已经落盘；统一 full-list scale/batch/E2E 证据也已完成。B0 HCU smoke gate 已在 HCU 0 退出码 `0`，下一步完成人工审核并将 `team/dev-baseline-v0.1` fast-forward 到 `develop`，随后进入 T1 邻居后端/常用积分器移植，不把这些窄 slice 写成完整生产 dynamics 支持。
+- 当前快照已包含：公共固定晶胞 NVE/FIRE/FIRE2 reference 的完整短流程、真实 MACE 单卡组合、32×92 批量 FIRE2 弛豫、异构 `[46,92]` 的最小 HostMemory 轨迹和短 inflight 补位，以及上游 FusedStage/状态/HostMemory/Sampler/inflight/observer/StageTimingHook/GPUBuffer/ZarrData 的 CPU/HCU reference 子集；safety/freeze/bias 的 CPU 与 HCU 参数化回归也已通过。`test_hook_utils.py` 与周期 hook 现在可在无 Warp 环境收集并运行；周期 helper 的 Torch reference 已实现，CPU utility `30 passed, 5 skipped`、periodic `15 passed, 11 skipped`，在正确加载 DTK 26.04 的主机权限 HCU 上 probe 退出码 `0`，utility+periodic 上游回归 `61 passed`（含 CUDA compile smoke）。受限沙箱仍会因隐藏 `/dev/kfd` 报 `No HIP GPUs are available`，不作为 HCU 能力失败。Safety/freeze HCU `57 passed`、BiasedPotentialHook HCU `22 passed`、StageTimingHook `42 passed, 1 skipped`（skip 仅 nvtx）、完整 `test_sinks.py` `56 passed`。G2 registry/no-PBC 收尾和 32×92 原参数复跑已经落盘；统一 full-list scale/batch/E2E 证据也已完成。B0 HCU smoke gate 已在 HCU 0 退出码 `0`，候选已 fast-forward 合入 `develop`；下一步进入 T1 邻居后端/常用积分器移植，不把这些窄 slice 写成完整生产 dynamics 支持。
 
 ## 2026-09-05：G0 初始化审计
 

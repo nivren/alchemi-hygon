@@ -18,7 +18,7 @@ framework 0.2.0 要求 Python >=3.11,<3.14、torch>=2.8、ops>=0.4.1；ops 0.4.1
 
 ## 实际导入记录
 
-首次导入发生在历史分支 `codex/g0-initialization`；初始审计提交 `bd4c612`；framework subtree 提交 `52ffa2d`；ops subtree 提交 `88aa209`。两次导入均不 squash，锁定提交是对应导入提交的第二父提交，全部可达历史保留。当前 B0 候选为 `team/dev-baseline-v0.1`，是否合入共享分支以人工审核为准。
+首次导入发生在历史分支 `codex/g0-initialization`；初始审计提交 `bd4c612`；framework subtree 提交 `52ffa2d`；ops subtree 提交 `88aa209`。两次导入均不 squash，锁定提交是对应导入提交的第二父提交，全部可达历史保留。B0 集成指针为 `team/dev-baseline-v0.1`，已按用户授权 fast-forward 合入共享 `develop`。
 
 普通 fetch 仅获取 external 本地 main，而 external HEAD 锁定在另一个提交，首次 subtree 因对象不存在而退出 1、未导入目录。随后显式 `git fetch upstream-framework 4dfe3723def34df3fadb245981081ccf8c94c257` 和 `git fetch upstream-ops 26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`，再执行 subtree，均成功。不得将默认 main 当作锁定 SHA。
 
