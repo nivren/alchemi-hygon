@@ -4,6 +4,11 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -188,3 +193,35 @@ def test_fire_and_fire2_are_independent_operation_contracts() -> None:
             gradient_order=1,
             features={"variable_cell"},
         )
+
+
+def test_default_catalog_preserves_inventory_without_importing_executors() -> None:
+    """Catalog modules hold data only; importing them must not initialize Warp."""
+    package_root = Path(__file__).resolve().parents[2]
+    script = """
+import sys
+import nvalchemiops._backend_catalog as catalog
+assert 'warp' not in sys.modules
+assert 'nvalchemiops.torch_reference' not in sys.modules
+assert [item.implementation_id for item in catalog.default_implementations()] == [
+    'warp.legacy-upstream-v1',
+    'torch_reference.neighbor.dense-v1',
+    'torch_reference.neighbor.cell_list-v1',
+    'torch_reference.lj_energy_forces-v1',
+    'torch_reference.velocity_verlet-v1',
+    'torch_reference.fire-v1',
+    'torch_reference.fire2-v1',
+    'torch_reference.kinetics-v1',
+    'torch_reference.periodic_wrap-v1',
+    'torch_reference.segmented_reduce-v1',
+]
+"""
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(package_root)
+    subprocess.run(
+        [sys.executable, "-c", script],
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

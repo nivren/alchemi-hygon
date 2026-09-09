@@ -14,12 +14,16 @@ import warnings
 from dataclasses import dataclass
 from typing import Any, Iterable, TypeAlias
 
+from nvalchemiops._backend_types import (
+    LEGACY_IMPLEMENTATION_ID as _LEGACY_IMPLEMENTATION_ID,
+)
+from nvalchemiops._backend_types import Implementation
+
 BackendRequest: TypeAlias = str | None
 BackendFamily: TypeAlias = str
 ImplementationId: TypeAlias = str
 
 _AUTO_FAMILIES = ("triton", "hip", "torch_reference")
-_LEGACY_IMPLEMENTATION_ID = "warp.legacy-upstream-v1"
 
 
 class BackendUnavailableError(RuntimeError):
@@ -28,46 +32,6 @@ class BackendUnavailableError(RuntimeError):
 
 class BackendAutoSelectionWarning(UserWarning):
     """Emitted once when an explicit ``auto`` request selects an implementation."""
-
-
-@dataclass(frozen=True)
-class Implementation:
-    """One registered operation implementation and its verified capability width."""
-
-    implementation_id: ImplementationId
-    operation: str
-    family: BackendFamily
-    strategy: str | None = None
-    executor: str | None = None
-    features: frozenset[str] = frozenset()
-    dtypes: frozenset[str] = frozenset({"float32", "float64"})
-    max_gradient_order: int = 0
-    devices: frozenset[str] = frozenset({"cpu", "cuda"})
-    excluded_feature_sets: tuple[frozenset[str], ...] = ()
-    evidence: str = ""
-    default_strategy: bool = False
-
-    def supports(
-        self,
-        *,
-        device: str,
-        dtype: str | None,
-        gradient_order: int,
-        features: frozenset[str],
-    ) -> bool:
-        """Return whether this implementation can honour the request contract."""
-        return (
-            (device == "unspecified" or device in self.devices)
-            and (dtype is None or dtype in self.dtypes)
-            and gradient_order <= self.max_gradient_order
-            and features.issubset(self.features)
-            and not any(excluded.issubset(features) for excluded in self.excluded_feature_sets)
-        )
-
-    @property
-    def backend(self) -> str:
-        """Compatibility view for capability inventory callers."""
-        return self.family
 
 
 @dataclass(frozen=True)
@@ -362,104 +326,12 @@ class ImplementationRegistry:
 
 
 def _default_implementations() -> tuple[Implementation, ...]:
-    return (
-        Implementation(
-            implementation_id=_LEGACY_IMPLEMENTATION_ID,
-            operation="*",
-            family="warp",
-            executor="framework-owned legacy Warp path",
-            evidence="locked upstream default semantics",
-        ),
-        Implementation(
-            implementation_id="torch_reference.neighbor.dense-v1",
-            operation="neighbor_list",
-            family="torch_reference",
-            strategy="dense",
-            executor="nvalchemiops.torch_reference.neighbor_list",
-            features=frozenset({"no_pbc", "periodic", "full", "half", "matrix", "coo", "distances", "vectors"}),
-            excluded_feature_sets=(frozenset({"periodic", "half"}),),
-            evidence="G1/G2 Torch-reference neighbor contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.neighbor.cell_list-v1",
-            operation="neighbor_list",
-            family="torch_reference",
-            strategy="cell_list",
-            executor="nvalchemiops.torch_reference_cell_list.neighbor_list",
-            features=frozenset({"no_pbc", "full", "half", "matrix", "coo", "distances", "vectors"}),
-            evidence="G2 opt-in no-PBC Torch reference cell-list contract",
-        ),
-        Implementation(
-            implementation_id="torch_reference.lj_energy_forces-v1",
-            operation="lj_energy_forces",
-            family="torch_reference",
-            executor="nvalchemiops.torch_reference.lj_energy_forces",
-            features=frozenset({"no_pbc", "periodic", "full", "half", "forces"}),
-            excluded_feature_sets=(frozenset({"periodic", "half"}),),
-            max_gradient_order=2,
-            evidence="G1 Torch-reference LJ force/curvature contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.velocity_verlet-v1",
-            operation="velocity_verlet",
-            family="torch_reference",
-            executor="nvalchemi._dynamics_reference.velocity_verlet",
-            features=frozenset({"fixed_cell"}),
-            max_gradient_order=1,
-            evidence="G2 velocity-Verlet reference contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.fire-v1",
-            operation="fire",
-            family="torch_reference",
-            executor="nvalchemi._dynamics_reference.fire",
-            features=frozenset({"fixed_cell"}),
-            max_gradient_order=1,
-            evidence="G2 FIRE/FIRE2 reference contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.fire2-v1",
-            operation="fire2",
-            family="torch_reference",
-            executor="nvalchemi._dynamics_reference.fire",
-            features=frozenset({"fixed_cell"}),
-            max_gradient_order=1,
-            evidence="G2 fixed-cell FIRE2 reference contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.kinetics-v1",
-            operation="kinetics",
-            family="torch_reference",
-            executor="nvalchemi._dynamics_reference.kinetics",
-            features=frozenset({"per_graph"}),
-            max_gradient_order=1,
-            evidence="G2 kinetic-energy/temperature reference contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.periodic_wrap-v1",
-            operation="periodic_wrap",
-            family="torch_reference",
-            executor="nvalchemi._dynamics_reference.periodic.wrap_positions_into_cell",
-            features=frozenset({"inplace", "periodic"}),
-            evidence="G2 periodic-hook reference contracts",
-            default_strategy=True,
-        ),
-        Implementation(
-            implementation_id="torch_reference.segmented_reduce-v1",
-            operation="segmented_reduce",
-            family="torch_reference",
-            executor="nvalchemi._dynamics_reference.segmented_reduce",
-            features=frozenset({"per_graph"}),
-            evidence="G2 observer reference contracts",
-            default_strategy=True,
-        ),
-    )
+    """Load the ordered metadata catalog without importing any executor."""
+    # The catalog's dependency-free value objects and executor path strings
+    # keep registry initialization separate from executor imports.
+    from nvalchemiops._backend_catalog import default_implementations
+
+    return default_implementations()
 
 
 DEFAULT_IMPLEMENTATION_REGISTRY = ImplementationRegistry(_default_implementations())
