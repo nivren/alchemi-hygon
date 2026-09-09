@@ -32,12 +32,10 @@ from typing import Literal
 
 import torch
 from jaxtyping import Float
-from nvalchemiops.backend import BackendSelection, BackendUnavailableError
+from nvalchemiops.backend import BackendSelection
+from nvalchemiops.executor import execute_selected
 
 from nvalchemi._backend import resolve_compute_backend
-from nvalchemi._dynamics_reference.segmented_reduce import (
-    scatter_reduce_per_graph as reference_scatter_reduce,
-)
 
 # Boltzmann constant in eV/K (NIST 2018 CODATA value).
 KB_EV: float = 8.617333262e-5
@@ -234,21 +232,37 @@ def scatter_reduce_per_graph(
         features={"per_graph"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.segmented_reduce-v1":
-        return reference_scatter_reduce(values, batch_idx, num_graphs, reduce)
-
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "segmented-reduce dispatcher has no executor for selected "
-            f"implementation {resolved.implementation_id!r}"
+    def legacy_reduce(
+        legacy_values: torch.Tensor,
+        legacy_batch_idx: torch.Tensor,
+        legacy_num_graphs: int,
+        legacy_reduce_name: ScatterReduce,
+    ) -> torch.Tensor:
+        if legacy_reduce_name == "sum":
+            return _segmented_sum(
+                legacy_values, legacy_batch_idx, legacy_num_graphs
+            )
+        if legacy_reduce_name == "amax":
+            return _segmented_max(
+                legacy_values, legacy_batch_idx, legacy_num_graphs
+            )
+        if legacy_reduce_name == "amin":
+            return _segmented_min(
+                legacy_values, legacy_batch_idx, legacy_num_graphs
+            )
+        return _segmented_mean(
+            legacy_values, legacy_batch_idx, legacy_num_graphs
         )
-    if reduce == "sum":
-        return _segmented_sum(values, batch_idx, num_graphs)
-    if reduce == "amax":
-        return _segmented_max(values, batch_idx, num_graphs)
-    if reduce == "amin":
-        return _segmented_min(values, batch_idx, num_graphs)
-    return _segmented_mean(values, batch_idx, num_graphs)
+
+    return execute_selected(
+        resolved,
+        "scatter_reduce_per_graph",
+        legacy_reduce,
+        values,
+        batch_idx,
+        num_graphs,
+        reduce,
+    )
 
 
 def kinetic_energy_per_graph(
@@ -289,20 +303,34 @@ def kinetic_energy_per_graph(
         features={"per_graph"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.kinetics-v1":
-        from nvalchemi._dynamics_reference.kinetics import (
-            kinetic_energy_per_graph as reference_kinetic_energy,
+    def legacy_kinetic_energy(
+        legacy_velocities: torch.Tensor,
+        legacy_masses: torch.Tensor,
+        legacy_batch_idx: torch.Tensor,
+        legacy_num_graphs: int,
+    ) -> torch.Tensor:
+        m = (
+            legacy_masses.squeeze(-1)
+            if legacy_masses.dim() > 1
+            else legacy_masses
         )
+        ke = _compute_ke(
+            legacy_velocities,
+            m,
+            legacy_batch_idx,
+            legacy_num_graphs,
+        )
+        return ke.unsqueeze(-1)
 
-        return reference_kinetic_energy(velocities, masses, batch_idx, num_graphs)
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "kinetic-energy dispatcher has no executor for selected "
-            f"implementation {resolved.implementation_id!r}"
-        )
-    m = masses.squeeze(-1) if masses.dim() > 1 else masses
-    ke = _compute_ke(velocities, m, batch_idx, num_graphs)
-    return ke.unsqueeze(-1)  # (B, 1)
+    return execute_selected(
+        resolved,
+        "kinetic_energy_per_graph",
+        legacy_kinetic_energy,
+        velocities,
+        masses,
+        batch_idx,
+        num_graphs,
+    )
 
 
 def temperature_per_graph(
@@ -348,13 +376,48 @@ def temperature_per_graph(
     Float[Tensor, "B"]
         Instantaneous kinetic temperature per graph in Kelvin.
     """
-    ke = kinetic_energy_per_graph(
+    resolved = resolve_compute_backend(
+        backend,
+        operation="kinetics",
+        device=velocities.device,
+        dtype=velocities.dtype,
+        gradient_order=1,
+        features={"per_graph"},
+        selection=selection,
+    )
+
+    def legacy_temperature(
+        legacy_velocities: torch.Tensor,
+        legacy_masses: torch.Tensor,
+        legacy_batch_idx: torch.Tensor,
+        legacy_num_graphs: int,
+        legacy_atoms_per_graph: torch.Tensor,
+        legacy_conversion_factor: float,
+    ) -> torch.Tensor:
+        m = (
+            legacy_masses.squeeze(-1)
+            if legacy_masses.dim() > 1
+            else legacy_masses
+        )
+        ke = _compute_ke(
+            legacy_velocities,
+            m,
+            legacy_batch_idx,
+            legacy_num_graphs,
+        )
+        n_atoms = legacy_atoms_per_graph.float()
+        return (2.0 * ke) / (
+            3.0 * n_atoms * legacy_conversion_factor
+        )
+
+    return execute_selected(
+        resolved,
+        "temperature_per_graph",
+        legacy_temperature,
         velocities,
         masses,
         batch_idx,
         num_graphs,
-        backend=backend,
-        selection=selection,
-    ).squeeze(-1)  # (B,)
-    n_atoms = atoms_per_graph.float()  # (B,)
-    return (2.0 * ke) / (3.0 * n_atoms * conversion_factor)
+        atoms_per_graph,
+        conversion_factor,
+    )

@@ -13,8 +13,9 @@ contains an operation dispatch table.
 from __future__ import annotations
 
 import importlib
-from functools import lru_cache
 from typing import Any, Callable, TYPE_CHECKING
+
+import torch
 
 from nvalchemiops._backend_types import LEGACY_IMPLEMENTATION_ID
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from nvalchemiops.backend import BackendSelection, ImplementationRegistry
 
 ExecutorCallable = Callable[..., Any]
+_ENTRYPOINT_CACHE: dict[tuple[str, str], ExecutorCallable] = {}
 
 
 def _error(message: str, *, cause: BaseException | None = None) -> RuntimeError:
@@ -33,35 +35,77 @@ def _error(message: str, *, cause: BaseException | None = None) -> RuntimeError:
     return error
 
 
-def _validate_selection_metadata(
-    selection: BackendSelection,
-    implementation: Any,
-) -> None:
-    """Reject a selection that no longer matches the registry metadata."""
-    operation_matches = implementation.operation in {selection.operation, "*"}
+def _load_registered_entrypoint(
+    implementation_id: str,
+    operation: str,
+    family: str,
+    strategy: str | None,
+    entrypoint_name: str,
+    *,
+    registry: ImplementationRegistry,
+) -> ExecutorCallable:
+    """Load an entrypoint using scalar selection metadata only."""
+    implementation = registry.get(implementation_id)
+    if implementation is None:
+        raise _error(
+            "executor selection references an unknown implementation: "
+            f"{implementation_id!r}"
+        )
+
+    operation_matches = implementation.operation in {operation, "*"}
     if not operation_matches:
         raise _error(
             "executor selection operation mismatch: "
-            f"implementation {selection.implementation_id!r} declares "
-            f"{implementation.operation!r}, selection targets "
-            f"{selection.operation!r}"
+            f"implementation {implementation_id!r} declares "
+            f"{implementation.operation!r}, selection targets {operation!r}"
         )
-    if (
-        implementation.family != selection.family
-        or implementation.strategy != selection.strategy
-    ):
+    if implementation.family != family or implementation.strategy != strategy:
         raise _error(
             "executor selection metadata mismatch for "
-            f"implementation {selection.implementation_id!r}: "
+            f"implementation {implementation_id!r}: "
             f"catalog family/strategy=({implementation.family!r}, "
-            f"{implementation.strategy!r}), selection="
-            f"({selection.family!r}, {selection.strategy!r})"
+            f"{implementation.strategy!r}), selection=({family!r}, "
+            f"{strategy!r})"
         )
 
+    owner = implementation.executor_owner or "unknown"
+    if implementation_id == LEGACY_IMPLEMENTATION_ID:
+        raise _error(
+            "legacy implementation is framework-owned and has no registry "
+            f"executor: implementation={implementation_id!r}, "
+            f"operation={operation!r}, executor_owner={owner!r}"
+        )
+    if implementation.executor is None:
+        raise _error(
+            "registered implementation has no executor: "
+            f"implementation={implementation_id!r}, operation={operation!r}, "
+            f"executor_owner={owner!r}"
+        )
+    if entrypoint_name not in implementation.entrypoints:
+        raise _error(
+            "entrypoint is not declared by selected implementation: "
+            f"implementation={implementation_id!r}, operation={operation!r}, "
+            f"executor_owner={owner!r}, entrypoint={entrypoint_name!r}"
+        )
+    try:
+        return _load_cached(implementation.executor, entrypoint_name)
+    except RuntimeError as exc:
+        message = str(exc)
+        if f"executor_owner={owner!r}" not in message:
+            message = (
+                f"{message}; implementation={implementation_id!r}, "
+                f"operation={operation!r}, executor_owner={owner!r}"
+            )
+        raise type(exc)(message) from exc
 
-@lru_cache(maxsize=None)
+
 def _load_cached(executor: str, entrypoint_name: str) -> ExecutorCallable:
     """Import and validate one executor module entrypoint exactly once."""
+    cache_key = (executor, entrypoint_name)
+    cached = _ENTRYPOINT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         module = importlib.import_module(executor)
     except Exception as exc:  # module import errors need selection context
@@ -84,6 +128,7 @@ def _load_cached(executor: str, entrypoint_name: str) -> ExecutorCallable:
             "executor entrypoint is not callable: "
             f"module={executor!r}, entrypoint={entrypoint_name!r}"
         )
+    _ENTRYPOINT_CACHE[cache_key] = entrypoint
     return entrypoint
 
 
@@ -106,44 +151,39 @@ def load_entrypoint(
 
         registry = DEFAULT_IMPLEMENTATION_REGISTRY
 
-    implementation = registry.get(selection.implementation_id)
-    if implementation is None:
-        raise _error(
-            "executor selection references an unknown implementation: "
-            f"{selection.implementation_id!r}"
-        )
-    _validate_selection_metadata(selection, implementation)
-    owner = implementation.executor_owner or "unknown"
-    if implementation.implementation_id == LEGACY_IMPLEMENTATION_ID:
-        raise _error(
-            "legacy implementation is framework-owned and has no registry "
-            f"executor: implementation={selection.implementation_id!r}, "
-            f"operation={selection.operation!r}, executor_owner={owner!r}"
-        )
-    if implementation.executor is None:
-        raise _error(
-            "registered implementation has no executor: "
-            f"implementation={selection.implementation_id!r}, "
-            f"operation={selection.operation!r}, executor_owner={owner!r}"
-        )
-    if entrypoint_name not in implementation.entrypoints:
-        raise _error(
-            "entrypoint is not declared by selected implementation: "
-            f"implementation={selection.implementation_id!r}, "
-            f"operation={selection.operation!r}, "
-            f"executor_owner={owner!r}, entrypoint={entrypoint_name!r}"
-        )
-    try:
-        return _load_cached(implementation.executor, entrypoint_name)
-    except RuntimeError as exc:
-        message = str(exc)
-        if f"executor_owner={owner!r}" not in message:
-            message = (
-                f"{message}; implementation={selection.implementation_id!r}, "
-                f"operation={selection.operation!r}, "
-                f"executor_owner={owner!r}"
-            )
-        raise type(exc)(message) from exc
+    return _load_registered_entrypoint(
+        selection.implementation_id,
+        selection.operation,
+        selection.family,
+        selection.strategy,
+        entrypoint_name,
+        registry=registry,
+    )
+
+
+@torch.compiler.allow_in_graph
+def _execute_loaded(
+    implementation_id: str,
+    operation: str,
+    family: str,
+    strategy: str | None,
+    entrypoint_name: str,
+    /,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """Execute a loaded entrypoint through a compile-safe scalar boundary."""
+    from nvalchemiops.backend import DEFAULT_IMPLEMENTATION_REGISTRY
+
+    entrypoint = _load_registered_entrypoint(
+        implementation_id,
+        operation,
+        family,
+        strategy,
+        entrypoint_name,
+        registry=DEFAULT_IMPLEMENTATION_REGISTRY,
+    )
+    return entrypoint(*args, **kwargs)
 
 
 def execute_selected(
@@ -154,9 +194,24 @@ def execute_selected(
     *args: Any,
     **kwargs: Any,
 ) -> Any:
-    """Execute a selected entrypoint with one explicit legacy boundary."""
+    """Execute a selected entrypoint with one explicit legacy boundary.
+
+    The compile-time path passes only scalar selection metadata through
+    ``allow_in_graph``.  This keeps lazy module import and callable lookup out
+    of the traced graph while preserving the same generic binding rules.
+    """
     if selection.implementation_id == LEGACY_IMPLEMENTATION_ID:
         return legacy_fn(*args, **kwargs)
+    if torch.compiler.is_compiling():
+        return _execute_loaded(
+            selection.implementation_id,
+            selection.operation,
+            selection.family,
+            selection.strategy,
+            entrypoint_name,
+            *args,
+            **kwargs,
+        )
     return load_entrypoint(selection, entrypoint_name)(*args, **kwargs)
 
 

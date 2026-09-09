@@ -27,9 +27,9 @@ import torch
 from jaxtyping import Float
 from nvalchemiops.backend import (
     BackendSelection,
-    BackendUnavailableError,
     validate_backend_name,
 )
+from nvalchemiops.executor import execute_selected
 
 from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
@@ -128,26 +128,29 @@ def wrap_positions_into_cell(
         features={"inplace", "periodic"},
         selection=selection,
     )
-    if resolved.implementation_id == "torch_reference.periodic_wrap-v1":
-        from nvalchemi._dynamics_reference.periodic import (
-            wrap_positions_into_cell as reference_wrap_positions,
-        )
+    def legacy_wrap(
+        legacy_positions: torch.Tensor,
+        legacy_cell: torch.Tensor,
+        legacy_pbc: torch.Tensor,
+        legacy_batch_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        original = legacy_positions.clone()
+        wrapped = _wrap_positions(legacy_positions, legacy_cell, legacy_batch_idx)
 
-        reference_wrap_positions(positions, cell, pbc, batch_idx)
-        return positions
+        # Restore non-periodic dimensions.
+        per_atom_pbc = legacy_pbc[legacy_batch_idx]
+        legacy_positions.copy_(torch.where(per_atom_pbc, wrapped, original))
+        return legacy_positions
 
-    if resolved.implementation_id != "warp.legacy-upstream-v1":
-        raise BackendUnavailableError(
-            "periodic-wrap dispatcher has no executor for selected "
-            f"implementation {resolved.implementation_id!r}"
-        )
-
-    original = positions.clone()
-    wrapped = _wrap_positions(positions, cell, batch_idx)
-
-    # Restore non-periodic dimensions
-    per_atom_pbc = pbc[batch_idx]  # (V, 3)
-    positions.copy_(torch.where(per_atom_pbc, wrapped, original))
+    execute_selected(
+        resolved,
+        "wrap_positions_into_cell",
+        legacy_wrap,
+        positions,
+        cell,
+        pbc,
+        batch_idx,
+    )
     return positions
 
 

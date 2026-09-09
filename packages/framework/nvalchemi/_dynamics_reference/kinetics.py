@@ -75,6 +75,7 @@ def _kinetic_energy_per_graph_fake(
     )
 
 
+@torch.library.custom_op("nvalchemi::reference_temperature_per_graph", mutates_args=())
 def temperature_per_graph(
     velocities: torch.Tensor,
     masses: torch.Tensor,
@@ -95,3 +96,17 @@ def temperature_per_graph(
         raise ValueError("atoms_per_graph must be positive")
     n_atoms = atoms_per_graph.to(dtype=ke.dtype)
     return (2.0 * ke) / (3.0 * n_atoms * conversion_factor)
+
+
+@temperature_per_graph.register_fake
+def _temperature_per_graph_fake(
+    velocities: torch.Tensor,
+    masses: torch.Tensor,
+    batch_idx: torch.Tensor,
+    num_graphs: int,
+    atoms_per_graph: torch.Tensor,
+    conversion_factor: float = KB_EV,
+) -> torch.Tensor:
+    return torch.empty(
+        (num_graphs,), device=velocities.device, dtype=velocities.dtype
+    )
