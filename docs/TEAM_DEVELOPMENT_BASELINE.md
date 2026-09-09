@@ -7,6 +7,9 @@
 稳定起点：后端选择边界集中、三个可运行的 Torch-reference golden paths、可重复的 CPU
 gate、以及显式的 HCU 批验证入口。
 
+开发者先看[系统结构图](DEVELOPER_ARCHITECTURE.md)，再按本文的任务边界和
+[Torch 积分器新手教程](TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)进入具体模块。
+
 ## 已收口的边界
 
 | golden path | 已覆盖的操作与范围 | 主要代码与回归 |

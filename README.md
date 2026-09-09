@@ -14,6 +14,7 @@ Torch reference、Triton、HIP 后端边界内逐步适配 Hygon DCU。
 3. [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md)：后端、算子、功能、测试和 Git 协作方法。
 4. [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md)：架构背景、阶段目标和历史交接。
 5. [docs/UPSTREAM_LOCK.yaml](docs/UPSTREAM_LOCK.yaml)：两个上游工程的准确来源 URL 和锁定 SHA。
+6. [docs/DEVELOPER_ARCHITECTURE.md](docs/DEVELOPER_ARCHITECTURE.md)：开发者视角的系统结构图、数据流和后端边界。
 
 ## 目录边界
 

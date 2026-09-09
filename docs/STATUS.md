@@ -641,3 +641,11 @@
 - 本轮只增加开发指导文档，没有实现 Langevin，也没有新增 feature capability 或数值/HCU
   证据；`TORCH-NVT-LANGEVIN` 仍为待开发任务。教程明确要求 HCU 失败不得静默 CPU 回退，
   并要求未验证范围单独记录。
+
+### 2026-09-09：新增开发者系统结构图
+
+- 新增 [开发者系统结构图](DEVELOPER_ARCHITECTURE.md)，用 Mermaid 表示 framework/ops、
+  registry/selection、dispatcher、Torch reference、legacy Warp、验证入口和上游只读 clone
+  的边界，并补充 neighbors→model→dynamics→observer 数据流。
+- 该图只反映当前基础版本和已接线的 selection 路径；没有新增实现、feature capability、
+  HCU 或性能证据。M2 profile/planner、Langevin/NHC/NPT、生产 Triton/HIP 仍保持未完成。
