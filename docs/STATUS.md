@@ -631,3 +631,13 @@
   HCU 状态仍为 pending，既有 M1 HCU 证据不自动覆盖这次结构改动。详细记录见
   `reports/team-dev-baseline-v0.1.md`。下一任务从周期 cell-list、NVTLangevin、Nose-Hoover
   chain 三项中选择一个独立 operation；M2 保持延期。
+
+### 2026-09-09：新增 Torch 积分器新手教程
+
+- 新增 [Torch 积分器手把手教程](TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)，以基础版本
+  之后的 `TORCH-NVT-LANGEVIN` 为实际练习案例，并用已完成的 VV 作为对照。教程覆盖上游
+  阅读、BAOAB 契约、Torch reference、随机数、registry、单次 `BackendSelection` 接线、
+  公共 `NVTLangevin`、CPU/HCU 验证、常见错误和完成定义。
+- 本轮只增加开发指导文档，没有实现 Langevin，也没有新增 feature capability 或数值/HCU
+  证据；`TORCH-NVT-LANGEVIN` 仍为待开发任务。教程明确要求 HCU 失败不得静默 CPU 回退，
+  并要求未验证范围单独记录。

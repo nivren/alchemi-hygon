@@ -55,7 +55,10 @@ strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回�
 - `scripts/check_cpu_reference.sh` 通过；HCU 批次按实际运行结果追加证据，未运行时明确 pending。
 - `FEATURE_COMPATIBILITY.yaml`、`STATUS.md` 和 report 只登记实际覆盖的切片与限制。
 
-完整步骤见 [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。
+完整步骤见 [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。面向第一次参与项目开发者的
+手把手积分器教程见
+[TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)，
+其中以 `TORCH-NVT-LANGEVIN` 为实际练习案例，并用已完成的 VV 作为对照。
 
 ## 基线后的独立任务队列
 

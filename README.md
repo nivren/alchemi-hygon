@@ -148,4 +148,5 @@ git diff --check、相关测试和可获得的 HCU 探针，并使用 git commit
 详细规则见 [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md)。
 团队协作入口、已收口的 golden paths 与下一个任务队列见
 [docs/TEAM_DEVELOPMENT_BASELINE.md](docs/TEAM_DEVELOPMENT_BASELINE.md)；新增 Torch operation
-按 [docs/ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) 走最小闭环。
+按 [docs/ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) 走最小闭环；新手积分器教程见
+[docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)。
