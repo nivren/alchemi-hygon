@@ -11,7 +11,9 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         operation="neighbor_list",
         family="torch_reference",
         strategy="dense",
-        executor="nvalchemiops.torch_reference.neighbor_list",
+        executor="nvalchemiops.torch_reference",
+        entrypoints=("neighbor_list",),
+        executor_owner="ops",
         features=frozenset(
             {
                 "no_pbc",
@@ -33,7 +35,9 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         operation="neighbor_list",
         family="torch_reference",
         strategy="cell_list",
-        executor="nvalchemiops.torch_reference_cell_list.neighbor_list",
+        executor="nvalchemiops.torch_reference_cell_list",
+        entrypoints=("neighbor_list",),
+        executor_owner="ops",
         features=frozenset(
             {"no_pbc", "full", "half", "matrix", "coo", "distances", "vectors"}
         ),

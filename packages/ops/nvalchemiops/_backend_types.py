@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 BackendFamily = str
 ImplementationId = str
+ExecutorOwner = Literal["ops", "framework"]
 LEGACY_IMPLEMENTATION_ID = "warp.legacy-upstream-v1"
 
 
@@ -21,6 +23,8 @@ class Implementation:
     family: BackendFamily
     strategy: str | None = None
     executor: str | None = None
+    entrypoints: tuple[str, ...] = ()
+    executor_owner: ExecutorOwner | None = None
     features: frozenset[str] = frozenset()
     dtypes: frozenset[str] = frozenset({"float32", "float64"})
     max_gradient_order: int = 0

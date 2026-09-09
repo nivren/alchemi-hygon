@@ -10,7 +10,9 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         implementation_id=LEGACY_IMPLEMENTATION_ID,
         operation="*",
         family="warp",
-        executor="framework-owned legacy Warp path",
+        executor=None,
+        entrypoints=(),
+        executor_owner="framework",
         evidence="locked upstream default semantics",
     ),
 )

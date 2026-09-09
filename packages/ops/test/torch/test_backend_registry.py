@@ -21,6 +21,7 @@ from nvalchemiops.backend import (
     backend_capabilities,
     resolve_backend,
 )
+from nvalchemiops.executor import load_entrypoint
 
 
 def test_explicit_neighbor_reference_requires_a_registered_width() -> None:
@@ -143,6 +144,9 @@ def test_registry_rejects_duplicate_implementation_ids() -> None:
         implementation_id="test.impl-v1",
         operation="test",
         family="test",
+        executor="nvalchemiops.torch_reference",
+        entrypoints=("neighbor_list",),
+        executor_owner="ops",
         default_strategy=True,
     )
     registry = ImplementationRegistry([implementation])
@@ -160,6 +164,95 @@ def test_auto_never_selects_an_operation_strategy_without_a_profile() -> None:
             features={"no_pbc", "full", "matrix"},
             strategy="cell_list",
         )
+
+
+def test_registry_requires_executable_metadata_for_non_legacy_implementations() -> None:
+    with pytest.raises(ValueError, match="executor module"):
+        ImplementationRegistry(
+            [
+                Implementation(
+                    implementation_id="test.missing-executor-v1",
+                    operation="test",
+                    family="test",
+                    executor_owner="ops",
+                    entrypoints=("run",),
+                    default_strategy=True,
+                )
+            ]
+        )
+
+    with pytest.raises(ValueError, match="unique entrypoints"):
+        ImplementationRegistry(
+            [
+                Implementation(
+                    implementation_id="test.missing-entrypoint-v1",
+                    operation="test",
+                    family="test",
+                    executor="nvalchemiops.torch_reference",
+                    executor_owner="ops",
+                    default_strategy=True,
+                )
+            ]
+        )
+
+
+def test_legacy_metadata_has_no_registry_executor() -> None:
+    legacy = next(
+        item
+        for item in backend_capabilities()
+        if item.implementation_id == "warp.legacy-upstream-v1"
+    )
+    assert legacy.executor is None
+    assert legacy.entrypoints == ()
+    assert legacy.executor_owner == "framework"
+
+
+def test_registered_ops_entrypoints_are_loaded_and_called() -> None:
+    positions = torch.tensor(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+    )
+    neighbor_selection = resolve_backend(
+        "torch_reference",
+        operation="neighbor_list",
+        device=positions.device,
+        dtype=positions.dtype,
+        features={"no_pbc", "full", "matrix"},
+    )
+    neighbor = load_entrypoint(neighbor_selection, "neighbor_list")
+    assert neighbor is load_entrypoint(neighbor_selection, "neighbor_list")
+    matrix, counts = neighbor(
+        positions,
+        2.0,
+        batch_idx=torch.zeros(2, dtype=torch.int32),
+        batch_ptr=torch.tensor([0, 2], dtype=torch.int64),
+        max_neighbors=2,
+        half_fill=False,
+        fill_value=2,
+    )
+    assert matrix.shape == (2, 2)
+    assert counts.tolist() == [1, 1]
+
+    lj_selection = resolve_backend(
+        "torch_reference",
+        operation="lj_energy_forces",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=2,
+        features={"no_pbc", "full", "forces"},
+    )
+    lj = load_entrypoint(lj_selection, "lj_energy_forces")
+    atomic_energy, forces = lj(
+        positions.requires_grad_(),
+        torch.tensor([[1], [0]], dtype=torch.int32),
+        torch.ones(2, dtype=torch.int32),
+        epsilon=1.0,
+        sigma=1.0,
+        cutoff=2.0,
+        half_list=False,
+        fill_value=2,
+    )
+    assert atomic_energy.shape == (2,)
+    assert forces.shape == (2, 3)
 
 
 def test_fire_and_fire2_are_independent_operation_contracts() -> None:

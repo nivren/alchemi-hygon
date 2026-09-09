@@ -35,6 +35,9 @@ from jaxtyping import Float
 from nvalchemiops.backend import BackendSelection, BackendUnavailableError
 
 from nvalchemi._backend import resolve_compute_backend
+from nvalchemi._dynamics_reference.segmented_reduce import (
+    scatter_reduce_per_graph as reference_scatter_reduce,
+)
 
 # Boltzmann constant in eV/K (NIST 2018 CODATA value).
 KB_EV: float = 8.617333262e-5
@@ -232,27 +235,7 @@ def scatter_reduce_per_graph(
         selection=selection,
     )
     if resolved.implementation_id == "torch_reference.segmented_reduce-v1":
-        idx = batch_idx.to(dtype=torch.long)
-        if reduce == "sum":
-            out = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
-            return out.index_add(0, idx, values)
-        if reduce == "amax":
-            out = torch.full(
-                (num_graphs,), float("-inf"), device=values.device, dtype=values.dtype
-            )
-            return out.scatter_reduce(0, idx, values, reduce="amax", include_self=True)
-        if reduce == "amin":
-            out = torch.full(
-                (num_graphs,), float("inf"), device=values.device, dtype=values.dtype
-            )
-            return out.scatter_reduce(0, idx, values, reduce="amin", include_self=True)
-        sums = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
-        sums = sums.index_add(0, idx, values)
-        counts = torch.zeros(num_graphs, device=values.device, dtype=values.dtype)
-        counts = counts.index_add(
-            0, idx, torch.ones_like(values, dtype=values.dtype)
-        )
-        return torch.where(counts > 0, sums / counts, torch.zeros_like(sums))
+        return reference_scatter_reduce(values, batch_idx, num_graphs, reduce)
 
     if resolved.implementation_id != "warp.legacy-upstream-v1":
         raise BackendUnavailableError(

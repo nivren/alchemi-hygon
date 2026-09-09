@@ -122,8 +122,54 @@ class ImplementationRegistry:
             raise ValueError("implementation operation must be non-empty")
         if not implementation.family:
             raise ValueError("implementation family must be non-empty")
+        if implementation.implementation_id == _LEGACY_IMPLEMENTATION_ID:
+            if (
+                implementation.operation != "*"
+                or implementation.family != "warp"
+                or implementation.executor is not None
+                or implementation.entrypoints
+                or implementation.executor_owner != "framework"
+            ):
+                raise ValueError(
+                    "the legacy implementation must be a framework-owned "
+                    "wildcard without a registry executor"
+                )
+        else:
+            if not implementation.executor:
+                raise ValueError(
+                    "non-legacy implementation must declare an executor module"
+                )
+            if implementation.executor_owner not in {"ops", "framework"}:
+                raise ValueError(
+                    "non-legacy implementation must declare executor_owner "
+                    "as 'ops' or 'framework'"
+                )
+            if not implementation.entrypoints or len(
+                set(implementation.entrypoints)
+            ) != len(implementation.entrypoints):
+                raise ValueError(
+                    "non-legacy implementation must declare unique entrypoints"
+                )
+            if any(
+                not entrypoint or not entrypoint.isidentifier()
+                for entrypoint in implementation.entrypoints
+            ):
+                raise ValueError(
+                    "implementation entrypoints must be valid identifiers"
+                )
+            if any(
+                not part or not part.isidentifier()
+                for part in implementation.executor.split(".")
+            ):
+                raise ValueError(
+                    "implementation executor must be a dotted module path"
+                )
         self._by_id[implementation.implementation_id] = implementation
         self._implementations.append(implementation)
+
+    def get(self, implementation_id: ImplementationId) -> Implementation | None:
+        """Return metadata for one implementation without importing it."""
+        return self._by_id.get(implementation_id)
 
     def implementations(self, *, operation: str | None = None) -> tuple[Implementation, ...]:
         """Return registered metadata without importing any executor."""
