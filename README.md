@@ -36,15 +36,17 @@ git add 成 submodule 或普通产品源码。
 source scripts/activate_hygon_env.sh project
 ~~~
 
-先运行 CPU smoke；HCU 命令必须在 DTK 已加载且 /dev/kfd、/dev/dri 可见的主机权限
-终端执行：
+先运行团队基础版本的 CPU gate：
 
 ~~~bash
-PYTHONPATH=packages/framework:packages/ops \
-  .venv/bin/python -u probes/torch_probe.py --device cpu
+scripts/check_cpu_reference.sh
+~~~
 
-HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 60 \
-  .venv/bin/python -u probes/torch_probe.py --device cuda
+HCU 批验证只在已分配的设备、DTK 已加载且 `/dev/kfd`、`/dev/dri` 可见的主机权限终端执行。
+必须显式指定设备；该结果才可作为新的 DCU 验证证据：
+
+~~~bash
+HIP_VISIBLE_DEVICES=0 scripts/check_hcu_reference_smoke.sh
 ~~~
 
 两个包都含顶层 test 包名，pytest 应分进程运行：
@@ -144,3 +146,6 @@ git diff --check、相关测试和可获得的 HCU 探针，并使用 git commit
 共享提交历史，不自动 push；需要同步上游时另建分支并保留 subtree 历史。
 
 详细规则见 [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md)。
+团队协作入口、已收口的 golden paths 与下一个任务队列见
+[docs/TEAM_DEVELOPMENT_BASELINE.md](docs/TEAM_DEVELOPMENT_BASELINE.md)；新增 Torch operation
+按 [docs/ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) 走最小闭环。
