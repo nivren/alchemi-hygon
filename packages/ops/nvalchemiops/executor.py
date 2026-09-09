@@ -26,13 +26,20 @@ ExecutorCallable = Callable[..., Any]
 _ENTRYPOINT_CACHE: dict[tuple[str, str], ExecutorCallable] = {}
 
 
-def _error(message: str, *, cause: BaseException | None = None) -> RuntimeError:
+def _error(
+    message: str, *, cause: BaseException | None = None
+) -> "BackendUnavailableError":
     from nvalchemiops.backend import BackendUnavailableError
 
     error = BackendUnavailableError(message)
     if cause is not None:
         error.__cause__ = cause
     return error
+
+
+def _owner_context(owner: str) -> str:
+    """Format executor ownership for actionable package-boundary errors."""
+    return f"executor_owner={owner!r} ({owner}-owned package)"
 
 
 def _load_registered_entrypoint(
@@ -73,28 +80,28 @@ def _load_registered_entrypoint(
         raise _error(
             "legacy implementation is framework-owned and has no registry "
             f"executor: implementation={implementation_id!r}, "
-            f"operation={operation!r}, executor_owner={owner!r}"
+            f"operation={operation!r}, {_owner_context(owner)}"
         )
     if implementation.executor is None:
         raise _error(
             "registered implementation has no executor: "
             f"implementation={implementation_id!r}, operation={operation!r}, "
-            f"executor_owner={owner!r}"
+            f"{_owner_context(owner)}"
         )
     if entrypoint_name not in implementation.entrypoints:
         raise _error(
             "entrypoint is not declared by selected implementation: "
             f"implementation={implementation_id!r}, operation={operation!r}, "
-            f"executor_owner={owner!r}, entrypoint={entrypoint_name!r}"
+            f"{_owner_context(owner)}, entrypoint={entrypoint_name!r}"
         )
     try:
         return _load_cached(implementation.executor, entrypoint_name)
     except RuntimeError as exc:
         message = str(exc)
-        if f"executor_owner={owner!r}" not in message:
+        if _owner_context(owner) not in message:
             message = (
                 f"{message}; implementation={implementation_id!r}, "
-                f"operation={operation!r}, executor_owner={owner!r}"
+                f"operation={operation!r}, {_owner_context(owner)}"
             )
         raise type(exc)(message) from exc
 

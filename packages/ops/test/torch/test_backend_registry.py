@@ -255,6 +255,29 @@ def test_registered_ops_entrypoints_are_loaded_and_called() -> None:
     assert forces.shape == (2, 3)
 
 
+def test_entrypoint_load_failure_identifies_executor_package_owner() -> None:
+    implementation = Implementation(
+        implementation_id="test.framework.missing-executor-v1",
+        operation="test_operation",
+        family="test",
+        strategy="default",
+        executor="nvalchemiops_test_missing_framework_executor",
+        entrypoints=("run",),
+        executor_owner="framework",
+        default_strategy=True,
+    )
+    registry = ImplementationRegistry([implementation])
+    selection = registry.resolve(
+        implementation.implementation_id,
+        operation=implementation.operation,
+        device="cpu",
+        strategy=implementation.strategy,
+    )
+
+    with pytest.raises(BackendUnavailableError, match="framework-owned package"):
+        load_entrypoint(selection, "run", registry=registry)
+
+
 def test_fire_and_fire2_are_independent_operation_contracts() -> None:
     fire = resolve_backend(
         "torch_reference",
