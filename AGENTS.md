@@ -34,10 +34,10 @@
     framework/               # 完整上游基线导入后的正式开发代码
     ops/                     # 完整上游基线导入后的正式开发代码
   probes/                    # 隔离的环境、kernel、梯度和双卡探针
-  tests/compatibility/       # 跨包特性兼容测试；原测试仍在各包中
-  tests/numerics/
-  tests/integration/
-  tests/distributed/
+  tests/compatibility/       # 规划中的集中跨包测试；当前测试仍在各包中
+  tests/numerics/             # 规划目录，尚未创建
+  tests/integration/          # 规划目录，尚未创建
+  tests/distributed/          # 规划目录，尚未创建
   benchmarks/
   examples/
   configs/
@@ -47,6 +47,9 @@
   reports/                   # 可提交的脱敏验证摘要
   artifacts/                 # 不入库的原始输出、轨迹和性能数据
 ```
+
+当前仓库尚未创建根 `tests/` 目录；新增跨包兼容测试暂放在
+`packages/framework/test/compatibility/`。不要仅为匹配规划树创建空目录或占位文件。
 
 `packages/framework`、`packages/ops` 在导入前不要创建占位文件。默认使用不 squash 的 Git subtree 完整导入，保留来源历史；具体步骤见 START_HERE。不要在 `packages/` 内再次创建嵌套 `.git`，不要把 external 当作产品安装源。不得对 external 做产品补丁、全局格式化或覆盖文件。上游版本不随 main 自动漂移。
 

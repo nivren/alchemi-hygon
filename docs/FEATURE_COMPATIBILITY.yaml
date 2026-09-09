@@ -4,7 +4,7 @@
   "status_semantics": {
     "status": "target contract implementation state; a broad feature stays planned while only a reference slice is implemented",
     "verification.dcu_status": "runtime evidence on the target HCU; partial means the listed scope passed, not the whole contract",
-    "status_reviewed": "2026-09-06"
+    "status_reviewed": "2026-09-09"
   },
   "features": [
     {

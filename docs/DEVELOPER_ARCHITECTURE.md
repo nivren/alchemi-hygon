@@ -159,7 +159,7 @@ flowchart TD
 | 登记实现能力 | `packages/ops/nvalchemiops/_backend_catalog/` | 只写 `Implementation` metadata 和 executor 字符串 |
 | 修改 registry 语义 | `packages/ops/nvalchemiops/backend.py` | 保持 public API、legacy/default 和未知请求错误 |
 | 新增生产 Triton/HIP | `packages/ops` 对应算子族和构建入口 | 先有 reference、契约、HCU 数值和性能证据 |
-| 新增测试 | 对应 package 的 test，跨包行为放 `tests/compatibility/` | framework/ops pytest 分进程运行 |
+| 新增测试 | 对应 package 的 test，当前跨包行为放 `packages/framework/test/compatibility/` | framework/ops pytest 分进程运行；根 `tests/` 是未来集中测试的规划入口 |
 | 环境/数值探针 | `probes/` | 原始输出进 `artifacts/`，摘要进 `reports/` |
 | 查看上游 | `external/` | 只读；版本以 `docs/UPSTREAM_LOCK.yaml` 为准 |
 

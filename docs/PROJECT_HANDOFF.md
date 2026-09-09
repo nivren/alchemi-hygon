@@ -213,11 +213,11 @@ G5 架构探针从 G0 穿插推进。第一目标是 G1 的完整纵向链路，
 
 在线文档仅辅助理解。特定版本的行为由 UPSTREAM_LOCK 中的代码、对应版本文档与服务器实测共同确定。
 
-## 11. 本轮暂停交接（2026-09-06）
+## 11. 历史暂停交接（2026-09-06）
 
 ### 已完成
 
-- 根仓库分支为 `codex/g0-initialization`；上游锁定不变：framework
+- 当时根仓库分支为 `codex/g0-initialization`；上游锁定不变：framework
   `4dfe3723def34df3fadb245981081ccf8c94c257`、ops
   `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`。未修改 `external/`；周期邻居 Tier 1
   当前状态检查点已提交为 `9fb9d1f`，后续文档改动另行提交，工作树状态以
@@ -271,7 +271,7 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 
 暂停时没有遗留运行中的 pytest 或 benchmark 进程。
 
-## 12. 统一 benchmark 进展（2026-09-08）
+## 12. 统一 benchmark 进展（历史记录，2026-09-08）
 
 - 已补齐 unified reference benchmark 的输入元数据：每个 case 记录 CIF 路径、原始
   `source_pbc`、实际 `effective_pbc`、原子数和晶胞体积，避免将同一 CIF 的 periodic
@@ -289,10 +289,10 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
   periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步端到端也已通过；总耗时
   `11.1279105 s`，100 步平均 `0.1112791 s/step`。由于 stage timing 存在明显抖动，
   仍需低干扰窗口复测后再决定 cell-list 的切入位置。
-- no-PBC `torch_reference_cell_list` 已完成显式 registry/dispatcher/framework 接线和
-  CPU/HCU synthetic contract 回归；默认路径、`torch_reference` 和 `auto` 均未改变。
-  下一小步给 unified benchmark 增加 backend 选项，比较真实 `perf_46/92/184/368`
-  no-PBC cell-list 与 dense reference 的同口径成本。
+- no-PBC 的历史过渡名称 `torch_reference_cell_list` 已完成 registry/dispatcher/framework
+  接线和 CPU/HCU synthetic contract 回归；后续 M1 已将公开选择迁移为
+  `backend="torch_reference", method="cell_list"`，旧全局请求明确失败。该历史记录中的
+  “下一小步”已由后续 unified benchmark 和第 14--17 节覆盖。
 
 ## 13. 后续重构权威计划（2026-09-08）
 
@@ -305,7 +305,7 @@ profile → 全 pipeline planner → 冻结 BackendPlan”重构计划保存在
 profile、planner 或冻结计划。下一阶段先是 B0 团队基础开发版本，再按独立 operation 开始 T1；
 M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 
-## 14. M1 Registry 语义收敛（2026-09-09）
+## 14. M1 Registry 语义收敛（历史记录，2026-09-09）
 
 - 已从干净前置分支 `codex/feat-reference-cell-list` 创建
   `codex/refactor-backend-plan-m1`。前置 cell-list 与计划文档分别封存为
@@ -320,10 +320,10 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   `25 passed`，新增 one-shot/Hook cell-list strategy `2 passed`；完整命令、退出码和
   载体限制见 `reports/g2-backend-registry-m1.md`。这不是 cell-list 性能、周期
   cell-list、BackendProfile 或 PipelinePlanner 的通过证据。
-- 下一步仅在用户确认后进入 M2：PlatformFingerprint、版本化 BackendProfile 与
-  Frozen BackendPlan；不得在 runtime benchmark 或改变 `backend=None` 的前提下推进。
+- 当时的下一步判断是等待用户确认；后续已由第 16、17 节修订为先完成 B0 审核和 HCU gate，
+  再进入 T1，M2 继续延期。不得在 runtime benchmark 或改变 `backend=None` 的前提下推进。
 
-## 15. M1 operation selection propagation（2026-09-09）
+## 15. M1 operation selection propagation（历史记录，2026-09-09）
 
 - FIRE 与 FIRE2 已拆为独立 operation 和 implementation ID：
   `torch_reference.fire-v1` 与 `torch_reference.fire2-v1`。
@@ -340,7 +340,7 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   state lifecycle `22 passed`；import/reference `15 passed`。
   详细命令和限制见 `reports/g2-backend-registry-m1-dispatch-propagation.md`。
 - 本轮只新增 CPU selection/dispatch 接线证据，没有新增 HCU、Triton/HIP、变胞或 M2
-  planner 证据。下一步仍需用户确认后再进入 M2。
+  planner 证据。后续已由第 16、17 节修订为先完成 B0 审核和 HCU gate，再进入 T1。
 
 ## 16. B0 团队基础开发版本（2026-09-09）
 
@@ -355,3 +355,14 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   [TEAM_DEVELOPMENT_BASELINE.md](TEAM_DEVELOPMENT_BASELINE.md)；新 operation 的最小接线步骤见
   [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。B0 不扩大 feature contract；本轮 HCU 批
   未运行前仍是 pending。
+
+## 17. 当前恢复入口（2026-09-09）
+
+- 当前开发候选是 `team/dev-baseline-v0.1`，不是共享默认分支；开始工作前仍须运行
+  `git status --short --branch` 并确认人类是否已审核/合入该候选。
+- M1 registry、operation selection propagation、B0 catalog 拆分、CPU gate、架构图、开发者指南和
+  Torch operation 教学文档均已落盘。B0 没有扩大 feature contract；HCU 批 gate 尚待在分配设备上运行。
+- 当前最短恢复路径是：阅读 `docs/STATUS.md` 和 `docs/TEAM_DEVELOPMENT_BASELINE.md`，运行
+  `scripts/check_cpu_reference.sh`，再由分配到 HCU 的开发者运行
+  `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。通过人工审核后进入
+  T1 的邻居后端或常用积分器移植；M2 仍不启动。

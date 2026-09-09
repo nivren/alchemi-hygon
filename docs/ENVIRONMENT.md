@@ -1,4 +1,4 @@
-# 环境盘点与更新（2026-09-06 UTC）
+# 环境盘点与更新（主机事实采集：2026-09-06 UTC；文档复核：2026-09-09 UTC）
 
 新开发者部署环境请先阅读 [`DEVELOPMENT_ENVIRONMENT.md`](DEVELOPMENT_ENVIRONMENT.md)；本文
 记录当前服务器的实测状态、依赖冻结和证据边界，不是跨机器通用安装脚本。
@@ -8,14 +8,14 @@
 - 13:11 UTC 首次资源盘点 8 卡均 100% HCU 利用率、43% VRAM；稍后型号盘点显存用量约 7.2–7.4 GiB，说明资源随时间变化，不能据此抢占。未取得专用卡分配，不启动计算。
 - 沙箱内 /dev/dri、/dev/kfd 不可见，hy-smi 报无设备；沙箱外只读命令确认实际有卡。不是驱动缺失结论。
 - PATH 中 hipcc 为 /opt/dtk-26.04/bin/hipcc；dcc 25.10.0-0、clang 17.0.0。/opt 还存在多套 DTK，不切换/升级系统。
-- /opt/dtk-26.04/lib 存在 libamdhip64、librccl、libhipfft、librocfft、hipBLAS 等；文件存在不证明运行可用，RCCL 运行版本/性能待测。
+- /opt/dtk-26.04/lib 存在 libamdhip64、librccl、libhipfft、librocfft、hipBLAS 等；基础 RCCL all-reduce/P2P 运行已通过，版本、性能和域并行语义仍待测。
 - 系统 Python 3.10.12；uv 已安装 CPython 3.12.13，用该解释器创建项目 .venv，无系统 site-packages。
 - Torch/Triton 使用用户提供的 cp312 海光 wheel；ABI 约束见 `configs/probe-constraints.txt`，完整 Hygon reference 冻结见 `configs/hygon-reference-lock.txt`；导入和 CPU 结果见 `reports/g0-validation.md`。不安装产品两包、不启用 CUDA extras。
 - 默认 uv cache 指向 `/data/envs/uv-cache`；所有后续 `uv`/`pip` 安装默认使用 `https://mirrors.bfsu.edu.cn/pypi/web/simple`，必要时显式记录例外，不修改用户全局配置。
 - 早期安装曾遇到其他镜像 HTTP 403；当前不再把其他源作为默认。本地 Torch/Triton wheel 来源不变。
 - 为解除 framework 导入缺口，项目 `.venv` 已用 `/data/envs/uv-cache` 和北外镜像补齐 MACE 最小依赖（`mace-torch==0.3.15`、`e3nn==0.4.4`、`ase==3.29.0`、`matscipy==1.1.1` 等）以及 `jaxtyping`、`periodictable`、`tensordict` 等基础包；Torch/Triton 仍为海光版本。项目回归工具已固定为 `pytest==8.4.2`、`pytest-asyncio==1.4.0`。PhysicsNeMo 未安装，单进程 Torch/HCU 路径通过延迟导入保持可用；域并行和 PhysicsNeMo profiling 仍是显式未启用能力。
 
-原始探针输出放 artifacts/g0 和 artifacts/g1，摘要放 reports。用户缓存中的 `MACE-OFF23_small.model` 已在探索环境和项目 `.venv` 的 CPU/HCU 运行；向量化 Torch reference 邻居后，项目 `.venv` 的两个 perf_46 结构 HCU wrapper batching 也已通过。本轮又在 Tier 1 装配优化前采集了真实 perf_46/92/184/368 的 CPU/HCU 邻居基线（含 46/92 原子 batch=32 和 184 原子 batch=16），详见 `reports/g2-neighbor-baseline-reference.md`；这些 HCU 数据来自共享负载，不是发布性能结论。生产 cell-list/Triton/HIP、完整 dynamics、域并行和 PhysicsNeMo profiling 仍未验证。
+原始探针输出放 artifacts/g0 和 artifacts/g1，摘要放 reports。用户缓存中的 `MACE-OFF23_small.model` 已在探索环境和项目 `.venv` 的 CPU/HCU 运行；向量化 Torch reference 邻居后，项目 `.venv` 的两个 perf_46 结构 HCU wrapper batching 也已通过。本轮又在 Tier 1 装配优化前采集了真实 perf_46/92/184/368 的 CPU/HCU 邻居基线（含 46/92 原子 batch=32 和 184 原子 batch=16），详见 `reports/g2-neighbor-baseline-reference.md`；这些 HCU 数据来自共享负载，不是发布性能结论。生产 cell-list（真实规模/periodic）/Triton/HIP、完整 dynamics、域并行和 PhysicsNeMo profiling 仍未验证；no-PBC cell-list 合同窄切片已有 HCU 证据。
 
 用户随后明确 BW200/BW1000 适配目标为 gfx936；所有目标 HIP 编译使用 gfx936。此前 gfx928 编译仅为过程试探，不作为目标能力证据。
 

@@ -19,7 +19,7 @@ PlatformFingerprint -> ImplementationRegistry -> BackendProfile
 - `PipelinePlanner` 根据全 pipeline 的约束、代价和 profile 生成一次冻结计划。
 - runtime 只执行 `BackendPlan`，不在每个算子入口重复解析，也不在生产路径临时 benchmark。
 
-本计划不承诺立即实现 Triton/HIP，也不把当前 Torch reference 窄 slice 扩大成完整生产支持。当前已存在的 `torch_reference_cell_list` 是过渡实现；迁移完成后，cell-list 应成为 neighbor operation 的 strategy/method，而不是全局 backend 家族。
+本计划不承诺立即实现 Triton/HIP，也不把当前 Torch reference 窄 slice 扩大成完整生产支持。当前仍保留历史模块/内部 executor `nvalchemiops.torch_reference_cell_list`，但它已不再作为全局 backend 名称对外请求；正式公开选择是 `backend="torch_reference", method="cell_list"`。迁移后，cell-list 是 neighbor operation 的 strategy/method，而不是全局 backend 家族。
 
 ## 2. 核心语义
 
@@ -225,7 +225,7 @@ component explicit override
 
 1. 先读根目录 `AGENTS.md`，再读 `docs/PROJECT_HANDOFF.md`、`docs/STATUS.md` 和本文。
 2. 运行 `git status --short --branch`，保留当前用户改动；不要 reset、checkout 或覆盖式复制。
-3. M1 已完成；先完成/审阅 B0 团队基础开发版本，再从 T1 选择一个独立 Torch operation。
+3. M1 已完成；当前 B0 实现和开发者文档已提交在候选分支 `team/dev-baseline-v0.1`，先由人类审阅 CPU gate、文档入口并运行/分配 B0 HCU gate，再从 T1 选择一个独立 Torch operation。
    M2 只在出现多个已验证实现或确有可复现策略需求时启动。开始前报告将修改的文件、契约和
    测试，完成一个小里程碑后停下汇报并等待确认。
-4. 如果工作树被清理或换了 clone，只有已提交并推送到共享分支的文档才能恢复；本次新增文档目前需要与现有改动一起由人类决定何时提交/同步。
+4. 如果工作树被清理或换了 clone，先从 `git log` 确认候选分支中的提交；候选分支尚未自动合入或推送，是否同步到共享 `develop` 由人类审核决定。

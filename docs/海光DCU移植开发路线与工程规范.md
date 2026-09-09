@@ -1,6 +1,6 @@
 # nvalchemi-toolkit 海光 DCU 移植：技术路线、开发计划与工程规范
 
-> 调研基线：2026-09-05。本文以 NVIDIA `nvalchemi-toolkit` 主线（当前 0.2 系列）和 `nvalchemi-toolkit-ops` 主线（当前 0.4 系列）的公开源码、文档为依据。海光卡型、DTK、PyTorch 和 Triton 必须按实际交付环境重新锁定；文中的阶段工期按 6–8 名核心研发估算。
+> 历史调研基线：2026-09-05。本文用于背景参考，不是当前状态或版本锁定文件；卡型、DTK、PyTorch、Triton、人员和工期均以根目录 `AGENTS.md`、`docs/STATUS.md`、`docs/UPSTREAM_LOCK.yaml` 和实际证据为准。本文中的目录、优先级和阶段建议不覆盖后续已采用的 B0/T1 路线。
 
 ## 1. 结论先行
 
@@ -53,7 +53,7 @@ repo/
   packages/framework/        # 上层框架，只依赖公开 ops API
   packages/ops/              # schema + torch/triton/hip 实现
   cpp/                       # HIP/C++ 扩展、CMake
-  tests/{unit,integration,numerics,distributed}/
+  tests/{unit,integration,numerics,distributed}/  # 历史规划目录；当前以 AGENTS.md 为准
   benchmarks/{micro,workflow,distributed}/
   examples/
   docs/
@@ -71,7 +71,8 @@ repo/
 - 是否支持 batch、动态 shape、`torch.compile`、autograd、二阶梯度、确定性；
 - mutation/aliasing 契约；
 - capability registry，例如 `supports_fp64_atomic`、`supports_dynamic_shape`、`supports_gradgrad`；
-- 实现优先级 `hip > triton > torch_reference`，用户可强制选择，失败必须给出明确原因而不是静默换精度。
+- 不设固定的实现优先级；按算子契约、设备、dtype、梯度等级、输入规模和实测 benchmark
+  选择 Torch reference、Triton 或 HIP。用户可强制选择，失败必须给出明确原因而不是静默换精度。
 
 不要用字符串中是否含 `cuda` 判断 NVIDIA。海光/ROCm PyTorch 仍复用 `torch.cuda` 和 `torch.device("cuda")` 接口；应结合 `torch.version.hip`、包构建元数据和运行时 capability 探测。
 
@@ -382,4 +383,3 @@ Warp 默认可生成 forward/backward kernel，并支持自定义 gradient、Jac
 - ROCm RCCL usage: https://rocm.docs.amd.com/projects/rccl/en/develop/how-to/rccl-usage-tips.html
 - 海光开发者文档入口: https://developer.sourcefind.cn/document
 - OpenCloudOS 海光 DCU/DTK 部署实践: https://docs.opencloudos.org/OC9/ai-deployment/GPU-optimization-practice/hygon-deployment/
-

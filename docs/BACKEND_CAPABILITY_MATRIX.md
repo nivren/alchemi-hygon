@@ -4,7 +4,7 @@
 
 | operation | Torch reference 已登记宽度 | 梯度 | `auto` 当前选择 | HCU 证据 |
 | --- | --- | --- | --- | --- |
-| `neighbor_list` | no-PBC full/half、periodic full、MATRIX/COO、距离/向量；periodic+half 明确拒绝 | 拓扑不可微 | `torch_reference` | periodic full 已验证；no-PBC device-side 装配在 BW200 HCU 0 窄 slice 通过 |
+| `neighbor_list` | no-PBC full/half、periodic full、no-PBC `cell_list` strategy、MATRIX/COO、距离/向量；periodic+half 明确拒绝 | 拓扑不可微 | `torch_reference` | periodic full 已验证；no-PBC device-side 装配在 BW200 HCU 0 窄 slice 通过；cell-list synthetic contract 已通过 |
 | `lj_energy_forces` | no-PBC/PBC full、no-PBC half、energy/force | 至二阶 | `torch_reference` | G1 CPU/HCU 窄 slice |
 | `velocity_verlet` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
@@ -13,6 +13,9 @@
 | `periodic_wrap` | 原地周期坐标包裹 | forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 
 `triton`、`hip` 没有任何已登记生产 capability；显式请求必须抛出 `BackendUnavailableError`。`backend=None` 与 `backend="warp"` 不属于 registry executor，保持 framework 的 legacy Warp 路径。
+
+`cell_list` 当前通过 `backend="torch_reference", method="cell_list"` 公开选择。已验证范围是
+no-PBC synthetic CPU/HCU 合同；真实规模和 periodic cell-list 的正确性、性能与容量压力仍未验证。
 
 ## M1 单次选择传递
 

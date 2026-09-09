@@ -21,7 +21,7 @@ Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、devi
 ~~~bash
 git status --short --branch
 git log -8 --oneline --decorate
-rg -n "目标符号或功能名" packages/framework packages/ops packages tests probes
+rg -n "目标符号或功能名" packages/framework packages/ops packages probes
 ~~~
 
 不要从 external/复制一份文件后直接改。先确认锁定上游源码、产品侧已有补丁和对应
@@ -36,7 +36,7 @@ rg -n "目标符号或功能名" packages/framework packages/ops packages tests 
 | 新 Triton kernel | ops 对应算子族目录 | capability gate、CPU/HCU 数值和性能 |
 | 新 HIP kernel | ops 对应算子族目录及其构建入口 | gfx936 编译、stream/atomic/错误路径测试 |
 | 新模型/动力学功能 | framework models/、dynamics/、hooks/ | Batch、梯度、生命周期和端到端测试 |
-| 跨包行为 | tests/compatibility/ | 两包安装/import 和纵向链 |
+| 跨包行为 | packages/framework/test/compatibility/ | 两包安装/import 和纵向链；根 `tests/` 目录目前是未来集中测试的规划入口 |
 | 设备/性能探针 | probes/ | reports/摘要与 artifacts/原始输出 |
 
 不要顺手重排邻近代码、全库格式化或修改无关的 STATUS.md 历史段落；这些是最常见的
@@ -176,7 +176,7 @@ UPSTREAM.md 的本地补丁清单，写清默认路径影响和 upstream candida
 - CPU 与 HCU 同一输入，先小规模再真实数据。
 
 ops 原测试位于 packages/ops/test/，framework 行为测试位于 packages/framework/test/。
-跨包语义放 tests/compatibility/；探针只负责真实设备、模型、时序和性能证据，不替代单元
+跨包语义当前放 `packages/framework/test/compatibility/`；探针只负责真实设备、模型、时序和性能证据，不替代单元
 测试。不要把测试整体 skip/xfail 来掩盖缺实现；必要的 strict xfail 必须关联原因、解除条件
 和跟踪条目。
 
@@ -305,8 +305,8 @@ CPU 结果、HCU 结果、退出码
 
 ### 8.1 分支和提交
 
-每位开发者从明确的共享基线（当前为 develop 或 g2-development）创建自己的
-`<开发者>/<类型>-<主题>` 分支。推荐示例为 `alice/feature-triton-neighbor`、
+每位开发者从明确的共享基线（通常为 `develop`，或经审核的当前阶段/候选分支；本轮候选为
+`team/dev-baseline-v0.1`）创建自己的 `<开发者>/<类型>-<主题>` 分支。候选分支尚未自动成为共享主线，使用前先确认审核结果。推荐示例为 `alice/feature-triton-neighbor`、
 `bob/fix-pbc-shifts`、`carol/docs-onboarding`。推荐提交粒度：
 
 ~~~text
