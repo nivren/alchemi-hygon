@@ -321,3 +321,22 @@ framework→dispatcher 传递同一 selection；未实现 profile、planner 或�
   cell-list、BackendProfile 或 PipelinePlanner 的通过证据。
 - 下一步仅在用户确认后进入 M2：PlatformFingerprint、版本化 BackendProfile 与
   Frozen BackendPlan；不得在 runtime benchmark 或改变 `backend=None` 的前提下推进。
+
+## 15. M1 operation selection propagation（2026-09-09）
+
+- FIRE 与 FIRE2 已拆为独立 operation 和 implementation ID：
+  `torch_reference.fire-v1` 与 `torch_reference.fire2-v1`。
+- `LennardJonesModelWrapper`、NVE、FIRE/FIRE2、`WrapPeriodicHook`、Logging、
+  energy-drift monitor、reporting scalar 和相关分布式 FIRE wrapper 已改为由 framework
+  按 operation 解析一次 `BackendSelection`，再传给 dispatcher/辅助函数。dispatcher
+  按精确 implementation ID 执行，不用原始 backend request 二次解析。
+- 固定晶胞的 selection 在相应 workflow/model 生命周期中缓存；observer 中不同 operation
+  各自只解析一次。变胞 FIRE/FIRE2 在初始化时声明 `variable_cell` 要求；当前 Torch
+  reference 没有该 capability，显式请求会明确失败，默认仍保持 legacy Warp。
+- 新增回归 `packages/framework/test/compatibility/test_backend_selection_propagation.py`。
+  CPU 结果：ops `23 passed`；selection propagation `3 passed`；reference/observer/periodic/LJ
+  slice `103 passed, 1 deselected`（与 propagation 合并为 `106 passed, 1 deselected`）；
+  state lifecycle `22 passed`；import/reference `15 passed`。
+  详细命令和限制见 `reports/g2-backend-registry-m1-dispatch-propagation.md`。
+- 本轮只新增 CPU selection/dispatch 接线证据，没有新增 HCU、Triton/HIP、变胞或 M2
+  planner 证据。下一步仍需用户确认后再进入 M2。

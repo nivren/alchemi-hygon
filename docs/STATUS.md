@@ -61,7 +61,7 @@
 - [ ] 未验证项、失败模式和静默回退风险已记录。
 - [ ] 下一个可独立执行的小任务已明确。
 
-## 当前快照（2026-09-08）
+## 当前快照（2026-09-09）
 
 - N0 能力探针已完成：主机单卡 Triton vector-add 通过（BW200/UBB BW1000，冷启动约 0.519 s，预热稳态约 24.6 μs/次）；主机双卡 RCCL/NCCL all-reduce 和双向 P2P 通过。证据见 `reports/g0-capability-probes.md`。这只解除 Triton 基础编译/执行和 RCCL 原语的架构未知，不代表生产 kernel、LJ ownership 或 DomainParallel 已验证。
 - 环境加载修正：`scripts/activate_hygon_env.sh` 在 bash 使用 `/opt/dtk-26.04/env.sh`，在 zsh 使用 `/opt/dtk-26.04/env.zsh`；沙箱内 `/dev/kfd` 不可见，GPU 结果均来自主机权限探针。
@@ -79,6 +79,7 @@
 - 统一 benchmark 的 HCU `perf_92` batch 阶梯已通过：batch `1/4/8/16/32` 的 periodic full steady 为 `3.768/9.789/17.819/33.571/65.577 ms`，no-PBC full 为 `1.856/3.931/6.705/12.232/23.316 ms`；batch=32 的 periodic 边数 `54,760`、steady `0.065577 s` 与既有 Tier-1 结果连续。该证据仍不覆盖 MACE/FIRE2 端到端。报告见 `reports/g2-unified-reference-benchmark-hcu-batch92.md`。
 - 统一 benchmark 的 HCU periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步已通过：总耗时 `11.1279105 s`，100 步平均 `0.1112791 s/step`，最后邻居边数 `3,284`；`StageTimingHook` 的 `BEFORE_COMPUTE→AFTER_COMPUTE` total 为 `10.439570 s`，但最大单样本 `6.586 s`、std `0.671 s`，因此只能作为共享 HCU 下的端到端相对基线。报告见 `reports/g2-unified-reference-benchmark-hcu-e2e.md`。
 - M1 registry 已完成：`ImplementationRegistry` 记录 implementation ID/family/strategy，cell-list 改为 `backend="torch_reference", method="cell_list"`，旧未发布名称显式失败；`None`/Warp 与 auto dense default 语义不变。CPU ops/framework 为 `25 passed`/`22 passed`；BW200/gfx936 HCU ops `25 passed`、M1 framework strategy `2 passed`。证据见 `reports/g2-backend-registry-m1.md` 与 ADR 0006；真实规模性能、周期 cell-list、BackendProfile 和 planner 仍未完成。
+- M1 follow-up 已完成：FIRE/FIRE2 拆为独立 operation ID（`torch_reference.fire-v1` / `torch_reference.fire2-v1`）；LJ、固定晶胞 VV/FIRE/FIRE2、periodic、kinetics、segmented reduction 和 observer 均由 framework 解析一次 `BackendSelection` 后传给 dispatcher。变胞 FIRE/FIRE2 仍冻结 legacy Warp，显式 Torch reference 因缺少 `variable_cell` capability 明确失败。CPU selection propagation `3 passed`，reference/observer/periodic/LJ slice `103 passed, 1 deselected`（合并为 `106 passed, 1 deselected`），state lifecycle `22 passed`，import/reference `15 passed`；报告见 `reports/g2-backend-registry-m1-dispatch-propagation.md`。本轮没有新增 HCU 证据。
 - 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `11 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
 - 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
 - skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。Hook staging 已有自动容量处理，算子层仍保留显式 overflow 防御。
@@ -597,3 +598,18 @@
 - M1 不实现 PlatformFingerprint、BackendProfile、Frozen BackendPlan、runtime fallback
   或性能选择；真实规模/周期 cell-list 与 auto profile 仍未验证。下一步仅在用户确认后
   进入 M2，并先建立 fingerprint/profile/plan 的独立契约和测试。
+
+### 2026-09-09：M1 dynamics/LJ/observer selection propagation
+
+- FIRE 与 FIRE2 已在 registry 中使用独立 operation 和 implementation ID，避免两个优化器
+  共享一个含义不清的 `fire` contract。
+- 固定晶胞 NVE/FIRE/FIRE2 在 workflow 初始化阶段冻结 selection；LJ model、periodic
+  hook、Logging/energy-drift/reporting observer 辅助路径也按 operation 单次解析并向
+  dispatcher 传递 selection。分布式 FIRE wrapper 保留该传递链路。
+- 变胞 FIRE/FIRE2 显式要求 `variable_cell` capability；当前 Torch reference 未登记，
+  因此请求会明确失败，默认路径仍是 legacy Warp。
+- CPU 回归：ops `23 passed`；selection propagation `3 passed`；framework reference/observer/periodic/LJ
+  slice `103 passed, 1 deselected`（与 propagation 合并为 `106 passed, 1 deselected`）；state
+  lifecycle `22 passed`；import/reference `15 passed`。
+  详细范围、命令与限制见 `reports/g2-backend-registry-m1-dispatch-propagation.md`。
+- 本轮未新增 HCU、Triton/HIP 或变胞数值证据；M2 PlatformFingerprint/Profile/Plan 仍未开始。

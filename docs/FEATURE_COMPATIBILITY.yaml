@@ -345,6 +345,7 @@
       "id": "hooks.lifecycle",
       "category": "A",
       "status": "planned",
+      "implementation_scope": "M1 已将 WrapPeriodicHook、LoggingHook、EnergyDriftMonitorHook 和 reporting scalar 的 operation selection 改为 framework 单次解析后传递；完整 Hook/PhysicsNeMo 能力仍按原状态",
       "scenario": "调用阶段/频率、异常传播、邻居重建与 profiling 生命周期",
       "source": {
         "repository": "framework",
@@ -440,7 +441,8 @@
           "reports/g2-upstream-safety-freeze-reference.md",
           "reports/g2-upstream-bias-reference.md",
           "reports/g2-upstream-stage-timing-reference.md",
-          "artifacts/g1/framework_neighbor_lj_reference_hcu0.json"
+          "artifacts/g1/framework_neighbor_lj_reference_hcu0.json",
+          "reports/g2-backend-registry-m1-dispatch-propagation.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"
@@ -1347,6 +1349,7 @@
       "category": "B",
       "status": "planned",
       "implementation_scope": "Torch reference no-switch/no-virial 的 full/half 与周期 energy/force；switching 和 virial/stress 已拆为独立条目",
+      "selection_scope": "LJ model framework forward 解析一次 lj_energy_forces selection 并传给 dispatcher",
       "scenario": "能量、负梯度力、virial 与 switching 一致；half/full 计数、单位和归约约定",
       "source": {
         "repository": "ops",
@@ -1411,7 +1414,8 @@
           "reports/g1-neighbor-lj-reference.md",
           "reports/g1-neighbor-hook-lj-audit.md",
           "artifacts/g1/framework_neighbor_lj_reference_hcu0.json",
-          "reports/g1-pbc-lj-nve-reference.md"
+          "reports/g1-pbc-lj-nve-reference.md",
+          "reports/g2-backend-registry-m1-dispatch-propagation.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
@@ -1430,6 +1434,7 @@
       "id": "math.segment",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "M1 observer 的 segmented reduction 按 operation 解析一次并传递 BackendSelection；segment 完整梯度契约仍未整体验证",
       "scenario": "分段归约 shape/dtype、空段、索引边界、确定性、mutation/alias 和一二阶梯度",
       "source": {
         "repository": "ops",
@@ -1508,7 +1513,8 @@
         ],
         "dcu_tests": [],
         "evidence": [
-          "reports/upstream_inventory.json"
+          "reports/upstream_inventory.json",
+          "reports/g2-backend-registry-m1-dispatch-propagation.md"
         ],
         "environments": []
       },
@@ -1522,6 +1528,7 @@
       "id": "dynamics.integrators",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "M1 固定晶胞 NVE 及 FIRE/FIRE2 的 VV 阶段在 framework 生命周期中冻结 velocity_verlet selection；Langevin/Nose-Hoover/NPT 仍未接线",
       "scenario": "NVE/Langevin/Nose-Hoover/NPT 更新、随机数、温压单位、mask/原位更新",
       "source": {
         "repository": "ops",
@@ -1712,7 +1719,8 @@
           "reports/g2-dynamics-public-boundary.md",
           "reports/g2-mace-dynamics-reference.md",
           "reports/g2-dynamics-reference-compile.md",
-          "reports/g2-upstream-dynamics-reference.md"
+          "reports/g2-upstream-dynamics-reference.md",
+          "reports/g2-backend-registry-m1-dispatch-propagation.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"
@@ -1729,6 +1737,7 @@
       "id": "dynamics.fire",
       "category": "B",
       "status": "planned",
+      "implementation_scope": "M1 将 FIRE 与 FIRE2 登记为独立 operation/implementation ID；固定晶胞 reference selection 由 framework 冻结，变胞 Torch reference 因缺少 variable_cell capability 明确失败",
       "scenario": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
       "source": {
         "repository": "ops",
@@ -1846,7 +1855,8 @@
           "reports/g2-mace-fire2-heterogeneous-trajectory.md",
           "reports/g2-mace-fire2-baseline-comparison.md",
           "reports/g2-upstream-dynamics-reference.md",
-          "reports/g2-dynamics-reference-compile.md"
+          "reports/g2-dynamics-reference-compile.md",
+          "reports/g2-backend-registry-m1-dispatch-propagation.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"

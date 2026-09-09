@@ -1,16 +1,30 @@
 # 后端能力矩阵
 
-更新时间：2026-09-08。此表是 registry 当前的真实登记，不替代 `FEATURE_COMPATIBILITY.yaml` 的完整特性契约。
+更新时间：2026-09-09。此表是 registry 当前的真实登记，不替代 `FEATURE_COMPATIBILITY.yaml` 的完整特性契约。
 
 | operation | Torch reference 已登记宽度 | 梯度 | `auto` 当前选择 | HCU 证据 |
 | --- | --- | --- | --- | --- |
 | `neighbor_list` | no-PBC full/half、periodic full、MATRIX/COO、距离/向量；periodic+half 明确拒绝 | 拓扑不可微 | `torch_reference` | periodic full 已验证；no-PBC device-side 装配在 BW200 HCU 0 窄 slice 通过 |
 | `lj_energy_forces` | no-PBC/PBC full、no-PBC half、energy/force | 至二阶 | `torch_reference` | G1 CPU/HCU 窄 slice |
-| `velocity_verlet` / `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
+| `velocity_verlet` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
+| `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
+| `fire2` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `kinetics` / `segmented_reduce` | 按 graph 归约 | 一阶 / forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `periodic_wrap` | 原地周期坐标包裹 | forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 
 `triton`、`hip` 没有任何已登记生产 capability；显式请求必须抛出 `BackendUnavailableError`。`backend=None` 与 `backend="warp"` 不属于 registry executor，保持 framework 的 legacy Warp 路径。
+
+## M1 单次选择传递
+
+固定晶胞的 NVE、FIRE、FIRE2、LJ model，以及 periodic、kinetics、segmented
+reduction 和 observer 辅助路径，均由 framework 按 operation 解析一次
+`BackendSelection`，再传给 dispatcher；dispatcher 不会用原始 backend 请求再次解析。
+FIRE 与 FIRE2 使用独立的 operation/implementation ID：
+`torch_reference.fire-v1` 和 `torch_reference.fire2-v1`。
+
+变胞 FIRE/FIRE2 默认继续冻结为 legacy Warp；显式请求当前 Torch reference 会因
+缺少 `variable_cell` capability 显式失败。该轮只验证 CPU selection propagation，未新增
+HCU、Triton 或 HIP 生产实现证据。
 
 ## 数据层默认
 

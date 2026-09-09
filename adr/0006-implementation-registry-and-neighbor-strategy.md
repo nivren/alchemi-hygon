@@ -26,8 +26,12 @@ callers to repeat an incomplete backend enum.
   ``backend="torch_reference", method="cell_list"`` on
   ``compute_neighbors`` and ``NeighborListHook``. The unpublished
   ``torch_reference_cell_list`` request is removed and fails explicitly.
-- Pass the one framework-resolved ``BackendSelection`` to the Torch neighbor
-  dispatcher; dispatch uses the implementation ID rather than the family.
+- Pass the one framework-resolved ``BackendSelection`` to operation dispatchers;
+  neighbor, LJ, VV/FIRE/FIRE2, periodic, kinetics and observer helpers dispatch
+  by implementation ID rather than by family or by resolving the request again.
+- Keep FIRE and FIRE2 as separate operation contracts and stable IDs. Variable-cell
+  FIRE/FIRE2 request the ``variable_cell`` feature during framework initialization;
+  the current Torch reference implementations do not claim that capability.
 
 ## Consequences
 
@@ -38,5 +42,7 @@ reference capability currently registered. ADR 0005 remains the cell-list
 algorithm contract, but its public backend-name decision is superseded here.
 
 CPU and BW200/gfx936 HCU contract evidence is recorded in
-`reports/g2-backend-registry-m1.md`. The cell-list path remains a no-PBC,
-reference-only strategy without real-structure performance evidence.
+`reports/g2-backend-registry-m1.md`; the operation selection propagation follow-up
+is recorded in `reports/g2-backend-registry-m1-dispatch-propagation.md`. The cell-list
+path remains a no-PBC, reference-only strategy without real-structure performance
+evidence, and the new propagation evidence is CPU-only.

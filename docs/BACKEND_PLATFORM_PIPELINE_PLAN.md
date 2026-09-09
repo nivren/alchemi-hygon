@@ -118,6 +118,22 @@ component explicit override
 - framework `compute_neighbors` 与 `NeighborListHook` 将同一 selection 传入 Torch dispatcher；dispatcher 按 implementation ID 执行，不二次解析。
 - CPU ops/framework 回归为 `25 passed`/`22 passed`；BW200/gfx936 HCU ops 为 `25 passed`，M1 新增 framework strategy smoke 为 `2 passed`。完整命令和限制见 `reports/g2-backend-registry-m1.md` 与 ADR 0006。
 
+#### M1 follow-up：operation selection propagation（2026-09-09）
+
+- FIRE/FIRE2 已拆为独立 operation 与 implementation ID：`fire` →
+  `torch_reference.fire-v1`，`fire2` → `torch_reference.fire2-v1`。
+- LJ、固定晶胞 VV/FIRE/FIRE2、periodic、kinetics、segmented reduction 和 observer
+  路径已改为 framework 解析一次 `BackendSelection` 并传入 dispatcher；低层 dispatcher
+  不再为同一调用二次解析 backend request。
+- 变胞 FIRE/FIRE2 在 framework 初始化阶段按 `variable_cell` capability 解析；当前
+  Torch reference 未登记该能力，因此显式请求会明确失败，默认仍保持 legacy Warp。
+- 该 follow-up 的 CPU selection propagation 回归为 `3 passed`；配套 dynamics/reference
+  slice 为 `103 passed, 1 deselected`（与 propagation 合并为 `106 passed, 1 deselected`），
+  状态生命周期为 `22 passed`，导入边界与 reference wrapper 为 `15 passed`。报告见
+  `reports/g2-backend-registry-m1-dispatch-propagation.md`。
+- 以上不改变 M1 门槛，也不提前开始 M2；新增证据为 CPU 证据，不能替代 HCU、Triton/HIP
+  或变胞 reference 验证。
+
 ### M2：PlatformFingerprint、Profile 与 Frozen Plan
 
 交付：
