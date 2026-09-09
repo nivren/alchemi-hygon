@@ -66,7 +66,7 @@ from nvalchemiops.backend import (
     BackendUnavailableError,
     validate_backend_name,
 )
-from nvalchemiops.torch_backend import dispatch_lj_energy_forces
+from nvalchemiops.dispatch import dispatch_lj_energy_forces
 from torch import nn
 
 from nvalchemi._backend import resolve_compute_backend

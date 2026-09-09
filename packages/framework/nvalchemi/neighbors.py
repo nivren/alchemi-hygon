@@ -34,7 +34,7 @@ path you use.
 from __future__ import annotations
 
 import torch
-from nvalchemiops.torch_backend import dispatch_neighbor_list
+from nvalchemiops.dispatch import dispatch_neighbor_list
 
 from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch

@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from types import ModuleType
 from pathlib import Path
 
 import pytest
@@ -334,7 +335,7 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
         BackendUnavailableError,
         resolve_backend,
     )
-    from nvalchemiops.torch_backend import (  # noqa: PLC0415
+    from nvalchemiops.dispatch import (  # noqa: PLC0415
         dispatch_lj_energy_forces,
         dispatch_neighbor_list,
     )
@@ -386,7 +387,7 @@ def test_dispatcher_preserves_outputs_and_reports_backend():
 
 def test_neighbor_dispatcher_accepts_a_pre_resolved_selection(monkeypatch):
     """A framework-resolved selection is not resolved a second time."""
-    import nvalchemiops.torch_backend as torch_backend_module  # noqa: PLC0415
+    import nvalchemiops.dispatch as torch_backend_module  # noqa: PLC0415
 
     from nvalchemiops.backend import resolve_backend  # noqa: PLC0415
 
@@ -413,5 +414,66 @@ def test_neighbor_dispatcher_accepts_a_pre_resolved_selection(monkeypatch):
         return_backend=True,
     )
     assert returned is selection
+    assert matrix.tolist() == [[1], [0]]
+    assert counts.tolist() == [1, 1]
+
+
+def test_dispatcher_executes_a_second_registered_implementation_without_new_branch(
+    monkeypatch,
+):
+    """A new implementation is executable through the unchanged dispatcher."""
+    import nvalchemiops.backend as backend_module  # noqa: PLC0415
+    from nvalchemiops.backend import (  # noqa: PLC0415
+        BackendSelection,
+        Implementation,
+        ImplementationRegistry,
+    )
+    from nvalchemiops.dispatch import dispatch_neighbor_list  # noqa: PLC0415
+
+    module_name = "nvalchemiops_test_second_neighbor_executor"
+    calls = []
+    module = ModuleType(module_name)
+
+    def neighbor_list(positions, cutoff, **kwargs):
+        calls.append((positions, cutoff, kwargs))
+        return torch.tensor([[1], [0]], dtype=torch.int32), torch.tensor(
+            [1, 1], dtype=torch.int32
+        )
+
+    module.neighbor_list = neighbor_list
+    monkeypatch.setitem(sys.modules, module_name, module)
+    implementation = Implementation(
+        implementation_id="test.neighbor.second-v1",
+        operation="neighbor_list",
+        family="test",
+        strategy="dense",
+        executor=module_name,
+        entrypoints=("neighbor_list",),
+        executor_owner="ops",
+        features=frozenset({"no_pbc", "full", "matrix"}),
+        default_strategy=True,
+    )
+    registry = ImplementationRegistry([implementation])
+    monkeypatch.setattr(backend_module, "DEFAULT_IMPLEMENTATION_REGISTRY", registry)
+    selection = BackendSelection(
+        requested=implementation.implementation_id,
+        implementation_id=implementation.implementation_id,
+        family=implementation.family,
+        strategy=implementation.strategy,
+        operation=implementation.operation,
+        device="cpu",
+        dtype="float32",
+        gradient_order=0,
+        features=("full", "matrix", "no_pbc"),
+        reason="second implementation contract test",
+    )
+
+    matrix, counts = dispatch_neighbor_list(
+        torch.zeros((2, 3)),
+        2.0,
+        selection=selection,
+    )
+
+    assert len(calls) == 1
     assert matrix.tolist() == [[1], [0]]
     assert counts.tolist() == [1, 1]

@@ -65,7 +65,7 @@ from nvalchemiops.backend import (
     BackendUnavailableError,
     validate_backend_name,
 )
-from nvalchemiops.torch_backend import dispatch_neighbor_list
+from nvalchemiops.dispatch import dispatch_neighbor_list
 from nvalchemiops.torch_reference import NeighborOverflowError
 
 from nvalchemi._backend import resolve_compute_backend
