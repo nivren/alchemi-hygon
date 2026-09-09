@@ -77,6 +77,7 @@ strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回�
 | `TORCH-NEIGHBOR-PBC-CELL` | 周期 full-list cell-list reference | 先写 periodic cell、image shift、batch/overflow 契约；与 dense CPU FP64 和 HCU 对照；未通过不登记 strategy capability |
 | `TORCH-NVT-LANGEVIN` | 固定晶胞 NVTLangevin Torch reference | 与 upstream 随机数、状态、温度统计和 restart 语义逐项确认；先 CPU 再 HCU，不改 NPT/NPH |
 | `TORCH-NVT-NHC` | 固定晶胞 NVT Nose-Hoover chain reference | 建立链状态、质量、能量/温控统计、Batch/inflight 和错误契约；独立于 Langevin 合入 |
+| `TORCH-FIRE2-VARIABLE-CELL` | FIRE2 原子/晶胞联合弛豫 | 先验证 stress→cell-force 符号、单位和 FP64 oracle，再实现 coupled step；不迁移 FIREVariableCell、NPT/NPH 或分布式 cell state |
 
 当至少两个 operation 出现多个已验证实现，或需要可复现实验策略时，再启动
 `BACKEND_PLATFORM_PIPELINE_PLAN.md` 的 M2 profile/planner；不要为当前单一 reference

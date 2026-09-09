@@ -34,17 +34,19 @@ executor、测试、probe 和 report 中，不应再修改通用 executor 或大
 | `TORCH-NVT-NHC` | 固定晶胞 Nose-Hoover chain NVT | P1 | 中 | chain state、质量、Yoshida 更新、Batch/inflight 回归 |
 
 三项都必须先完成 CPU contract，再申请 HCU 批验证；任何一项通过前都不能登记更宽的
-strategy/capability。第一版不包括 NPT/NPH、变胞、域分解、生产 Triton/HIP 或 M2 planner。
+strategy/capability。它们各自的第一版不包括 NPT/NPH、变胞、域分解、生产 Triton/HIP 或
+M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 
 ### 第二批：低耦合扩展功能
 
-如果有第四、第五名开发者，可以同时开展下面两项。它们不改变 B1 的架构方向，但新增的
+如果有额外开发者，可以同时开展下面三项。它们不改变 B1 的架构方向，但新增的
 兼容条目应由集成负责人统一落盘。
 
 | ID | 功能 | 优先级 | framework 影响 | 说明 |
 |---|---|---:|---:|---|
 | `TORCH-THERMOSTAT-UTILS` | Maxwell-Boltzmann 速度初始化、去 COM、velocity rescale | P1 | 低 | 补齐实际 NVT 初始化链路；需先冻结 seed、温度和 Batch 契约 |
 | `TORCH-LJ-SWITCHING` | LJ cutoff switching 的能量、力和连续性 | P1 | 很低 | 主要是 ops reference 和 focused tests；framework 只取消明确拒绝 |
+| `TORCH-FIRE2-VARIABLE-CELL` | FIRE2 原子/晶胞联合结构弛豫 | P1 | 低—中 | 先做 stress→cell-force reference，再做 coupled FIRE2 step；不接 NPT/NPH |
 
 `LJ virial/stress` 暂不与 switching 分成两个同时修改同一实现文件的分支；它应在 switching
 完成后单独排队，或由同一 owner 负责连续交付。
@@ -139,6 +141,40 @@ strategy/capability。第一版不包括 NPT/NPH、变胞、域分解、生产 T
 - 覆盖 full/half、PBC、Batch reduction、autograd force 和必要的混合二阶路径；
 - 通过后才考虑 Triton/HIP，不凭 reference 结果写性能结论。
 
+### 3.6 `TORCH-FIRE2-VARIABLE-CELL`
+
+建议分支：`<developer>/feature-torch-fire2-variable-cell`
+
+现有公共 `FIRE2VariableCell`、state、dispatcher ABI 和 `variable_cell` capability 解析已经存在；
+本任务只补齐缺失的 Torch reference 与窄范围纵向验证。由一个 owner 按两个顺序里程碑交付：
+
+1. `TORCH-CELL-STRESS-FORCE`：实现并验证
+   `F_cell = -V * stress * inverse(cell).T`、`keep_aligned` 和 Batch 语义；
+2. `TORCH-FIRE2-VARIABLE-CELL`：实现原子/晶胞 DOF 的共同归约、mix、clamp 和 affine update，
+   再接现有公共 wrapper。
+
+主要文件边界：
+
+- `packages/framework/nvalchemi/_dynamics_reference/fire.py`；
+- `packages/framework/nvalchemi/dynamics/_ops/fire.py`；
+- `packages/framework/nvalchemi/dynamics/_ops/npt_nph.py` 中仅限 `stress_to_cell_force` 的
+  reference binding，不迁移其他 NPT/NPH op；
+- `packages/framework/nvalchemi/dynamics/optimizers/fire2.py` 的局部接线；
+- 独立 compatibility test、variable-cell probe 和 report。
+
+最小验收：
+
+- 用 CPU FP64 有限应变或独立解析 oracle 验证 stress 符号、volume、cell inverse 和单位；
+- 覆盖正交胞、三斜胞、`keep_aligned`、单体系、异构 Batch、空输入与奇异/非法 cell；
+- 原子与晶胞状态的 `vf/vv/ff`、`maxstep`、`dt`、`alpha`、uphill/downhill 更新可独立对照；
+- cell 改变后周期邻居重建不漏 pair；正确性阶段可使用现有 periodic dense reference，
+  不依赖周期 cell-list 任务先完成；
+- CPU contract 通过后，再用能够输出可信 stress 的解析模型或已验证模型运行 HCU smoke。
+
+不在本任务内：普通 `FIREVariableCell`、NPT/NPH barostat、DomainParallel replicated cell state、
+LJ virial/stress 的完整实现、生产 Triton/HIP 和性能结论。没有可信 stress/HCU 证据时只能登记
+对应的 CPU reference slice。
+
 ## 4. 共享文件与冲突控制
 
 每条分支只直接拥有自己的 executor、测试、probe 和 report。以下文件是共享热点：
@@ -201,9 +237,11 @@ scripts/check_cpu_reference.sh
 
 1. `TORCH-NEIGHBOR-PBC-CELL` 与 `TORCH-NVT-LANGEVIN` 可并行开发，先完成各自 CPU contract；
 2. `TORCH-NVT-NHC` 可并行开始，但其 framework state 接线应独立审查；
-3. 低耦合的 thermostat utilities / LJ switching 在额外人力充足时并行；
-4. 每个 operation 单独通过 CPU gate，再安排 HCU 批验证和 review；
-5. 至少两个 operation 形成多个已验证实现、或确实出现可复现实验策略需求后，才重新评估 M2。
+3. `TORCH-FIRE2-VARIABLE-CELL` 可由独立 owner 并行开始，但必须先完成
+   `TORCH-CELL-STRESS-FORCE`，不能借机迁移 NPT/NPH；
+4. 低耦合的 thermostat utilities / LJ switching 在额外人力充足时并行；
+5. 每个 operation 单独通过 CPU gate，再安排 HCU 批验证和 review；
+6. 至少两个 operation 形成多个已验证实现、或确实出现可复现实验策略需求后，才重新评估 M2。
 
 本批暂停条件：三个 T1 或指定的低耦合任务完成一个可审查里程碑后，更新
 `docs/STATUS.md`、对应 report 和兼容性条目，等待下一轮确认。期间不启动 M2、NPT/NPH、
@@ -216,4 +254,5 @@ operation、短提交、人工 review。文档只负责稳定边界，不承担 
 任务状态的职责。
 
 如果团队规模很小，最简单的执行方式是只启动前三项：一人负责 neighbor，一人负责 Langevin，
-一人负责 NHC/集成。第四、第五项只有在不争用共享文件且有人能完成完整 CPU/HCU 证据时才启动。
+一人负责 NHC/集成。若增加第四人，材料结构弛豫优先时可选择 FIRE2 variable-cell；其余扩展项
+只有在不争用共享文件且有人能完成完整 CPU/HCU 证据时才启动。

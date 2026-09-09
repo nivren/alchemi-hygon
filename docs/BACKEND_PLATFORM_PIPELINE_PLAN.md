@@ -212,7 +212,14 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
 2. `TORCH-NVT-LANGEVIN`：固定晶胞 NVTLangevin reference；
 3. `TORCH-NVT-NHC`：固定晶胞 Nose-Hoover chain reference。
 
-每项均先完成 CPU contract，再获得 HCU 批证据；任何 feature/profile/planner 跨项设计必须另立
+用户追加批准以下低耦合 T1 扩展任务：
+
+4. `TORCH-FIRE2-VARIABLE-CELL`：先完成 tensile-positive stress 到 cell force 的 Torch
+   reference 与 FP64 oracle，再实现 FIRE2 原子/晶胞 coupled step。范围不包括普通
+   `FIREVariableCell`、NPT/NPH、DomainParallel、完整 LJ virial/stress 或生产 Triton/HIP。
+
+每项均先完成 CPU contract，再获得 HCU 批证据；variable-cell 的正确性阶段可使用现有 periodic
+dense reference，不阻塞于周期 cell-list 性能任务。任何 feature/profile/planner 跨项设计必须另立
 小计划。M2 的启动条件是出现多个已验证实现、需要可复现实验策略或必须冻结 pipeline 选择，
 而不是仅因为 registry 已存在。
 

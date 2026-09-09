@@ -15,7 +15,9 @@
   handoff 将只同步 `local-origin/develop` 与 `github-origin/develop`。
 - 并行开发入口见 [`docs/PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)：从远端最新
   `develop` 创建个人分支，优先开展三个 T1 operation；thermostat utilities 与 LJ switching
-  作为低耦合扩展，M2、NPT/NPH、DomainParallel 和生产 Triton/HIP 继续暂停。
+  作为低耦合扩展。用户已追加批准 `TORCH-FIRE2-VARIABLE-CELL`：先做 stress→cell-force
+  reference，再做 coupled FIRE2 step；普通 FIREVariableCell、NPT/NPH、DomainParallel 和
+  生产 Triton/HIP 继续暂停。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 

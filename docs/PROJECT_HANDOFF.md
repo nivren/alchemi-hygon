@@ -396,3 +396,19 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 - cache 约束：生产 dispatch 使用稳定 callable cache，不自动检测模块变化；测试或受支持的
   module reload 工具必须显式调用 `clear_entrypoint_cache()`。不要在每个 dynamics step 增加
   `sys.modules`/module identity 检查。
+
+## 19. 并行开发启动计划（2026-09-09）
+
+- 团队执行入口为 `docs/PARALLEL_DEVELOPMENT_PLAN.md`。所有开发者从远端最新 `develop`
+  创建 `<开发者>/<类型>-<主题>` 分支；每个分支只拥有一个 operation 的 executor、测试、probe
+  和 report，共享 catalog/CPU gate/STATUS/兼容矩阵由集成负责人串行收口。
+- 三个核心 T1 为 `TORCH-NVT-LANGEVIN`、`TORCH-NEIGHBOR-PBC-CELL` 和 `TORCH-NVT-NHC`；
+  `TORCH-THERMOSTAT-UTILS` 与 `TORCH-LJ-SWITCHING` 是额外人力下的低耦合扩展。
+- 用户追加批准 `TORCH-FIRE2-VARIABLE-CELL` 作为 P1 扩展。一个 owner 先交付
+  `TORCH-CELL-STRESS-FORCE`（stress 符号、volume、cell inverse、`keep_aligned` 与 FP64 oracle），
+  再交付原子/晶胞 coupled FIRE2 step 和公共 `FIRE2VariableCell` 窄纵向验证。
+- 该扩展不包含普通 `FIREVariableCell`、NPT/NPH barostat、DomainParallel replicated cell
+  state、完整 LJ virial/stress、生产 Triton/HIP 或 M2。正确性验证可使用现有 periodic dense
+  reference，不等待周期 cell-list 性能任务。
+- `FEATURE_COMPATIBILITY.yaml` 的 `dynamics.fire` 仍保持 `planned/partial`：本轮只是批准排期，
+  没有新增实现、CPU 数值或 HCU 证据，不得提前改成 implemented/verified。
