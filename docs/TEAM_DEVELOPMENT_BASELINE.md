@@ -69,6 +69,9 @@ strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回�
 
 ## 基线后的独立任务队列
 
+进入实际并行开发前，先阅读[并行开发工作计划](PARALLEL_DEVELOPMENT_PLAN.md)。本文保留任务
+队列和基础门禁；分支命名、文件 ownership、共享热点与合入顺序以该计划为准。
+
 | ID | 任务 | 前提与验收 |
 |---|---|---|
 | `TORCH-NEIGHBOR-PBC-CELL` | 周期 full-list cell-list reference | 先写 periodic cell、image shift、batch/overflow 契约；与 dense CPU FP64 和 HCU 对照；未通过不登记 strategy capability |
