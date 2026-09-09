@@ -367,8 +367,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 - 当前最短恢复路径是：阅读 `docs/STATUS.md` 和 `docs/TEAM_DEVELOPMENT_BASELINE.md`，运行
   `scripts/check_cpu_reference.sh`，再由分配到 HCU 的开发者运行
   `HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh`。当前两道 gate 均已通过，
-  两道 gate 已通过且 B0 已合入 `develop`，下一步进入 T1 的邻居后端或常用积分器移植；
-  M2 仍不启动。
+  B0 已合入 `develop`；当前 B1 候选 gate 也已通过，但仍须按第 18 节完成人工 review 后再
+  进入 T1 的常用积分器移植，M2 仍不启动。
 
 ## 18. B1 Executor Binding 交接（2026-09-09）
 
@@ -385,10 +385,11 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 - CPU gate 现已把 `test_executor_binding.py` 纳入 framework 分进程测试；完整命令、退出码和
   分层结果见 `reports/b1-executor-binding.md`。代码与文档均已通过 `git diff --check`，
   `FEATURE_COMPATIBILITY.yaml` 不变，因为 B1 只改变绑定机制。
-- HCU 需用 B0 式候选集成指针执行：从本分支最终提交创建本地候选指针，经人工 review 后在
-  主机权限和显式 `HIP_VISIBLE_DEVICES=<assigned>` 下运行
-  `scripts/check_hcu_reference_smoke.sh`；失败不得切 CPU。HCU 完成前不要写 HCU verified，
-  也不要自动 push 或 merge。
-- HCU gate 通过后的唯一下一步是 `TORCH-NVT-LANGEVIN`：先读上游 Langevin contract，建立
+- HCU 已按 B0 式候选集成模式完成：本地候选指针为 `team/b1-executor-binding-candidate`，在主机
+  权限、DTK 26.04、显式 `HIP_VISIBLE_DEVICES=0` 的 HCU 0 上运行
+  `scripts/check_hcu_reference_smoke.sh`，五个 probe 退出码均为 `0`，且均报告
+  `warp_imported=false`。该结果只覆盖当前 golden-path 窄 slice，不是完整 DCU production 或
+  性能结论；没有自动 push 或 merge。
+- 人工 review 通过后的唯一下一步是 `TORCH-NVT-LANGEVIN`：先读上游 Langevin contract，建立
   BAOAB/随机数/state/restart 的 CPU reference 与测试，再登记 capability；周期 cell-list
   和 NHC 不与其合并，M2 继续延期。

@@ -2,7 +2,7 @@
 
 日期：2026-09-09  
 开发分支：`codex/refactor-executor-binding`  
-状态：CPU verified；B0 式候选 HCU gate pending；未合入、未推送共享分支
+状态：CPU verified；B0 式候选 HCU golden-path smoke verified；未合入、未推送共享分支
 
 ## 目标与实现
 
@@ -58,20 +58,31 @@ path 回归保持通过，覆盖 neighbors/LJ、固定晶胞 VV/FIRE/FIRE2、per
 的既有契约；这些结果证明绑定迁移未改变已保护的 CPU reference 行为，不等于新增 HCU、Triton
 或 HIP 生产实现。
 
+## HCU 验证
+
+按 B0 候选集成模式，在本地 `team/b1-executor-binding-candidate` 指针对应提交、主机权限、
+DTK 26.04、`HIP_VISIBLE_DEVICES=0`、空闲 HCU 0 上运行：
+
+```bash
+HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 scripts/check_hcu_reference_smoke.sh
+```
+
+退出码：`0`。五个 probe 均通过，设备为 `BW200, UBB BW1000`；neighbor/LJ、periodic、VV、
+kinetics、FIRE/FIRE2 均报告 `warp_imported=false`。代表性结果包括：LJ full/half energy
+`-0.6236757013081533`，periodic neighbor matrix shape `[2, 16]` 且有效邻居数 `[1, 1]`，VV
+最大 position error `6.938893903907228e-18`。这只是当前 golden-path 窄 slice 的设备回归。
+
+受限 sandbox 首次运行同一脚本以退出码 `1` 报 `HIP device required; no silent CPU fallback`；
+该载体隐藏 HIP 设备节点，不能作为 HCU 能力失败。主机权限重跑才是本次 HCU 证据。
+
 ## 未验证、限制与下一步
 
-- B1 HCU gate 尚未在 B0 式候选集成指针上运行，当前不能写成 HCU verified 或 DCU production
-  support。候选 gate 命令为：
-
-  ```bash
-  HIP_VISIBLE_DEVICES=<assigned> scripts/check_hcu_reference_smoke.sh
-  ```
-
-- HCU 失败不得切换 CPU；应记录设备、环境、退出码和具体 probe 失败。没有新的 HCU 记录前，
-  `FEATURE_COMPATIBILITY.yaml` 保持不变。
+- HCU 证据不等于完整 DCU production support、Triton/HIP 实现、性能结论、变胞、分布式或
+  全部 framework compile 支持；HCU 失败仍不得切换 CPU。
+- 本轮没有扩大 `FEATURE_COMPATIBILITY.yaml` 的功能宽度；它继续描述既有能力和限制。
 - compile 回归覆盖当前 reference 载体；这不是完整生产后端 compile、Triton/HIP、变胞、
   分布式或性能证据。
-- B1 候选 gate 和人工 review 完成后，下一项是 `TORCH-NVT-LANGEVIN`。周期 cell-list 和
+- 人工 review 完成后，下一项是 `TORCH-NVT-LANGEVIN`。周期 cell-list 和
   `TORCH-NVT-NHC` 保持独立 T1 任务；M2 PlatformFingerprint/Profile/Planner 继续延期。
 
 设计决策见 [`adr/0007-declarative-executor-binding.md`](../adr/0007-declarative-executor-binding.md)。

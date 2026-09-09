@@ -1,7 +1,7 @@
 # 后端能力、平台策略与 Pipeline 执行计划
 
 状态：M1 已完成（2026-09-09）；基础开发版本 B0 已合入 `develop`；B1 executor binding
-已在开发分支完成 CPU gate，候选 HCU gate pending；M2 尚未开始。
+已在开发分支完成 CPU gate，候选 HCU gate 已通过；M2 尚未开始。
 
 本文是后续重构的权威计划。它解决三个不同问题：实现是否具备某项能力、某个平台/工作负载推荐什么实现、一次 pipeline 如何在不重复解析的情况下执行。三者不能再由一个后端字符串或若干局部 `if` 同时承担。
 
@@ -158,8 +158,8 @@ component explicit override
 
 ### B1：兑现 executor 字段，消除实现绑定漂移
 
-状态：代码与 CPU gate 已完成（2026-09-09）；HCU 需在 B0 式候选集成指针上运行，尚未合入或
-推送共享分支。B1 不增加 operation capability，也不启动 M2。
+状态：代码与 CPU gate 已完成（2026-09-09）；B0 式候选集成指针的 HCU gate 已通过，尚未
+合入或推送共享分支。B1 不增加 operation capability，也不启动 M2。
 
 B1 的问题边界是：catalog 中的 `executor` 不能继续只是描述字符串。实现绑定必须由 registry
 metadata 驱动，否则每增加一个 implementation 都要同时修改 catalog 和多个 operation 的
@@ -196,8 +196,9 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
 当前 CPU 验收覆盖 registry metadata、legacy reverse guard、lazy import、实际第二实现调用、
    framework entrypoint importability、dispatcher static guard、neighbors/LJ/VV/FIRE/FIRE2/
    kinetics/periodic/observer golden paths、state lifecycle、compileall 和 diff check。HCU gate
-   沿用 B0 的候选集成分支模式；在分配设备上运行后，才把 B1 的对应范围登记为 HCU verified。
-   在此之前报告为 CPU verified / HCU pending。B1 完成后，下一任务才是 `TORCH-NVT-LANGEVIN`；
+   沿用 B0 的候选集成分支模式，已在本地 `team/b1-executor-binding-candidate` 指针、主机权限
+   HCU 0 上通过；因此 B1 当前窄 slice 可登记为 HCU verified。该结果不扩大 capability 宽度，
+   也不构成性能或完整生产后端结论。B1 完成后，下一任务才是 `TORCH-NVT-LANGEVIN`；
    `TORCH-NEIGHBOR-PBC-CELL` 与 `TORCH-NVT-NHC` 保持独立队列。
 
 ### T1：基础版后的首批并行任务
