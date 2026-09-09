@@ -1,5 +1,16 @@
 # 当前开发状态
 
+## 当前权威重构计划
+
+- 后续 backend 架构重构以 [`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)
+  为准：`PlatformFingerprint → ImplementationRegistry → BackendProfile → PipelinePlanner →
+  Frozen BackendPlan`。
+- 计划已由用户确认并完成文档落盘；当前尚未实施 M1。`backend=None` 的 legacy 语义、显式
+  `auto` 策略、operation-specific neighbor strategy、单次解析和 checkpoint plan hash 是
+  已锁定的设计约束。
+- 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
+  交接记录为准。
+
 ## 交接初始状态（历史，2026-09-05）
 
 - 交接日期：2026-09-05。
@@ -67,6 +78,7 @@
 - 统一 benchmark 的 HCU 单体系阶梯已通过：`perf_46/92/184/368` 的 periodic full、no-PBC full/half 全部退出 0；periodic steady 为 `3.243/3.702/5.753/13.969 ms`，no-PBC full 为 `1.853/1.852/1.859/1.880 ms`。首个 periodic cold 样本包含约 `4.209 s` 的 HCU context/kernel 初始化，不与 steady 混比。该证据仍不覆盖 batch 阶梯或端到端 MACE/FIRE2。报告见 `reports/g2-unified-reference-benchmark-hcu-scale.md`。
 - 统一 benchmark 的 HCU `perf_92` batch 阶梯已通过：batch `1/4/8/16/32` 的 periodic full steady 为 `3.768/9.789/17.819/33.571/65.577 ms`，no-PBC full 为 `1.856/3.931/6.705/12.232/23.316 ms`；batch=32 的 periodic 边数 `54,760`、steady `0.065577 s` 与既有 Tier-1 结果连续。该证据仍不覆盖 MACE/FIRE2 端到端。报告见 `reports/g2-unified-reference-benchmark-hcu-batch92.md`。
 - 统一 benchmark 的 HCU periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步已通过：总耗时 `11.1279105 s`，100 步平均 `0.1112791 s/step`，最后邻居边数 `3,284`；`StageTimingHook` 的 `BEFORE_COMPUTE→AFTER_COMPUTE` total 为 `10.439570 s`，但最大单样本 `6.586 s`、std `0.671 s`，因此只能作为共享 HCU 下的端到端相对基线。报告见 `reports/g2-unified-reference-benchmark-hcu-e2e.md`。
+- no-PBC cell-list 第一小步已完成：新增显式 `torch_reference_cell_list` capability 和 device-side uniform-cell candidate path；不改变 `torch_reference`、`auto` 或默认 Warp。ops CPU/HCU 均为 `10 passed`，framework 接线 CPU/HCU 均为 `3 passed, 2 deselected`，支持 synthetic full/half、MATRIX/COO、batch 边界、距离/向量、空输入和显式 overflow。真实规模性能仍待统一 benchmark。报告见 `reports/g2-torch-reference-cell-list-contract.md`，契约见 `adr/0005-torch-reference-cell-list.md`。
 - 项目环境 pytest 基线：ops reference `10 passed`、framework optional-import/neighbor Hook `11 passed`，均退出码 `0`；两包测试需分开启动以避开上游都使用顶层 `test` 包名造成的 `ImportPathMismatchError`。详细命令见 `reports/g1-project-reference-pytest.md`。
 - 可重建性检查：`uv pip sync --dry-run --python .venv/bin/python ... configs/hygon-reference-lock.txt` 在北外镜像上解析并核对 `77 packages`，退出码 `0`，显示 `Would make no changes`。
 - skin/rebuild 当前进展：Torch reference 已对 Batch 中变化的 system 做 eager 局部重建，并保持全局索引、MATRIX/COO 写回和未变化 system 的缓存；两体系 CPU/HCU probe 均通过，报告见 `reports/g1-skin-rebuild-batch-reference.md`。Hook staging 已有自动容量处理，算子层仍保留显式 overflow 防御。
@@ -547,3 +559,19 @@
 - no-PBC reference 邻居现在对每个 system 在设备上构造 pair geometry、`nonzero`、`bincount` 与 row-rank/scatter，保持 full/half、MATRIX/COO row-major、batch 边界、distance/vector、overlap 和 overflow 契约。CPU ops `17 passed`；相关 framework storage/neighbors/Hook/默认路径边界/public dynamics reference 为 `32 passed, 2 xfailed`，LJ `7 passed`，dynamics/observer/periodic 子集均退出 `0`。两个 strict xfail 分别跟踪无 Warp 的等价性与 legacy 默认路径守护；synthetic `[46,92]` CPU probe full/half 为 `734/367` 边。
 - 新增 no-PBC 代码已在项目 `.venv`、DTK 26.04、BW200/gfx936 HCU 0 获得窄 slice 证据：ops registry/reference 回归 `17 passed, 1 warning`，异构 `[46,92]` probe 的 full/half 为 `890/445` 边、MATRIX/distance/vector 均为预期 shape；两体系 `AtomicData` 的 framework `compute_neighbors` HCU Batch 写回也通过。HCU 随机序列与 CPU 不同，不以边数对拍；这是功能 smoke，不报告为性能结论。统一 no-PBC/periodic benchmark harness 已完成 CPU neighbor 与 periodic `[46,92]` 2 步端到端 smoke，下一步补 HCU 阶梯和 100 步端到端；NVT/Langevin、PBC half-list、Triton/HIP、compile 和分布式保持未完成。
 - 按原参数复跑 32×92 周期 MACE/FIRE2 固定晶胞弛豫：`fmax=0.01`、`max_steps=2000`、`dt=0.01`、`skin=0.5`，HCU `status=passed`，32/32 收敛，`step_count=835`，`max_final_fmax=0.009996769018471241`，耗时 `81.58037368883379 s`。独立日志见 `artifacts/g2/mace-fire2-batch32-rerun-20260908.log`，与此前 834 步、约 79.5--79.8 秒结果一致；仍不作为无干扰性能基线。
+
+### 2026-09-08：neighbor backend selection 单次解析接线
+
+- framework 的 `compute_neighbors` 与 `NeighborListHook` 现在先通过中央
+  `nvalchemiops.backend` capability registry 得到 `BackendSelection`，再把同一选择传给
+  Torch neighbor dispatcher；dispatcher 不再对同一请求二次解析。Warp 仍由 framework
+  legacy 边界执行，默认 `backend=None` 语义未改变。
+- `neighbors.py` 及相关 compute-backend docstring 不再手工维护后端枚举，改为引用
+  `resolve_backend`/`backend_capabilities` 的 operation-scoped registry；logging writer、
+  storage 和 stage-timing 等不同语义的 backend 保持各自边界。
+- CPU ops dispatcher 回归 `12 passed`，framework neighbors/reference 回归 `5 passed`；
+  HCU BW200/gfx936 ops 选择/neighbor 子集 `5 passed`，framework neighbor + FIRE2 skin
+  子集 `6 passed`。新增测试确认预解析 selection 不会触发第二次 resolver 调用。
+- 本步尚未把 LJ、动力学和 observer 的所有 dispatcher 改为 selection 传递，也未改变
+  `auto` 优先级；下一步继续处理其余 compute backend 调用点并补 operation-scoped 文档
+  和回归。

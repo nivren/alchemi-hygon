@@ -279,8 +279,9 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
 - CPU neighbor/E2E smoke 已通过；HCU 小范围 smoke 也已通过：periodic/no-PBC full/half
   的 46/92 原子及 batch=1 契约检查退出码 `0`，设备为 `BW200, UBB BW1000`。详见
   `reports/g2-unified-reference-benchmark-hcu-smoke.md`。
-- HCU 单体系规模和 `perf_92` batch 阶梯均已完成；下一步运行 periodic `[46,92]`
-  MACE/FIRE2 固定晶胞 100 步，完整结果前不启动 cell-list 实现。
+- HCU 单体系规模、`perf_92` batch 阶梯和 periodic `[46,92]` MACE/FIRE2 固定晶胞
+  100 步均已完成；stage timing 抖动仍需低干扰窗口复测，当前不把 shared-HCU 数字
+  当作发布性能门槛。
 - HCU 单体系规模阶梯现已完成：periodic full、no-PBC full/half 的 46/92/184/368
   全部通过；periodic steady 为 `3.243/3.702/5.753/13.969 ms`。
 - `perf_92` 的 HCU batch=1/4/8/16/32 阶梯现已完成；periodic steady 为
@@ -288,3 +289,18 @@ CPU 大体系的 steady 仍接近原值，说明 dense pair/image 几何计算�
   periodic `[46,92]` MACE/FIRE2 固定晶胞 100 步端到端也已通过；总耗时
   `11.1279105 s`，100 步平均 `0.1112791 s/step`。由于 stage timing 存在明显抖动，
   仍需低干扰窗口复测后再决定 cell-list 的切入位置。
+- no-PBC `torch_reference_cell_list` 已完成显式 registry/dispatcher/framework 接线和
+  CPU/HCU synthetic contract 回归；默认路径、`torch_reference` 和 `auto` 均未改变。
+  下一小步给 unified benchmark 增加 backend 选项，比较真实 `perf_46/92/184/368`
+  no-PBC cell-list 与 dense reference 的同口径成本。
+
+## 13. 后续重构权威计划（2026-09-08）
+
+后续不要把 `backend` 字符串继续扩展成全局枚举。已确认的“能力 registry → 平台
+profile → 全 pipeline planner → 冻结 BackendPlan”重构计划保存在
+[`docs/BACKEND_PLATFORM_PIPELINE_PLAN.md`](BACKEND_PLATFORM_PIPELINE_PLAN.md)。
+
+该计划当前只完成文档落盘，尚未开始 M1 实施。下一 session 应先读该文档，从 M1
+“Registry 语义收敛”开始；每个小里程碑完成后停止，报告实现/测试/数值/未验证假设，
+等待用户确认下一步。计划要求 `backend=None` 保留 legacy 上游语义、`auto` 仅是显式
+策略请求、cell-list 迁移为 neighbor operation strategy，并由 planner 一次生成冻结计划。

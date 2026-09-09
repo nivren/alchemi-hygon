@@ -132,10 +132,11 @@ class LoggingHook:
     writer_fn : Callable[[int, list[dict[str, float]]], None] | None, optional
         Custom writer function, required when ``backend="custom"``.
         Receives ``(step_count, rows)``.  Default ``None``.
-    compute_backend : {None, "warp", "auto", "torch_reference"}, optional
-        Backend for on-device reductions and kinetic observables. ``None``
-        follows ``ctx.workflow.backend`` when present, otherwise preserves
-        the upstream Warp path.
+    compute_backend : str | None, optional
+        Compute backend request for on-device reductions and kinetic
+        observables. It is resolved by the central capability registry.
+        ``None`` follows ``ctx.workflow.backend`` when present, otherwise
+        preserves the upstream Warp path.
 
     Examples
     --------

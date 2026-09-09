@@ -103,9 +103,11 @@ def wrap_positions_into_cell(
         Per-dimension periodicity flags, shape ``(B, 3)``, boolean.
     batch_idx : Tensor
         Per-atom graph membership indices of shape ``(V,)``.
-    backend : {None, "warp", "auto", "torch_reference"}, optional
-        Compute backend. ``None``/``"warp"`` preserve the upstream Warp path;
-        ``"auto"`` and ``"torch_reference"`` select the Torch reference path.
+    backend : str | None, optional
+        Compute backend request, resolved for the ``periodic_wrap`` operation
+        by :func:`nvalchemiops.backend.resolve_backend`. ``None``/``"warp"``
+        preserve the upstream Warp path; unsupported combinations fail
+        explicitly.
 
     Returns
     -------
@@ -186,8 +188,9 @@ class WrapPeriodicHook:
     stage : Enum | None, optional
         The workflow stage at which this hook runs.  Defaults to
         ``None`` (stage-agnostic until registered with a specific engine).
-    compute_backend : {None, "warp", "auto", "torch_reference"}, optional
-        Backend used by the coordinate helper. If omitted, an explicit
+    compute_backend : str | None, optional
+        Compute backend request for the coordinate helper. It is resolved by
+        the central capability registry. If omitted, an explicit
         ``ctx.workflow.backend`` is inherited when available.
 
     Attributes

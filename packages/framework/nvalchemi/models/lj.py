@@ -120,9 +120,12 @@ class LennardJonesModelWrapper(nn.Module, BaseModelMixin):
         Pass ``True`` (default) if the neighbor matrix contains each pair
         once (half list).  Must match the ``half_fill`` argument given to
         :class:`~nvalchemi.hooks.NeighborListHook`.
-    backend : {``None``, ``"warp"``, ``"auto"``, ``"torch_reference"``}, optional
-        Execution backend. ``None`` preserves the Warp custom-op path. The
-        explicit Torch reference path supports full-list PBC with integer
+    backend : str | None, optional
+        Compute backend request, resolved for the ``lj_energy_forces``
+        operation by :func:`nvalchemiops.backend.resolve_backend`; see
+        :func:`nvalchemiops.backend.backend_capabilities` for the
+        authoritative capability table. ``None`` preserves the Warp custom-op
+        path. The current Torch reference supports full-list PBC with integer
         image shifts, no switching, and no virial/stress.
 
     Attributes

@@ -91,9 +91,10 @@ class EnergyDriftMonitorHook:
         Whether to include kinetic energy in the total energy
         calculation. Set to ``False`` if only monitoring potential
         energy drift (e.g. for optimizers). Default ``True``.
-    compute_backend : {None, "warp", "auto", "torch_reference"}, optional
-        Backend for kinetic energy. ``None`` follows ``ctx.workflow.backend``
-        when present, otherwise preserves the upstream Warp path.
+    compute_backend : str | None, optional
+        Compute backend request for kinetic energy, resolved by the central
+        capability registry. ``None`` follows ``ctx.workflow.backend`` when
+        present, otherwise preserves the upstream Warp path.
 
     Attributes
     ----------
@@ -185,8 +186,9 @@ class EnergyDriftMonitorHook:
             The current step number.
         global_rank : int
             The distributed rank of this process.
-        compute_backend : {None, "warp", "auto", "torch_reference"}, optional
-            Backend used for the kinetic contribution.
+        compute_backend : str | None, optional
+            Compute backend request for the kinetic contribution, resolved by
+            the central capability registry.
 
         Raises
         ------

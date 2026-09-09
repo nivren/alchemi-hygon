@@ -209,9 +209,11 @@ def scatter_reduce_per_graph(
         Number of graphs in the batch.
     reduce : {"amax", "sum", "amin", "mean"}
         Scatter-reduce operation. Default ``"amax"``.
-    backend : {None, "warp", "auto", "torch_reference"}, optional
-        Execution backend. ``None``/``"warp"`` preserve the upstream Warp
-        path; ``"torch_reference"`` and ``"auto"`` select the Torch path.
+    backend : str | None, optional
+        Compute backend request, resolved for the ``segmented_reduce``
+        operation by :func:`nvalchemiops.backend.resolve_backend`. ``None``
+        preserves the upstream Warp path; unsupported combinations fail
+        explicitly.
 
     Returns
     -------
