@@ -18,6 +18,11 @@
   作为低耦合扩展。用户已追加批准 `TORCH-FIRE2-VARIABLE-CELL`：先做 stress→cell-force
   reference，再做 coupled FIRE2 step；普通 FIREVariableCell、NPT/NPH、DomainParallel 和
   生产 Triton/HIP 继续暂停。
+- 用户已追加 `TORCH-BFGS-ASE-COMPAT`：以项目 `.venv` 的 ASE 3.29 无 line-search BFGS
+  作为 CPU FP64 步级 oracle，固定晶胞可独立开工。该路径的 `eigh(H)` 与绝对特征值修正属于
+  兼容算法本身；变胞 ASE 对齐须采用 `UnitCellFilter` 的 `3N+9` deformation-gradient 语义，
+  与原生 `3N+6` FIRE2/cell-filter 路径分开。HIP eigensolver 只在实测确认瓶颈后立项，当前
+  没有新增实现或 HCU 证据。
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 

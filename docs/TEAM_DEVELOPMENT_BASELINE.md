@@ -78,6 +78,7 @@ strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回�
 | `TORCH-NVT-LANGEVIN` | 固定晶胞 NVTLangevin Torch reference | 与 upstream 随机数、状态、温度统计和 restart 语义逐项确认；先 CPU 再 HCU，不改 NPT/NPH |
 | `TORCH-NVT-NHC` | 固定晶胞 NVT Nose-Hoover chain reference | 建立链状态、质量、能量/温控统计、Batch/inflight 和错误契约；独立于 Langevin 合入 |
 | `TORCH-FIRE2-VARIABLE-CELL` | FIRE2 原子/晶胞联合弛豫 | 先验证 stress→cell-force 符号、单位和 FP64 oracle，再实现 coupled step；不迁移 FIREVariableCell、NPT/NPH 或分布式 cell state |
+| `TORCH-BFGS-ASE-COMPAT` | ASE 3.29 无 line-search BFGS 数值兼容 | 先做单体系固定晶胞，逐步对齐 Hessian、`eigh`、绝对特征值和 `maxstep`；变胞另依赖 `UnitCellFilter` 的 `3N+9` 语义，HIP eigensolver 以实测瓶颈为门 |
 
 当至少两个 operation 出现多个已验证实现，或需要可复现实验策略时，再启动
 `BACKEND_PLATFORM_PIPELINE_PLAN.md` 的 M2 profile/planner；不要为当前单一 reference

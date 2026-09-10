@@ -412,3 +412,19 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   reference，不等待周期 cell-list 性能任务。
 - `FEATURE_COMPATIBILITY.yaml` 的 `dynamics.fire` 仍保持 `planned/partial`：本轮只是批准排期，
   没有新增实现、CPU 数值或 HCU 证据，不得提前改成 implemented/verified。
+
+## 20. ASE-compatible BFGS 并行任务登记（2026-09-10）
+
+- 用户要求框架提供与此前分子晶体弛豫工作对齐的无 line-search BFGS。项目 `.venv` 的
+  `ase==3.29.0` 已核实：公开 `ase.optimize.BFGS` 使用
+  `ase._4.optimize.bfgs.BFGSMethod`，每步更新 Hessian、执行 `eigh(H)`、对特征值取绝对值
+  后计算方向，并以全局最大原子步长缩放；因此 `eigh` 是该兼容目标的一部分，不可用另一种
+  标准 BFGS 实现替代后仍称数值对齐。
+- `TORCH-BFGS-ASE-COMPAT` 已登记为 P1：先以单体系固定晶胞 Torch/CPU FP64 oracle 实现，
+  对照 Hessian、方向、`maxstep` 与 restart；异构 Batch、inflight、DomainParallel 明确不在
+  首版范围。HCU 的 `torch.linalg.eigh` 先作为正确性和基线；只有目标尺寸实测确定其为稳定瓶颈
+  时，才评估 `HIP-BFGS-EIGH`，不得预设 hipSOLVER/Triton/HIP 的性能结论。
+- 严格变胞 ASE 对齐单列为后续 `TORCH-BFGS-ASE-UNITCELL`：必须采用 `UnitCellFilter` 的
+  `3N+9` deformation-gradient、`cell_factor`、mask 和压力约定；现有 `3N+6` 上三角
+  cell-filter/FIRE2 路径是不同的框架原生语义，不能标注为 ASE-compatible。此前实际使用的
+  ASE filter 尚待从原工作记录确认后，才可声明完整变胞轨迹对齐。

@@ -1870,6 +1870,78 @@
       "release_gate": "G2"
     },
     {
+      "id": "dynamics.bfgs_ase_compat",
+      "category": "B",
+      "status": "planned",
+      "implementation_scope": "计划实现与项目 .venv 中 ASE 3.29 无 line-search BFGS 数值兼容的固定晶胞 reference；变胞 ASE UnitCellFilter 兼容、HIP eigensolver、异构 Batch/inflight 和 DomainParallel 尚未实现",
+      "scenario": "分子与分子晶体的 BFGS 结构弛豫；首版为单体系固定晶胞，后续变胞路径要求 ASE UnitCellFilter deformation-gradient 语义",
+      "source": {
+        "repository": "ASE project environment oracle",
+        "commit": "ase==3.29.0; source revision must be frozen in the implementation contract",
+        "paths": [
+          "ase/optimize/bfgs.py",
+          "ase/_4/optimize/bfgs.py",
+          "ase/filters.py"
+        ],
+        "symbols": {
+          "ase.optimize.BFGS": [
+            "initialize",
+            "prepare_step",
+            "determine_step",
+            "update"
+          ],
+          "ase._4.optimize.bfgs.BFGSMethod": [
+            "compute_step",
+            "update"
+          ],
+          "ase.filters.UnitCellFilter": [
+            "get_positions",
+            "set_positions",
+            "get_forces"
+          ]
+        }
+      },
+      "contract": {
+        "api": "new public BFGS API must follow BaseDynamics lifecycle while preserving ASE 3.29 BFGS numerical semantics within the declared slice",
+        "data": "fixed-cell state contains a dense Hessian, previous position and previous force; alpha*I initial Hessian, symmetric eigh(H), absolute eigenvalue direction correction and global maxstep scaling are required",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change; non-ASE safeguards or a native 3N+6 variable-cell parameterization are distinct modes, not ASE-compatible fallback",
+        "details": "First version explicitly rejects heterogeneous Batch, inflight and DomainParallel. ASE UnitCellFilter compatibility is 3N+9 deformation-gradient plus cell_factor/mask/pressure semantics, not the existing native 3N+6 upper-triangular cell filter."
+      },
+      "dependencies": [
+        "torch",
+        "ase==3.29.0 test oracle"
+      ],
+      "backends": {
+        "upstream": "ASE NumPy dense Hessian and numpy.linalg.eigh",
+        "target": [
+          "torch_reference",
+          "hip conditional after benchmark"
+        ]
+      },
+      "gradient_level": "default_forward_only",
+      "verification": {
+        "dcu_status": "not_run",
+        "upstream_tests": [],
+        "dcu_tests": [
+          "planned ASE 3.29 FP64 step oracle",
+          "planned fixed-cell BFGS compatibility test",
+          "planned HCU BFGS/eigh smoke and benchmark"
+        ],
+        "evidence": [
+          "adr/0008-ase-compatible-bfgs.md",
+          "docs/PARALLEL_DEVELOPMENT_PLAN.md",
+          "docs/PROJECT_HANDOFF.md"
+        ],
+        "environments": []
+      },
+      "limitations": [
+        "No implementation, CPU numerical evidence or HCU evidence exists at this planning point",
+        "HIP eigensolver is not committed; its need depends on target-size warmed FP64 profiling of eigh, Hessian update, force evaluation and end-to-end BFGS steps",
+        "The prior molecular-crystal workflow filter configuration must be confirmed before claiming variable-cell trajectory alignment"
+      ],
+      "release_gate": "G2"
+    },
+    {
       "id": "interactions.long_range",
       "category": "B",
       "status": "planned",

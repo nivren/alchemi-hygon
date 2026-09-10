@@ -217,6 +217,11 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
 4. `TORCH-FIRE2-VARIABLE-CELL`：先完成 tensile-positive stress 到 cell force 的 Torch
    reference 与 FP64 oracle，再实现 FIRE2 原子/晶胞 coupled step。范围不包括普通
    `FIREVariableCell`、NPT/NPH、DomainParallel、完整 LJ virial/stress 或生产 Triton/HIP。
+5. `TORCH-BFGS-ASE-COMPAT`：以项目 `.venv` 的 ASE 3.29 无 line-search `BFGS` 为
+   步级 CPU FP64 oracle。固定晶胞先行，精确覆盖 Hessian 更新、`eigh(H)`、`abs(eigenvalues)`
+   和全局 `maxstep` 缩放；变胞另依赖 ASE `UnitCellFilter` 的 `3N+9` deformation-gradient
+   契约与可信 stress，不能与现有原生 `3N+6` cell filter 混称。HIP eigensolver 仅在实测显示
+   `eigh` 为目标规模的稳定瓶颈后评估，不能预设为首版后端。
 
 每项均先完成 CPU contract，再获得 HCU 批证据；variable-cell 的正确性阶段可使用现有 periodic
 dense reference，不阻塞于周期 cell-list 性能任务。任何 feature/profile/planner 跨项设计必须另立

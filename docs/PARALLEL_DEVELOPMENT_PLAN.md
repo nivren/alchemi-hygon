@@ -1,6 +1,6 @@
 # 并行开发工作计划
 
-日期：2026-09-09
+日期：2026-09-10
 
 适用基线：当前产品 `develop`；B1 executor binding 已完成并已同步两个产品远端。
 
@@ -47,9 +47,14 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 | `TORCH-THERMOSTAT-UTILS` | Maxwell-Boltzmann 速度初始化、去 COM、velocity rescale | P1 | 低 | 补齐实际 NVT 初始化链路；需先冻结 seed、温度和 Batch 契约 |
 | `TORCH-LJ-SWITCHING` | LJ cutoff switching 的能量、力和连续性 | P1 | 很低 | 主要是 ops reference 和 focused tests；framework 只取消明确拒绝 |
 | `TORCH-FIRE2-VARIABLE-CELL` | FIRE2 原子/晶胞联合结构弛豫 | P1 | 低—中 | 先做 stress→cell-force reference，再做 coupled FIRE2 step；不接 NPT/NPH |
+| `TORCH-BFGS-ASE-COMPAT` | ASE 3.29 无 line-search BFGS 数值兼容 | P1 | 中 | 先交付固定晶胞；变胞严格采用 ASE `UnitCellFilter` 语义，另设依赖里程碑 |
 
 `LJ virial/stress` 暂不与 switching 分成两个同时修改同一实现文件的分支；它应在 switching
 完成后单独排队，或由同一 owner 负责连续交付。
+
+`TORCH-BFGS-ASE-COMPAT` 的“兼容”有严格含义：项目 `.venv` 当前锁定的 ASE 3.29
+`ase.optimize.BFGS` 是数值 oracle，不是仅借用 BFGS 名称。首版不得把标准逆 Hessian
+近似、L-BFGS、line search、曲率跳过/阻尼或不同的晶胞参数化伪称为该兼容路径。
 
 ## 3. 每条开发线的工作定义
 
@@ -175,6 +180,56 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 LJ virial/stress 的完整实现、生产 Triton/HIP 和性能结论。没有可信 stress/HCU 证据时只能登记
 对应的 CPU reference slice。
 
+### 3.7 `TORCH-BFGS-ASE-COMPAT`
+
+建议分支：`<developer>/feature-torch-bfgs-ase-compat`
+
+本任务为此前分子晶体弛豫工作提供可审计的 ASE 3.29 无 line-search BFGS 对齐路径。先冻结
+固定晶胞的公开 API 和状态契约，再独立实现；变胞部分不与固定胞首版捆绑合入。
+
+固定晶胞首版必须逐式对齐项目 `.venv` 的
+`ase._4.optimize.bfgs.BFGSMethod` 与 `ase.optimize.BFGS`：
+
+- 初始 Hessian 为 `alpha * I`（ASE 默认 `alpha=70`）；
+- 以上一位置/梯度完成 Hessian BFGS 更新；
+- 每步执行实对称 `eigh(H)`，以 `abs(eigenvalues)` 计算下降方向；
+- 使用 ASE 的全局最大原子步长缩放，默认 `maxstep=0.2 Å`；
+- 无 line search，且 ASE-compatible 模式不私自加入曲率拒绝、阻尼、reset 或 trust-region
+  等改变轨迹的安全规则；
+- checkpoint/restart 至少保存 Hessian、上一步位置、上一步力和 `maxstep` 的等价状态。
+
+主要文件边界：
+
+- 新增 `packages/framework/nvalchemi/_dynamics_reference/bfgs.py`；
+- 局部新增 BFGS dispatcher/wrapper、catalog implementation 与独立 compatibility tests；
+- 新增 ASE FP64 oracle test、HCU probe 和 report；
+- 不修改 generic executor、公共 registry 或 M2 planner；不得把 BFGS 的内部线性代数需求提前
+  扩张为公共通用 `eigh` operation。
+
+固定晶胞最小验收：
+
+- 用解析二次势和预设的 `position/gradient` 序列，逐步对照 ASE 3.29 的 Hessian、未裁剪方向、
+  裁剪后位移与 restart；比较步向量而非符号不唯一的特征向量；
+- CPU FP64 对照覆盖首次步、负特征值取绝对值、零位移 restart、`alpha`、`maxstep`、非法/非有限
+  输入和收敛 Hook；明确首版只支持单个固定晶胞，异构 Batch、inflight 和 DomainParallel 必须
+  显式拒绝，不能靠 padding 或共享 Hessian 静默伪支持；
+- HCU 先以 `torch.linalg.eigh` 完成正确性 smoke 与基准；没有 HCU 证据只能登记 CPU verified。
+
+变胞严格兼容是 `TORCH-BFGS-ASE-UNITCELL` 子里程碑，依赖固定胞验收和可信 stress：
+
+- 采用 ASE `UnitCellFilter` 的原始胞 deformation-gradient 参数化，即 `3N+9` 自由度、
+  `cell_factor`（默认原子数）、mask、hydrostatic/constant-volume/scalar-pressure 语义；
+- 该路径与当前 `TORCH-FIRE2-VARIABLE-CELL`、`cell_filter` 的上三角 `3N+6` 原生表示不同。
+  后者可继续发展，但不得标记为 ASE-compatible BFGS；
+- 变胞 ASE 对齐不得在未确认此前工作实际使用的 filter（裸 `BFGS`、`UnitCellFilter`、
+  `FrechetCellFilter` 或其他）前宣称轨迹一致。
+
+`HIP-BFGS-EIGH` 不是首版承诺，而是有数据的条件任务：在目标晶体的 `D=3N` 与 `D=3N+9`、
+FP64、预热后条件下分别记录 `eigh`、Hessian update、模型力计算与端到端每步时间。只有
+`eigh` 确认为稳定瓶颈，才评估 HIP 小型实对称 eigensolver；先比较 Torch/hipSOLVER 路径，
+不能仅因库名或设备名预设 Triton/HIP 更快。任何 HIP 路径仍必须以 ASE CPU FP64 步级 oracle
+验证数学等价，且不能因性能回退到不同算法。
+
 ## 4. 共享文件与冲突控制
 
 每条分支只直接拥有自己的 executor、测试、probe 和 report。以下文件是共享热点：
@@ -239,9 +294,11 @@ scripts/check_cpu_reference.sh
 2. `TORCH-NVT-NHC` 可并行开始，但其 framework state 接线应独立审查；
 3. `TORCH-FIRE2-VARIABLE-CELL` 可由独立 owner 并行开始，但必须先完成
    `TORCH-CELL-STRESS-FORCE`，不能借机迁移 NPT/NPH；
-4. 低耦合的 thermostat utilities / LJ switching 在额外人力充足时并行；
-5. 每个 operation 单独通过 CPU gate，再安排 HCU 批验证和 review；
-6. 至少两个 operation 形成多个已验证实现、或确实出现可复现实验策略需求后，才重新评估 M2。
+4. `TORCH-BFGS-ASE-COMPAT` 的固定胞 contract/reference 可与上述任务并行；其变胞
+   `UnitCellFilter` 里程碑必须等固定胞验收与可信 stress，且不阻塞 FIRE2 的原生 `3N+6` 路径；
+5. 低耦合的 thermostat utilities / LJ switching 在额外人力充足时并行；
+6. 每个 operation 单独通过 CPU gate，再安排 HCU 批验证和 review；
+7. 至少两个 operation 形成多个已验证实现、或确实出现可复现实验策略需求后，才重新评估 M2。
 
 本批暂停条件：三个 T1 或指定的低耦合任务完成一个可审查里程碑后，更新
 `docs/STATUS.md`、对应 report 和兼容性条目，等待下一轮确认。期间不启动 M2、NPT/NPH、
@@ -254,5 +311,6 @@ operation、短提交、人工 review。文档只负责稳定边界，不承担 
 任务状态的职责。
 
 如果团队规模很小，最简单的执行方式是只启动前三项：一人负责 neighbor，一人负责 Langevin，
-一人负责 NHC/集成。若增加第四人，材料结构弛豫优先时可选择 FIRE2 variable-cell；其余扩展项
-只有在不争用共享文件且有人能完成完整 CPU/HCU 证据时才启动。
+一人负责 NHC/集成。若增加第四人，材料结构弛豫优先时可选择 BFGS fixed-cell ASE compatibility
+或 FIRE2 variable-cell；前者不等待变胞 FIRE2，但不得提前宣称变胞 ASE 对齐。其余扩展项只有在
+不争用共享文件且有人能完成完整 CPU/HCU 证据时才启动。
