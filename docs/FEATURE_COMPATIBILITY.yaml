@@ -1723,7 +1723,8 @@
           "reports/g2-dynamics-reference-compile.md",
           "reports/g2-upstream-dynamics-reference.md",
           "reports/g2-backend-registry-m1-dispatch-propagation.md",
-          "reports/g2-torch-nvt-langevin.md"
+          "reports/g2-torch-nvt-langevin.md",
+          "reports/g2-torch-nvt-langevin-stat.md"
         ],
         "environments": [
           "project .venv + DTK 26.04 + BW200/gfx936"
@@ -1731,7 +1732,7 @@
       },
       "limitations": [
         "已完成公共 NVE 的固定晶胞 reference 单步/短 run 接线，并新增固定晶胞 BAOAB Langevin 的 Torch reference 与公共 NVTLangevin 显式 backend 接线；Nose-Hoover/NPT、完整多阶段状态和生产 dynamics 仍未完成",
-        "Langevin 当前仅覆盖 forward-only 固定晶胞 reference；上游 Warp 行为套件、checkpoint/restart、长轨迹温度统计、分布式 ownership 和跨设备逐位随机一致性仍未验证",
+        "Langevin 当前仅覆盖 forward-only 固定晶胞 reference；上游 Warp 行为套件、checkpoint/restart、完整长轨迹温度统计、分布式 ownership 和跨设备逐位随机一致性仍未验证；仅有短谐势统计 oracle 的 CPU/HCU 证据",
         "上游 Warp-backed dynamics API 的默认路径保留但未在 HCU 验证；上游 dynamics 行为套件仍需按 reference backend 解除运行阻断",
         "kinetic energy custom op 可通过严格 torch.compile；FIRE2 和 temperature reference 在 fullgraph=True 下仍有 graph break/数据依赖分支，默认 fullgraph=False 仅保证可运行，不保证完整编译优化"
       ],

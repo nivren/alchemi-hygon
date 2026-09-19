@@ -30,8 +30,9 @@
 
 - T1 `TORCH-NVT-LANGEVIN` 窄 reference slice 已完成收口：从 `develop` 创建的 `codex/feature-torch-nvt-langevin` 新增固定晶胞 BAOAB Torch reference、`torch_reference.langevin-v1` catalog entry、局部 dispatcher/wrapper 接线和 focused compatibility tests。
 - CPU contract `12 passed`；本轮补充了当前 Torch contract 可映射的非统计上游行为：float32/float64、非均匀 batch、`masses [N,1]`、状态张量 mutation 边界和越界索引错误。项目 CPU gate 的 ops/framework/state/dynamics 子集全部通过。CPU probe 与主机权限 HCU 0 probe 均通过：float64、7 原子/2 system、`friction=0` 与 VV 一致、固定 seed 可复现、结果 finite。证据见 `reports/g2-torch-nvt-langevin.md`。
+- 新增独立谐势统计 oracle：两个 system、300/600 K、多 friction 的位置/速度二阶矩 CPU `1 passed`，并在主机可见 HCU 0 上 `1 passed`；与原有 contract 合并的 CPU 结果为 `13 passed`。证据见 `reports/g2-torch-nvt-langevin-stat.md`。
 - 当前只登记为 `dynamics.integrators` 的窄 reference slice；完整 Langevin 行为/统计、restart、inflight、分布式、Triton/HIP 和生产性能仍未完成，不能扩大为完整 NVT 或 production dynamics 支持。
-- 下一小步：加入短程、独立 oracle 的 Langevin 统计测试（先谐势和多目标温度），随后再处理专属 state/restart；保持 NPT/NPH、NHC、M2 和生产优化独立排期。
+- 下一小步：评估专属 state/restart；保持 NPT/NPH、NHC、M2 和生产优化独立排期。
 
 ## 交接初始状态（历史，2026-09-05）
 

@@ -439,5 +439,16 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   HCU 0 smoke 均通过；完整命令和范围见 `reports/g2-torch-nvt-langevin.md`。
 - 本收口不扩大为完整 Langevin/NVT 支持：上游完整行为/统计套件、checkpoint/restart、
   `atom_ptr`、`_out`、inflight refill、分布式 ownership、torch.compile 和 Triton/HIP
-  生产实现仍是独立后续任务。下一步按 `docs/STATUS.md` 先评估受控统计测试，再决定是否立项
-  restart 或 API 兼容扩展。
+  生产实现仍是独立后续任务。受控统计测试的短谐势 CPU/HCU 复核已完成；下一步按
+  `docs/STATUS.md` 决定是否立项 restart 或 API 兼容扩展。
+
+## 22. T1 Torch NVTLangevin controlled statistics（2026-09-19）
+
+- 新增 `test_dynamics_reference_langevin_statistics.py`：使用独立解析谐势
+  `F=-k*x`，两个 Batch system、300/600 K 和不同 friction，检查 canonical 分布的
+  `mean(x^2)=kT/k` 与 `mean(v^2)=kT/m`。
+- 原有 Langevin contract 与统计测试合计 CPU `13 passed`，短统计 oracle 在 HCU 0 上
+  `1 passed`；报告见
+  `reports/g2-torch-nvt-langevin-stat.md`。
+- 本步只增加短统计 oracle，不实现新的公共 API、MACE 统计、长轨迹框架或 restart。
+  统计门只覆盖独立谐势的二阶矩，不等价于完整上游 Langevin/NVT 统计套件。
