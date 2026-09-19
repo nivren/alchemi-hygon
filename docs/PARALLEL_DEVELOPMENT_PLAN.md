@@ -30,7 +30,7 @@ executor、测试、probe 和 report 中，不应再修改通用 executor 或大
 | ID | 功能 | 优先级 | framework 影响 | 交付边界 |
 |---|---|---:|---:|---|
 | `TORCH-NVT-LANGEVIN` | 固定晶胞 BAOAB Langevin NVT | P0 | 低—中 | Torch reference、局部 dispatcher/wrapper 接线、CPU/HCU contract |
-| `TORCH-NEIGHBOR-PBC-CELL` | 周期 full-list cell-list neighbor reference | P0 | 很低 | ops reference、neighbor catalog、pair/image/capacity 回归 |
+| `TORCH-NEIGHBOR-PBC-CELL` | 周期 cell-list reference 与 HIP/Triton 优化 | P0 | 很低 | 阶段一 Torch core；阶段二共享 ABI、HIP/Triton 模块和性能门禁 |
 | `TORCH-NVT-NHC` | 固定晶胞 Nose-Hoover chain NVT | P1 | 中 | chain state、质量、Yoshida 更新、Batch/inflight 回归 |
 
 三项都必须先完成 CPU contract，再申请 HCU 批验证；任何一项通过前都不能登记更宽的
@@ -56,7 +56,7 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
   mixed/triclinic Batch、分层 build/query、容量错误、selective rebuild 和连续输出梯度。
   真实 46/92/4x92 HCU 基线显示该 reference 仍比 dense 慢 `2.38--2.84x`，不能进入 `auto`。
   阶段二首个隔离 HIP JIT build/binning probe 已在 BW200 编译运行并与 Torch FP32/FP64
-  对齐；其子模块 device-loop median 约为 Torch 的 `1/11.3--1/11.4`，但尚未包含 sort/query/
+  对齐；其子模块 device-loop median 约为 Torch 的 `1/11.5--1/11.5`，但尚未包含 sort/query/
   fill 或产品接线。证据见 `reports/g2-torch-reference-pbc-cell-list-core.md`。
 
 ### 第二批：低耦合扩展功能
@@ -105,7 +105,8 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 
 ### 3.2 `TORCH-NEIGHBOR-PBC-CELL`
 
-建议分支：`<developer>/feature-torch-neighbor-pbc-cell`
+阶段一分支 `codex/feature-torch-neighbor-pbc-cell-core` 已合入 `develop`；阶段二分支为
+`codex/feature-torch-neighbor-pbc-cell-stage2`。
 
 主要文件边界：
 

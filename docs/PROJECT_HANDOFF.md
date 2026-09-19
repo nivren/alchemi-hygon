@@ -466,7 +466,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
 
 ## 24. T1 Torch PBC cell-list 阶段一（2026-09-19）
 
-- 分支 `codex/feature-torch-neighbor-pbc-cell-core` 将既有 no-PBC Torch cell-list 扩展为
+- 分支 `codex/feature-torch-neighbor-pbc-cell-core`（已由 `88fe538` 合入本地 `develop`）将既有
+  no-PBC Torch cell-list 扩展为
   periodic/no-PBC、full/half、mixed/triclinic Batch 的 correctness reference，并补齐分层
   build/query、预分配 scratch、容量错误、selective rebuild 与连续 vector/distance 梯度。
   `backend=None`/Warp、显式未知后端失败和 `auto` 不选 cell-list 的约束保持不变。
@@ -482,7 +483,9 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   pair materialization 和 Batch/rebuild 模块并行评估 HIP/Triton。进入 `auto` 前必须保持阶段一
   数值契约，并在代表性 workload 达到 neighbor 2x 或目标端到端 20%。`target_indices`、
   `pair_fn`/pair outputs、pair-centric/compile 和 DomainParallel 继续按独立 capability 排期。
+- 当前阶段二工作分支为 `codex/feature-torch-neighbor-pbc-cell-stage2`，从上述 `develop`
+  基线创建，尚未加入正式 AOT/custom-op 实现。
 - `probes/hip_cell_list_jit_probe.py` 已完成第一个隔离 native HIP build/binning 可行性检查：
   DTK hipcc 编译和 BW200 执行通过，FP32/FP64 mixed-PBC 与 Torch oracle 一致；368/32768
-  原子子模块重复计时显示约 `11.34x/11.40x`，但范围仅为 wrap+cell key，不包含 sort/query/
+  原子子模块重复计时显示约 `11.51x/11.52x`，但范围仅为 wrap+cell key，不包含 sort/query/
   fill、dispatcher 或 wheel。该 probe 不进入常规 HCU smoke，避免每次门禁触发 JIT 编译。

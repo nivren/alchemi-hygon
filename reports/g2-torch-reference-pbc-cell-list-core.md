@@ -91,8 +91,8 @@ mixed-PBC 的 float32/float64 输出与 Torch oracle 完全一致。预热后用
 
 | atoms | HIP median | Torch median | Torch / HIP |
 |---:|---:|---:|---:|
-| 368 | 0.02160 ms | 0.24481 ms | 11.34x |
-| 32768 | 0.02173 ms | 0.24766 ms | 11.40x |
+| 368 | 0.02127 ms | 0.24479 ms | 11.51x |
+| 32768 | 0.02139 ms | 0.24637 ms | 11.52x |
 
 这些数字只说明“fractional coordinate + wrap + key”这个融合子模块在指定输入上的可行性和
 launch 减少潜力；不包含 cell sort/CSR、query、capacity、pair fill、Python dispatcher 或

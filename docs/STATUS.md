@@ -33,7 +33,9 @@
 - 新增独立谐势统计 oracle：两个 system、300/600 K、多 friction 的位置/速度二阶矩 CPU `1 passed`，并在主机可见 HCU 0 上 `1 passed`；与原有 contract 合并的 CPU 结果为 `13 passed`。证据见 `reports/g2-torch-nvt-langevin-stat.md`。
 - 新增普通 Batch 的最小 Langevin integrator restart：保存/恢复 `step_count`、`random_seed` 和 per-system 参数；连续 5 步与 3+恢复后2步在 CPU/HCU 均一致，restart 测试各 `2 passed`。证据见 `reports/g2-torch-nvt-langevin-restart.md`。
 - 当前只登记为 `dynamics.integrators` 的窄 reference slice；完整 Langevin 行为/统计、通用 checkpoint/restart、inflight、分布式、Triton/HIP 和生产性能仍未完成，不能扩大为完整 NVT 或 production dynamics 支持。
-- 统计与最小 restart slice 已完成 review，并快进合入本地 `develop`（`267bba2`）；下一小步重新确认优先级，建议转入 `TORCH-NEIGHBOR-PBC-CELL`。保持 NPT/NPH、NHC、M2 和生产优化独立排期。
+- 统计与最小 restart slice 已完成 review，并快进合入本地 `develop`（`267bba2`）；随后
+  `TORCH-NEIGHBOR-PBC-CELL` 阶段一已由 `88fe538` 合入本地 `develop`，当前从该基线开展
+  `codex/feature-torch-neighbor-pbc-cell-stage2`。NPT/NPH、NHC、M2 和生产优化仍独立排期。
 - T1 `TORCH-NEIGHBOR-PBC-CELL` 阶段一候选已在
   `codex/feature-torch-neighbor-pbc-cell-core` 实现：显式 Torch cell-list 覆盖
   periodic/no-PBC full/half、mixed/triclinic Batch、image shift、分层 build/query、预分配
@@ -49,7 +51,7 @@
   build/query/materialization，并以 neighbor 2x 或端到端 20% 为准入门槛。
 - 阶段二的隔离 native HIP JIT build/binning probe 已完成工具链、当前 stream 和输出 ABI
   可行性验证：BW200 上 float32/float64 mixed-PBC 与 Torch oracle 一致；368/32768 原子的
-  10 组 device-loop median 分别约为 Torch 的 `11.34x/11.40x`。该结果只覆盖
+  10 组 device-loop median 分别约为 Torch 的 `11.51x/11.52x`。该结果只覆盖
   wrap+cell-coordinate+key 融合，不包含 sort/CSR/query/fill 或产品接线，不能宣称完整
   cell-list 加速；下一步是共享 ABI review 后再做 AOT/custom-op 候选。
 
