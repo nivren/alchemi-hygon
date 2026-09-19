@@ -33,7 +33,7 @@
 - 新增独立谐势统计 oracle：两个 system、300/600 K、多 friction 的位置/速度二阶矩 CPU `1 passed`，并在主机可见 HCU 0 上 `1 passed`；与原有 contract 合并的 CPU 结果为 `13 passed`。证据见 `reports/g2-torch-nvt-langevin-stat.md`。
 - 新增普通 Batch 的最小 Langevin integrator restart：保存/恢复 `step_count`、`random_seed` 和 per-system 参数；连续 5 步与 3+恢复后2步在 CPU/HCU 均一致，restart 测试各 `2 passed`。证据见 `reports/g2-torch-nvt-langevin-restart.md`。
 - 当前只登记为 `dynamics.integrators` 的窄 reference slice；完整 Langevin 行为/统计、通用 checkpoint/restart、inflight、分布式、Triton/HIP 和生产性能仍未完成，不能扩大为完整 NVT 或 production dynamics 支持。
-- 下一小步：合并并 review 本 restart slice 后重新确认优先级；保持 NPT/NPH、NHC、M2 和生产优化独立排期。
+- 统计与最小 restart slice 已完成 review，并快进合入本地 `develop`（`267bba2`）；下一小步重新确认优先级，建议转入 `TORCH-NEIGHBOR-PBC-CELL`。保持 NPT/NPH、NHC、M2 和生产优化独立排期。
 
 ## 交接初始状态（历史，2026-09-05）
 

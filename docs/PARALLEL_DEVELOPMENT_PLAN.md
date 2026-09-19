@@ -42,7 +42,7 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 - `TORCH-NVT-LANGEVIN` 已在 `develop` 合入 `1fafd7b`，完成固定晶胞 BAOAB Torch
   reference、registry/catalog、generic executor binding、公共 `NVTLangevin` 显式
   `torch_reference` 接线、CPU contract 和 HCU smoke；随后补充的短谐势统计 oracle 已在
-  CPU/HCU 通过，当前分支另补了普通 Batch 的最小 integrator continuation state。
+  CPU/HCU 通过，随后新增并已合入普通 Batch 的最小 integrator continuation state。
   这些交付仍是可审查的窄 reference slice。
 - 该状态不等于完整 Langevin/NVT 支持。上游完整统计/行为套件、checkpoint/restart、
   `atom_ptr`、`_out`、inflight refill、分布式 ownership、torch.compile 和 Triton/HIP
