@@ -463,3 +463,26 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   `reports/g2-torch-nvt-langevin-restart.md`。
 - 位置/速度/力、模型参数和 Batch 元数据仍由调用方负责保存；完整 checkpoint、inflight、
   `atom_ptr`、`_out`、分布式 ownership 和跨设备逐位一致仍未实现。
+
+## 24. T1 Torch PBC cell-list 阶段一（2026-09-19）
+
+- 分支 `codex/feature-torch-neighbor-pbc-cell-core` 将既有 no-PBC Torch cell-list 扩展为
+  periodic/no-PBC、full/half、mixed/triclinic Batch 的 correctness reference，并补齐分层
+  build/query、预分配 scratch、容量错误、selective rebuild 与连续 vector/distance 梯度。
+  `backend=None`/Warp、显式未知后端失败和 `auto` 不选 cell-list 的约束保持不变。
+- CPU gate 全部通过；主机权限 DTK 26.04、BW200 HCU 0 上，独立 PBC probe 的 pair+shift
+  dense parity、half、分层 counts 和二阶梯度通过，真实结构 benchmark、20 步
+  MACE/FIRE2 Hook 对照及标准 HCU smoke 也完成。focused pytest 虽在 device-visible 进程运行，
+  但其 tensor 为 CPU 构造，只计 CPU contract。完整证据见
+  `reports/g2-torch-reference-pbc-cell-list-core.md`。
+- 固定真实输入基线显示 Torch cell-list 比 dense 慢 `2.38--2.84x`；hipprof 记录大量细粒度
+  indexing/sort/scan 与 launch 碎片。因此当前实现只作为阶段一 oracle，不能进入 `auto`，也
+  不能写成 production neighbor backend。
+- 阶段二先冻结共享 cell metadata/CSR/scratch/output/capacity/stream ABI，再允许 build、query、
+  pair materialization 和 Batch/rebuild 模块并行评估 HIP/Triton。进入 `auto` 前必须保持阶段一
+  数值契约，并在代表性 workload 达到 neighbor 2x 或目标端到端 20%。`target_indices`、
+  `pair_fn`/pair outputs、pair-centric/compile 和 DomainParallel 继续按独立 capability 排期。
+- `probes/hip_cell_list_jit_probe.py` 已完成第一个隔离 native HIP build/binning 可行性检查：
+  DTK hipcc 编译和 BW200 执行通过，FP32/FP64 mixed-PBC 与 Torch oracle 一致；368/32768
+  原子子模块重复计时显示约 `11.34x/11.40x`，但范围仅为 wrap+cell key，不包含 sort/query/
+  fill、dispatcher 或 wheel。该 probe 不进入常规 HCU smoke，避免每次门禁触发 JIT 编译。

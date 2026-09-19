@@ -48,7 +48,7 @@ def test_explicit_neighbor_reference_requires_a_registered_width() -> None:
     assert selection.as_dict()["dtype"] == "float64"
 
 
-def test_explicit_no_pbc_cell_list_strategy_requires_its_registered_width() -> None:
+def test_explicit_cell_list_strategy_requires_its_registered_width() -> None:
     """Cell-list is a neighbor strategy, not a distinct backend family."""
     selection = resolve_backend(
         "torch_reference",
@@ -61,15 +61,15 @@ def test_explicit_no_pbc_cell_list_strategy_requires_its_registered_width() -> N
     assert selection.implementation_id == "torch_reference.neighbor.cell_list-v1"
     assert selection.family == "torch_reference"
     assert selection.strategy == "cell_list"
-    with pytest.raises(BackendUnavailableError, match="no verified capability"):
-        resolve_backend(
-            "torch_reference",
-            operation="neighbor_list",
-            device="cpu",
-            dtype=torch.float64,
-            features={"periodic", "full", "matrix"},
-            strategy="cell_list",
-        )
+    periodic = resolve_backend(
+        "torch_reference",
+        operation="neighbor_list",
+        device="cpu",
+        dtype=torch.float64,
+        features={"periodic", "half", "matrix"},
+        strategy="cell_list",
+    )
+    assert periodic.implementation_id == "torch_reference.neighbor.cell_list-v1"
 
 
 def test_exact_implementation_id_selects_its_registered_strategy() -> None:

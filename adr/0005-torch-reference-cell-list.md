@@ -46,3 +46,19 @@ ADR 0006 replaces the public backend-name decision: the implementation is now
 selected as `backend="torch_reference", method="cell_list"`, not by the
 unpublished `torch_reference_cell_list` global request. This ADR remains the
 algorithm and narrow-contract record for the implementation.
+
+## 2026-09-19 periodic core extension
+
+`TORCH-NEIGHBOR-PBC-CELL` extends the same explicit strategy to periodic and
+mixed-PBC orthogonal/triclinic cells, periodic half lists, layered build/query,
+preallocated scratch, batched selective rebuild, and differentiable continuous
+vector/distance outputs.  Search radii are derived conservatively from reciprocal
+cell-vector norms, so correctness does not depend on a fixed 27-cell stencil.
+
+This extension does not change `backend=None`, Warp, or `auto`.  Target rows,
+pair callbacks/outputs, pair-centric/sorted query, compile/opcheck, and optimized
+HIP/Triton implementations remain separate capabilities.  The measured Torch
+implementation is a correctness oracle rather than a production choice: on the
+recorded BW200 workloads it is slower than dense, so no automatic selection is
+authorized.  Full evidence and exact boundaries are recorded in
+`reports/g2-torch-reference-pbc-cell-list-core.md`.

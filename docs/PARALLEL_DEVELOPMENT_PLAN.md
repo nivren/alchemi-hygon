@@ -50,6 +50,14 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
   仍应另建任务，不回填本分支。
 - 本里程碑满足第 6 节的“完成一个可审查里程碑后暂停”条件；后续开发前重新确认优先级，
   不自动启动 M2、NPT/NPH、DomainParallel 或生产优化。
+- `TORCH-NEIGHBOR-PBC-CELL` 阶段一已在
+  `codex/feature-torch-neighbor-pbc-cell-core` 完成候选实现和 CPU/HCU 验证：显式
+  `backend="torch_reference", method="cell_list"` 覆盖 periodic/no-PBC、full/half、
+  mixed/triclinic Batch、分层 build/query、容量错误、selective rebuild 和连续输出梯度。
+  真实 46/92/4x92 HCU 基线显示该 reference 仍比 dense 慢 `2.38--2.84x`，不能进入 `auto`。
+  阶段二首个隔离 HIP JIT build/binning probe 已在 BW200 编译运行并与 Torch FP32/FP64
+  对齐；其子模块 device-loop median 约为 Torch 的 `1/11.3--1/11.4`，但尚未包含 sort/query/
+  fill 或产品接线。证据见 `reports/g2-torch-reference-pbc-cell-list-core.md`。
 
 ### 第二批：低耦合扩展功能
 
@@ -106,16 +114,33 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 - `packages/ops/nvalchemiops/_backend_catalog/neighbors.py`；
 - 专用 PBC probe 和 report；尽量不修改 framework runtime。
 
-最小验收：
+阶段一（正确性 reference）验收：
 
-- 第一版只承诺 periodic full-list；覆盖正交/三斜晶胞、混合 PBC、image shift、Batch、空输入；
+- 覆盖正交/三斜晶胞、混合 PBC、image shift、Batch、空输入和 periodic full/half；
 - 与 dense CPU FP64 对照 pair 集合、排序、距离、向量和有效邻居数；
 - 分开检查 `num_neighbors`、active slice 和 capacity，不能用分配宽度代替有效邻居数；
 - capacity overflow 必须明确失败或按契约扩容；不能截断、静默 fallback 或漏算；
-- 新路径不得把 host `.cpu().tolist()` 或 Python 逐原子循环当作默认设备内实现。
+- 新路径不得把 host `.cpu().tolist()` 或 Python 逐原子/逐 pair 循环当作默认设备内实现；
+- build/query、预分配 scratch 和 Batch selective rebuild 使用同一语义契约；连续的 vector/distance
+  路径验证一阶和二阶梯度。
 
-不在本任务内：periodic half-list、target rows、动态 skin rebuild、自动 strategy 选择和生产
-性能结论。
+阶段二（优化后端）在阶段一 oracle 和固定基准之后独立推进：
+
+1. 先冻结一个共享基础 ABI：cell geometry/metadata、CSR cell storage、scratch/output buffer、
+   capacity/overflow、stream 和 capability 描述。该层服务 HIP/Triton 模块，但不做运行时
+   静默 fallback，也不把所有模块串成一个不可并行维护的巨型 kernel。
+2. 可并行的实现模块为 build/binning、query+count/fill、pair geometry/materialization 和
+   Batch/rebuild orchestration。HIP 优先评估不规则 query、原子写入和显式容量控制；Triton
+   只评估规则分块、compact/geometry 等实测合适的部分，不预设固定优先级。
+3. 先做隔离 JIT/可行性 probe，再以 ops dispatcher/custom-op 和可独立构建 wheel 的正式
+   AOT 边界接入；每个模块单独登记 capability、fake/meta/autograd/compile 状态。
+4. 每个候选先通过相同 pair/shift/capacity/gradient oracle，再以固定设备、输入、warm-up 和
+   重复样本比较。进入 `auto` 的门槛为代表性 neighbor workload 至少 2x，或目标
+   MACE/FIRE2 端到端至少 20%，并且不能以改 dtype、顺序或能力宽度换取速度。
+
+阶段一仍未覆盖、阶段二也不能默认宣称的功能：`target_indices`、`pair_fn`/pair outputs、
+pair-centric/sorted query、完整 upstream compile/opcheck、DomainParallel ownership。它们应按
+独立 capability 模块补齐，不能把 core 通过扩大为完整上游等价。
 
 ### 3.3 `TORCH-NVT-NHC`
 

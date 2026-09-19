@@ -22,6 +22,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 timeout 90 "$_baseline_python" probes/neighbor_lj_reference.py --device cuda
 timeout 90 "$_baseline_python" probes/pbc_neighbor_reference.py --device cuda
+timeout 90 "$_baseline_python" probes/pbc_cell_list_reference.py --device cuda
 timeout 90 "$_baseline_python" probes/dynamics_reference_velocity_verlet.py --device cuda
 timeout 90 "$_baseline_python" probes/dynamics_reference_kinetics.py --device cuda
 timeout 90 "$_baseline_python" probes/dynamics_reference_fire.py --device cuda

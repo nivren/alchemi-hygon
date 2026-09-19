@@ -112,6 +112,35 @@ def test_reference_hook_supports_full_pbc_and_writes_shifts():
     assert batch.neighbor_matrix_shifts[:, :1].tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
 
 
+def test_reference_hook_selects_periodic_cell_list_strategy():
+    hook = NeighborListHook(
+        NeighborConfig(cutoff=0.5, format=NeighborListFormat.MATRIX),
+        method="cell_list",
+        backend="torch_reference",
+        skin=0.2,
+    )
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
+    _call_eager(hook, batch)
+    first = batch.neighbor_matrix.clone()
+    batch.positions[0, 1] += 0.05
+    _call_eager(hook, batch)
+    assert torch.equal(batch.neighbor_matrix, first)
+    assert batch.neighbor_matrix_shifts[:, :1].tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
+
+
 def test_shared_dynamics_stage_keeps_stage_timing_domain_without_warp():
     framework = Path(__file__).parents[2]
     environment = os.environ | {"PYTHONPATH": f"{framework}:{framework.parent / 'ops'}"}

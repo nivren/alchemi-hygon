@@ -1171,7 +1171,7 @@
       "id": "neighbors.topology",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "Torch reference full/half no-PBC 与 full-list periodic MATRIX/COO、批边界、PBC shifts 和基础容量契约；periodic/no-PBC 的 MATRIX/COO 装配均已按体系/设备张量向量化；no-PBC cell-list 已作为 backend=torch_reference、method=cell_list 的显式 neighbor strategy 接线并完成 synthetic CPU/HCU 语义回归，真实规模性能与周期 cell-list 仍未完成",
+      "implementation_scope": "Torch reference dense 与显式 backend=torch_reference、method=cell_list 已覆盖 periodic/no-PBC full/half、MATRIX/COO、正交/三斜 mixed-PBC Batch、image shifts、分层 build/query、预分配容量、selective rebuild 和连续 vector/distance 梯度；target/pair_fn/pair-centric/compile 与生产 HIP/Triton 仍未完成",
       "scenario": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
       "source": {
         "repository": "ops",
@@ -1313,6 +1313,8 @@
           "packages/framework/test/hooks/test_neighbor_list_torch_reference.py",
           "probes/neighbor_lj_reference.py",
           "probes/pbc_neighbor_reference.py",
+          "probes/pbc_cell_list_reference.py",
+          "probes/hip_cell_list_jit_probe.py",
           "probes/pbc_lj_nve_reference.py",
           "probes/neighbor_baseline.py"
         ],
@@ -1327,20 +1329,21 @@
           "reports/g2-neighbor-tier1-scatter-reference.md",
           "reports/g2-backend-registry-no-pbc-reference.md",
           "reports/g2-torch-reference-cell-list-contract.md",
+          "reports/g2-torch-reference-pbc-cell-list-core.md",
           "reports/g2-backend-registry-m1.md",
           "adr/0005-torch-reference-cell-list.md",
           "adr/0006-implementation-registry-and-neighbor-strategy.md"
         ],
         "environments": [
-          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors",
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for ops/compute_neighbors/PBC cell-list/benchmark",
           "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0) for framework Hook/PBC probes"
         ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "Torch reference 已覆盖小输入 full-list cached skin，并在 raw displacement 超过 skin/2 时对变化 system 做 eager 重建；periodic full-list 与 no-PBC full/half 的 MATRIX/COO 装配已通过 device-side scatter 替代逐边 Python 写回；no-PBC cell-list 仅作为显式 backend=torch_reference、method=cell_list strategy 接线，默认生产路径仍依赖 Warp，PBC half-list、周期 cell-list、method/scratch、动态溢出扩容和生产性能路径尚未接入",
-        "no-PBC Tier 1 与 cell-list synthetic CPU/HCU contract 已通过；M1 registry 已登记 family/implementation/strategy 并保持 auto 不选 strategy；尚未有真实 perf_46/92/184/368 的 cell-list 对比、低干扰性能证据、BackendProfile 或 auto cell-list 选择依据"
+        "显式 Torch cell-list core 已在 CPU/HCU 覆盖 periodic/no-PBC full/half、method/scratch、分层 build/query 和 Batch selective rebuild；默认生产路径仍依赖 Warp，target rows、pair callbacks/outputs、pair-centric/sorted query、compile/opcheck、DomainParallel ownership 与 HIP/Triton 尚未接入",
+        "真实 perf_46/92 和 4x92 的低干扰 HCU 基线显示 Torch cell-list median 比 dense 慢 2.38--2.84x；隔离 HIP JIT 只验证 wrap+cell-key 子模块并未接入产品；20 步端到端仅各一条含冷启动样本，不能作为 20% 门槛证据；registry 继续保持 auto 不选 cell-list，BackendProfile/自动策略仍未实现"
       ],
       "release_gate": "G1"
     },

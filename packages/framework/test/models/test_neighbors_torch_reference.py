@@ -142,6 +142,48 @@ def test_compute_neighbors_torch_reference_pbc_writes_shifts():
     assert coo_batch.neighbor_list_shifts.tolist() == [[-1, 0, 0], [1, 0, 0]]
 
 
+def test_compute_neighbors_periodic_cell_list_supports_full_and_half():
+    def make_batch() -> Batch:
+        return Batch.from_data_list(
+            [
+                AtomicData(
+                    positions=torch.tensor(
+                        [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]],
+                        dtype=torch.float64,
+                    ),
+                    atomic_numbers=torch.tensor([1, 1]),
+                    cell=torch.diag(
+                        torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                    ).unsqueeze(0),
+                    pbc=torch.tensor([[True, False, False]]),
+                )
+            ]
+        )
+
+    full = make_batch()
+    compute_neighbors(
+        full,
+        cutoff=0.5,
+        format=NeighborListFormat.MATRIX,
+        backend="torch_reference",
+        method="cell_list",
+    )
+    assert full.neighbor_matrix[:, :1].tolist() == [[1], [0]]
+    assert full.neighbor_matrix_shifts[:, :1].tolist() == [[[-1, 0, 0]], [[1, 0, 0]]]
+
+    half = make_batch()
+    compute_neighbors(
+        half,
+        cutoff=0.5,
+        format=NeighborListFormat.COO,
+        half_list=True,
+        backend="torch_reference",
+        method="cell_list",
+    )
+    assert half.neighbor_list.shape == (1, 2)
+    assert half.neighbor_list_shifts.shape == (1, 3)
+
+
 def test_make_neighbor_hooks_accepts_backend_and_compatibility_alias():
     """The public spelling is backend; the old alias remains unambiguous."""
     model = LennardJonesModelWrapper(

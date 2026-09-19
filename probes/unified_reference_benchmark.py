@@ -138,6 +138,7 @@ def _run_neighbor_case(
     *,
     periodic: bool,
     half_list: bool,
+    method: str | None,
     warmup: int,
     steady: int,
 ) -> dict[str, Any]:
@@ -154,6 +155,7 @@ def _run_neighbor_case(
             format=NeighborListFormat.COO,
             half_list=half_list,
             backend="torch_reference",
+            method=method,
         )
 
     cold_s, _ = _timed(device, build)
@@ -171,6 +173,7 @@ def _run_neighbor_case(
         "status": "passed",
         "path": "periodic" if periodic else "no_pbc",
         "half_list": half_list,
+        "method": method or "dense",
         **_structure_metadata(paths, structures, effective_periodic=periodic),
         "num_nodes": batch.num_nodes,
         "cold_s": cold_s,
@@ -202,6 +205,7 @@ def _run_end_to_end(
     *,
     steps: int,
     skin: float,
+    method: str | None,
 ) -> dict[str, Any]:
     structures = _load_structures(paths)
     batch = _make_dynamics_batch(paths, device)
@@ -226,6 +230,7 @@ def _run_end_to_end(
             model.model_config.neighbor_config,
             skin=skin,
             backend="torch_reference",
+            method=method,
             stage=DynamicsStage.BEFORE_COMPUTE,
         )
     )
@@ -247,6 +252,7 @@ def _run_end_to_end(
         **_structure_metadata(paths, structures, effective_periodic=True),
         "steps": steps,
         "skin": skin,
+        "neighbor_method": method or "dense",
         "dt": 0.01,
         "elapsed_s": elapsed,
         "steady_step_s": elapsed / steps,
@@ -267,6 +273,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--steady", type=int, default=2)
     parser.add_argument("--e2e-steps", type=int, default=100)
     parser.add_argument("--e2e-skin", type=float, default=0.5)
+    parser.add_argument(
+        "--neighbor-method", choices=("dense", "cell_list"), default="dense"
+    )
     parser.add_argument("--skip-scales", action="store_true")
     parser.add_argument("--skip-batches", action="store_true")
     parser.add_argument("--skip-e2e", action="store_true")
@@ -308,6 +317,7 @@ def main() -> None:
     )
 
     cases: list[dict[str, Any]] = []
+    method = None if args.neighbor_method == "dense" else args.neighbor_method
     if not args.skip_scales:
         for size in args.scale_sizes:
             root = DEFAULT_SCALE_ROOTS.get(size)
@@ -317,19 +327,30 @@ def main() -> None:
             cases.append(
                 _run_neighbor_case(
                     f"periodic_scale_{size}", paths, model, device,
-                    periodic=True, half_list=False, warmup=args.warmup, steady=args.steady,
+                    periodic=True, half_list=False, method=method,
+                    warmup=args.warmup, steady=args.steady,
                 )
             )
+            if method == "cell_list":
+                cases.append(
+                    _run_neighbor_case(
+                        f"periodic_scale_{size}_half", paths, model, device,
+                        periodic=True, half_list=True, method=method,
+                        warmup=args.warmup, steady=args.steady,
+                    )
+                )
             cases.append(
                 _run_neighbor_case(
                     f"no_pbc_scale_{size}", paths, model, device,
-                    periodic=False, half_list=False, warmup=args.warmup, steady=args.steady,
+                    periodic=False, half_list=False, method=method,
+                    warmup=args.warmup, steady=args.steady,
                 )
             )
             cases.append(
                 _run_neighbor_case(
                     f"no_pbc_scale_{size}_half", paths, model, device,
-                    periodic=False, half_list=True, warmup=args.warmup, steady=args.steady,
+                    periodic=False, half_list=True, method=method,
+                    warmup=args.warmup, steady=args.steady,
                 )
             )
 
@@ -339,13 +360,15 @@ def main() -> None:
             cases.append(
                 _run_neighbor_case(
                     f"periodic_batch_{size}", paths, model, device,
-                    periodic=True, half_list=False, warmup=args.warmup, steady=args.steady,
+                    periodic=True, half_list=False, method=method,
+                    warmup=args.warmup, steady=args.steady,
                 )
             )
             cases.append(
                 _run_neighbor_case(
                     f"no_pbc_batch_{size}", paths, model, device,
-                    periodic=False, half_list=False, warmup=args.warmup, steady=args.steady,
+                    periodic=False, half_list=False, method=method,
+                    warmup=args.warmup, steady=args.steady,
                 )
             )
 
@@ -353,7 +376,12 @@ def main() -> None:
     if not args.skip_e2e:
         e2e_paths = [_files(DEFAULT_SCALE_ROOTS[46], 1)[0], _files(DEFAULT_SCALE_ROOTS[92], 1)[0]]
         e2e = _run_end_to_end(
-            e2e_paths, model, device, steps=args.e2e_steps, skin=args.e2e_skin
+            e2e_paths,
+            model,
+            device,
+            steps=args.e2e_steps,
+            skin=args.e2e_skin,
+            method=method,
         )
 
     print(
@@ -363,6 +391,7 @@ def main() -> None:
                 "status": "passed",
                 "device": args.device,
                 "backend": "torch_reference",
+                "neighbor_method": args.neighbor_method,
                 "elapsed_since_process_start_s": time.perf_counter() - process_started,
                 "warmup": args.warmup,
                 "steady": args.steady,

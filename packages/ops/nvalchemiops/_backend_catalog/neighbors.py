@@ -39,8 +39,18 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         entrypoints=("neighbor_list",),
         executor_owner="ops",
         features=frozenset(
-            {"no_pbc", "full", "half", "matrix", "coo", "distances", "vectors"}
+            {
+                "no_pbc",
+                "periodic",
+                "full",
+                "half",
+                "matrix",
+                "coo",
+                "distances",
+                "vectors",
+            }
         ),
-        evidence="G2 opt-in no-PBC Torch reference cell-list contract",
+        max_gradient_order=2,
+        evidence="Torch cell-list core contract: no-PBC/PBC full/half build-query",
     ),
 )

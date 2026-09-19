@@ -34,6 +34,24 @@
 - 新增普通 Batch 的最小 Langevin integrator restart：保存/恢复 `step_count`、`random_seed` 和 per-system 参数；连续 5 步与 3+恢复后2步在 CPU/HCU 均一致，restart 测试各 `2 passed`。证据见 `reports/g2-torch-nvt-langevin-restart.md`。
 - 当前只登记为 `dynamics.integrators` 的窄 reference slice；完整 Langevin 行为/统计、通用 checkpoint/restart、inflight、分布式、Triton/HIP 和生产性能仍未完成，不能扩大为完整 NVT 或 production dynamics 支持。
 - 统计与最小 restart slice 已完成 review，并快进合入本地 `develop`（`267bba2`）；下一小步重新确认优先级，建议转入 `TORCH-NEIGHBOR-PBC-CELL`。保持 NPT/NPH、NHC、M2 和生产优化独立排期。
+- T1 `TORCH-NEIGHBOR-PBC-CELL` 阶段一候选已在
+  `codex/feature-torch-neighbor-pbc-cell-core` 实现：显式 Torch cell-list 覆盖
+  periodic/no-PBC full/half、mixed/triclinic Batch、image shift、分层 build/query、预分配
+  capacity、selective rebuild 和 vector/distance 一二阶梯度；`backend=None`/Warp 与 `auto`
+  不变。CPU gate 全部通过；BW200 上独立 PBC probe、真实结构 benchmark、20 步
+  MACE/FIRE2 Hook 对照和更新后的标准 HCU smoke 均实际走 HCU 并通过。focused pytest 的
+  tensor 为 CPU 构造，不扩大为 HCU pytest 证据。详见
+  `reports/g2-torch-reference-pbc-cell-list-core.md`。
+- 阶段一不等于完整上游等价或生产支持：`target_indices`、`pair_fn`/pair outputs、pair-centric、
+  compile/opcheck、分布式 ownership 和 HIP/Triton 仍未实现。真实 HCU 基线中 Torch cell-list
+  在 periodic 46/92/4x92 上比 dense 慢 `2.38--2.84x`，因此不得进入 `auto`。hipprof 显示大量
+  细粒度 indexing/sort/scan kernel 与 launch 碎片；阶段二先冻结共享 ABI，再独立优化
+  build/query/materialization，并以 neighbor 2x 或端到端 20% 为准入门槛。
+- 阶段二的隔离 native HIP JIT build/binning probe 已完成工具链、当前 stream 和输出 ABI
+  可行性验证：BW200 上 float32/float64 mixed-PBC 与 Torch oracle 一致；368/32768 原子的
+  10 组 device-loop median 分别约为 Torch 的 `11.34x/11.40x`。该结果只覆盖
+  wrap+cell-coordinate+key 融合，不包含 sort/CSR/query/fill 或产品接线，不能宣称完整
+  cell-list 加速；下一步是共享 ABI review 后再做 AOT/custom-op 候选。
 
 ## 交接初始状态（历史，2026-09-05）
 
