@@ -363,6 +363,18 @@ def test_fire_and_fire2_are_independent_operation_contracts() -> None:
         )
 
 
+def test_langevin_is_a_fixed_cell_reference_operation() -> None:
+    selection = resolve_backend(
+        "torch_reference",
+        operation="langevin",
+        device="cpu",
+        dtype=torch.float64,
+        features={"fixed_cell"},
+    )
+    assert selection.implementation_id == "torch_reference.langevin-v1"
+    assert selection.operation == "langevin"
+
+
 def test_default_catalog_preserves_inventory_without_importing_executors() -> None:
     """Catalog modules hold data only; importing them must not initialize Warp."""
     package_root = Path(__file__).resolve().parents[2]
@@ -380,6 +392,7 @@ assert [item.implementation_id for item in catalog.default_implementations()] ==
     'torch_reference.fire-v1',
     'torch_reference.fire2-v1',
     'torch_reference.kinetics-v1',
+    'torch_reference.langevin-v1',
     'torch_reference.periodic_wrap-v1',
     'torch_reference.segmented_reduce-v1',
 ]

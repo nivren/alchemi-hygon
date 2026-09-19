@@ -12,6 +12,10 @@ from nvalchemi._dynamics_reference.velocity_verlet import (
     vv_position_update,
     vv_velocity_finalize,
 )
+from nvalchemi._dynamics_reference.langevin import (
+    langevin_finalize,
+    langevin_half_step,
+)
 from nvalchemi._dynamics_reference.kinetics import (
     KB_EV,
     kinetic_energy_per_graph,
@@ -35,5 +39,7 @@ __all__ = [
     "fire2_step_coord_cell",
     "vv_position_update",
     "vv_velocity_finalize",
+    "langevin_half_step",
+    "langevin_finalize",
     "wrap_positions_into_cell",
 ]

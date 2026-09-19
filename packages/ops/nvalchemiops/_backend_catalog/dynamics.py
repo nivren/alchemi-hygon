@@ -54,4 +54,16 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         evidence="G2 kinetic-energy/temperature reference contracts",
         default_strategy=True,
     ),
+    Implementation(
+        implementation_id="torch_reference.langevin-v1",
+        operation="langevin",
+        family="torch_reference",
+        executor="nvalchemi._dynamics_reference.langevin",
+        entrypoints=("langevin_half_step", "langevin_finalize"),
+        executor_owner="framework",
+        features=frozenset({"fixed_cell"}),
+        max_gradient_order=0,
+        evidence="T1 fixed-cell BAOAB Langevin reference contract",
+        default_strategy=True,
+    ),
 )

@@ -39,15 +39,10 @@ from __future__ import annotations
 
 import torch
 import torch.library
-import warp as wp
-from nvalchemiops.dynamics.integrators import (
-    langevin_baoab_finalize as _lang_finalize,
-)
-from nvalchemiops.dynamics.integrators import (
-    langevin_baoab_half_step as _lang_half,
-)
+from nvalchemiops.backend import BackendSelection
+from nvalchemiops.executor import execute_selected
 
-from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+from nvalchemi._backend import resolve_compute_backend
 
 __all__ = ["langevin_half_step", "langevin_finalize"]
 
@@ -56,7 +51,7 @@ __all__ = ["langevin_half_step", "langevin_finalize"]
     "nvalchemi::langevin_half_step",
     mutates_args={"positions", "velocities"},
 )
-def langevin_half_step(
+def _langevin_half_step_warp(
     positions: torch.Tensor,
     velocities: torch.Tensor,
     forces: torch.Tensor,
@@ -97,6 +92,12 @@ def langevin_half_step(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        langevin_baoab_half_step as _lang_half,
+    )
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = positions.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -113,7 +114,7 @@ def langevin_half_step(
     )
 
 
-@langevin_half_step.register_fake
+@_langevin_half_step_warp.register_fake
 def _langevin_half_step_fake(
     positions,
     velocities,
@@ -132,7 +133,7 @@ def _langevin_half_step_fake(
     "nvalchemi::langevin_finalize",
     mutates_args={"velocities"},
 )
-def langevin_finalize(
+def _langevin_finalize_warp(
     velocities: torch.Tensor,
     forces_new: torch.Tensor,
     masses: torch.Tensor,
@@ -157,6 +158,12 @@ def langevin_finalize(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        langevin_baoab_finalize as _lang_finalize,
+    )
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -169,6 +176,78 @@ def langevin_finalize(
     )
 
 
-@langevin_finalize.register_fake
+@_langevin_finalize_warp.register_fake
 def _langevin_finalize_fake(velocities, forces_new, masses, dt, batch_idx) -> None:
     pass
+
+
+def langevin_half_step(
+    positions: torch.Tensor,
+    velocities: torch.Tensor,
+    forces: torch.Tensor,
+    masses: torch.Tensor,
+    dt: torch.Tensor,
+    temperature: torch.Tensor,
+    friction: torch.Tensor,
+    random_seed: int,
+    batch_idx: torch.Tensor,
+    *,
+    backend: str | None = None,
+    selection: BackendSelection | None = None,
+) -> None:
+    """Dispatch the BAOAB pre-force half-step."""
+    resolved = resolve_compute_backend(
+        backend,
+        operation="langevin",
+        device=positions.device,
+        dtype=positions.dtype,
+        gradient_order=0,
+        features={"fixed_cell"},
+        selection=selection,
+    )
+    return execute_selected(
+        resolved,
+        "langevin_half_step",
+        _langevin_half_step_warp,
+        positions,
+        velocities,
+        forces,
+        masses,
+        dt,
+        temperature,
+        friction,
+        random_seed,
+        batch_idx,
+    )
+
+
+def langevin_finalize(
+    velocities: torch.Tensor,
+    forces_new: torch.Tensor,
+    masses: torch.Tensor,
+    dt: torch.Tensor,
+    batch_idx: torch.Tensor,
+    *,
+    backend: str | None = None,
+    selection: BackendSelection | None = None,
+) -> None:
+    """Dispatch the BAOAB final velocity half-kick."""
+    resolved = resolve_compute_backend(
+        backend,
+        operation="langevin",
+        device=velocities.device,
+        dtype=velocities.dtype,
+        gradient_order=0,
+        features={"fixed_cell"},
+        selection=selection,
+    )
+    return execute_selected(
+        resolved,
+        "langevin_finalize",
+        _langevin_finalize_warp,
+        velocities,
+        forces_new,
+        masses,
+        dt,
+        batch_idx,
+    )

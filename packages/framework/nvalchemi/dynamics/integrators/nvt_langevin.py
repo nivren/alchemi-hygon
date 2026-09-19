@@ -41,6 +41,8 @@ from nvalchemi.dynamics._ops.langevin import langevin_finalize, langevin_half_st
 from nvalchemi.dynamics._units import fs_to_internal_time, per_fs_to_internal_rate
 from nvalchemi.dynamics.base import BaseDynamics
 from nvalchemi.dynamics.hooks._utils import KB_EV
+from nvalchemi._backend import resolve_compute_backend
+from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.dynamics.base import ConvergenceHook
@@ -99,6 +101,7 @@ class NVTLangevin(BaseDynamics):
         n_steps: int | None = None,
         hooks: list[Hook] | None = None,
         convergence_hook: ConvergenceHook | dict | None = None,
+        backend: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -112,6 +115,8 @@ class NVTLangevin(BaseDynamics):
         self._temperature_init = temperature
         self._friction_init = per_fs_to_internal_rate(friction)
         self._random_seed = random_seed
+        self.backend = backend
+        self._backend_selection: BackendSelection | None = None
 
     def _init_state(self, batch: Batch) -> None:
         M = batch.num_graphs
@@ -126,6 +131,14 @@ class NVTLangevin(BaseDynamics):
                 "friction": _to_per_system(self._friction_init, M, dev, dtype),
             },
             dev,
+        )
+        self._backend_selection = resolve_compute_backend(
+            self.backend,
+            operation="langevin",
+            device=batch.positions.device,
+            dtype=batch.positions.dtype,
+            gradient_order=0,
+            features={"fixed_cell"},
         )
         # Cache int32 batch index — graph topology never changes during MD.
         # Refreshed in _get_batch_int32 if the batch composition changes
@@ -177,6 +190,7 @@ class NVTLangevin(BaseDynamics):
             self._state.friction,
             self._random_seed + self.step_count,
             self._get_batch_int32(batch),
+            selection=self._backend_selection,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -193,4 +207,5 @@ class NVTLangevin(BaseDynamics):
             batch.atomic_masses,
             self._state.dt,
             self._get_batch_int32(batch),
+            selection=self._backend_selection,
         )

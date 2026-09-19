@@ -428,3 +428,16 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   `3N+9` deformation-gradient、`cell_factor`、mask 和压力约定；现有 `3N+6` 上三角
   cell-filter/FIRE2 路径是不同的框架原生语义，不能标注为 ASE-compatible。此前实际使用的
   ASE filter 尚待从原工作记录确认后，才可声明完整变胞轨迹对齐。
+
+## 21. T1 Torch NVTLangevin reference 收口（2026-09-19）
+
+- `codex/feature-torch-nvt-langevin` 已完成固定晶胞 BAOAB Langevin 的 Torch reference、
+  registry/catalog、generic executor binding、公共 `NVTLangevin(backend="torch_reference")`
+  接线及 focused compatibility tests；`backend=None` 的 legacy Warp 语义保持不变。
+- 当前 contract 支持普通多体系 `Batch`、`batch_idx`、异构 per-system `dt/kT/friction`、
+  float32/float64、空输入和显式错误。CPU contract `12 passed`，项目 CPU gate 及已分配
+  HCU 0 smoke 均通过；完整命令和范围见 `reports/g2-torch-nvt-langevin.md`。
+- 本收口不扩大为完整 Langevin/NVT 支持：上游完整行为/统计套件、checkpoint/restart、
+  `atom_ptr`、`_out`、inflight refill、分布式 ownership、torch.compile 和 Triton/HIP
+  生产实现仍是独立后续任务。下一步按 `docs/STATUS.md` 先评估受控统计测试，再决定是否立项
+  restart 或 API 兼容扩展。

@@ -32,6 +32,7 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/framework/test/compatibility/test_executor_binding.py \
   packages/framework/test/compatibility/test_backend_selection_propagation.py \
   packages/framework/test/compatibility/test_dynamics_reference_velocity_verlet.py \
+  packages/framework/test/compatibility/test_dynamics_reference_langevin.py \
   packages/framework/test/compatibility/test_dynamics_reference_fire.py \
   packages/framework/test/compatibility/test_public_dynamics_reference.py \
   packages/framework/test/dynamics/test_hook_utils.py \

@@ -45,6 +45,7 @@ def test_dispatchers_do_not_hardcode_implementation_selection() -> None:
         framework_root / "models" / "lj.py",
         framework_root / "dynamics" / "_ops" / "velocity_verlet.py",
         framework_root / "dynamics" / "_ops" / "fire.py",
+        framework_root / "dynamics" / "_ops" / "langevin.py",
         framework_root / "dynamics" / "hooks" / "_utils.py",
         ops_root / "dispatch.py",
         ops_root / "torch_backend.py",
