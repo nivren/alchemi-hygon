@@ -31,6 +31,8 @@ Reference: Leimkuhler & Matthews, *BAOAB algorithm* (2012).
 
 from __future__ import annotations
 
+import operator
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -50,6 +52,9 @@ if TYPE_CHECKING:
     from nvalchemi.models.base import BaseModelMixin
 
 __all__ = ["NVTLangevin"]
+
+_RESTART_VERSION = 1
+_RESTART_STATE_KEYS = ("dt", "temperature", "friction")
 
 
 class NVTLangevin(BaseDynamics):
@@ -144,6 +149,125 @@ class NVTLangevin(BaseDynamics):
         # Refreshed in _get_batch_int32 if the batch composition changes
         # (e.g. after an inflight-batching refill).
         self._batch_int32: torch.Tensor = batch.batch_idx.int()
+
+        pending_state = getattr(self, "_pending_restart_state", None)
+        if pending_state is not None:
+            self._install_restart_state(
+                pending_state,
+                device=dev,
+                dtype=dtype,
+                expected_systems=M,
+            )
+            del self._pending_restart_state
+
+    @staticmethod
+    def _copy_restart_state(state: Mapping[str, Any]) -> dict[str, torch.Tensor]:
+        """Validate and detach the serialized per-system Langevin state."""
+        missing = [key for key in _RESTART_STATE_KEYS if key not in state]
+        if missing:
+            raise ValueError(
+                "Langevin restart state is missing parameter(s): "
+                + ", ".join(missing)
+            )
+
+        copied: dict[str, torch.Tensor] = {}
+        expected_shape: tuple[int, ...] | None = None
+        for key in _RESTART_STATE_KEYS:
+            value = state[key]
+            if not isinstance(value, torch.Tensor):
+                raise TypeError(
+                    f"Langevin restart state {key!r} must be a torch.Tensor"
+                )
+            if value.ndim != 1:
+                raise ValueError(
+                    f"Langevin restart state {key!r} must have shape [M], "
+                    f"got {tuple(value.shape)}"
+                )
+            if expected_shape is None:
+                expected_shape = tuple(value.shape)
+            elif tuple(value.shape) != expected_shape:
+                raise ValueError("Langevin restart parameters must have equal shapes")
+            copied[key] = value.detach().clone()
+        return copied
+
+    def _install_restart_state(
+        self,
+        state: Mapping[str, torch.Tensor],
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+        expected_systems: int,
+    ) -> None:
+        if state["dt"].shape[0] != expected_systems:
+            raise ValueError(
+                "Langevin restart state system count does not match the active batch: "
+                f"state={state['dt'].shape[0]}, batch={expected_systems}"
+            )
+        tensors = {
+            key: value.to(device=device, dtype=dtype).clone()
+            for key, value in state.items()
+        }
+        self._state = _make_state_batch(tensors, device)
+
+    def state_dict(self) -> dict[str, Any]:
+        """Return the minimal integrator state needed to continue a run.
+
+        Batch coordinates, velocities, forces, and model state are owned by
+        the caller and are intentionally not included here.  The returned
+        mapping is an integrator continuation state, not a framework-wide
+        checkpoint.
+        """
+        state: dict[str, Any] = {
+            "version": _RESTART_VERSION,
+            "step_count": self.step_count,
+            "random_seed": self._random_seed,
+        }
+        if hasattr(self, "_state"):
+            state["integrator_state"] = {
+                key: getattr(self._state, key).detach().clone()
+                for key in _RESTART_STATE_KEYS
+            }
+        return state
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        """Restore a previously saved integrator continuation state."""
+        if not isinstance(state, Mapping):
+            raise TypeError("Langevin restart state must be a mapping")
+        if state.get("version") != _RESTART_VERSION:
+            raise ValueError(
+                f"Unsupported Langevin restart state version: {state.get('version')!r}"
+            )
+
+        try:
+            step_count = operator.index(state["step_count"])
+            random_seed = operator.index(state["random_seed"])
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "Langevin restart state must contain integer step_count and random_seed"
+            ) from exc
+        if step_count < 0:
+            raise ValueError("Langevin restart step_count must be non-negative")
+
+        integrator_state = state.get("integrator_state")
+        copied_state: dict[str, torch.Tensor] | None = None
+        if integrator_state is not None:
+            if not isinstance(integrator_state, Mapping):
+                raise TypeError("Langevin integrator_state must be a mapping")
+            copied_state = self._copy_restart_state(integrator_state)
+
+        self.step_count = step_count
+        self._random_seed = random_seed
+        if copied_state is None:
+            self.__dict__.pop("_pending_restart_state", None)
+        elif hasattr(self, "_state"):
+            self._install_restart_state(
+                copied_state,
+                device=self._state.dt.device,
+                dtype=self._state.dt.dtype,
+                expected_systems=self._state.num_graphs,
+            )
+        else:
+            self._pending_restart_state = copied_state
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
         dev = template_batch.device

@@ -41,11 +41,13 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 
 - `TORCH-NVT-LANGEVIN` 已在 `develop` 合入 `1fafd7b`，完成固定晶胞 BAOAB Torch
   reference、registry/catalog、generic executor binding、公共 `NVTLangevin` 显式
-  `torch_reference` 接线、CPU contract 和 HCU smoke；本次交付是可审查的窄 reference
-  slice。
+  `torch_reference` 接线、CPU contract 和 HCU smoke；随后补充的短谐势统计 oracle 已在
+  CPU/HCU 通过，当前分支另补了普通 Batch 的最小 integrator continuation state。
+  这些交付仍是可审查的窄 reference slice。
 - 该状态不等于完整 Langevin/NVT 支持。上游完整统计/行为套件、checkpoint/restart、
   `atom_ptr`、`_out`、inflight refill、分布式 ownership、torch.compile 和 Triton/HIP
-  生产实现仍未完成，后续应另建任务，不回填本分支。
+  生产实现仍未完成；本轮 restart 只保存积分器续跑元数据，完整 checkpoint/restart
+  仍应另建任务，不回填本分支。
 - 本里程碑满足第 6 节的“完成一个可审查里程碑后暂停”条件；后续开发前重新确认优先级，
   不自动启动 M2、NPT/NPH、DomainParallel 或生产优化。
 
@@ -87,7 +89,8 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 - BAOAB `B-A-O-A-B` 顺序正确；`friction=0` 与 velocity Verlet 对照；
 - 异构 Batch 的 `dt/kT/friction` 按 system 正确映射；
 - 同一设备、输入和 seed 可复现，换 seed 通常产生不同轨迹；
-- state、restart、空输入、非法参数和 mutation 语义明确；
+- 普通 Batch 的 state/restart、空输入、非法参数和 mutation 语义明确；完整 checkpoint、
+  inflight state 和分布式 ownership 不在首版范围；
 - CPU 通过后再运行 HCU smoke；没有 HCU 证据只能标为 CPU verified。
 
 不在本任务内：NPT/NPH、域分解、跨设备逐位随机一致、Triton/HIP 优化。

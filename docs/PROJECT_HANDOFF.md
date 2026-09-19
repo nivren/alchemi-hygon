@@ -439,8 +439,8 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   HCU 0 smoke 均通过；完整命令和范围见 `reports/g2-torch-nvt-langevin.md`。
 - 本收口不扩大为完整 Langevin/NVT 支持：上游完整行为/统计套件、checkpoint/restart、
   `atom_ptr`、`_out`、inflight refill、分布式 ownership、torch.compile 和 Triton/HIP
-  生产实现仍是独立后续任务。受控统计测试的短谐势 CPU/HCU 复核已完成；下一步按
-  `docs/STATUS.md` 决定是否立项 restart 或 API 兼容扩展。
+  生产实现仍是独立后续任务。受控统计测试的短谐势 CPU/HCU 复核已完成；后续 restart
+  采用独立的最小 integrator continuation slice，不扩大为通用 checkpoint。
 
 ## 22. T1 Torch NVTLangevin controlled statistics（2026-09-19）
 
@@ -452,3 +452,14 @@ M2 继续延期至出现多实现策略或冻结 plan 的实际需求。
   `reports/g2-torch-nvt-langevin-stat.md`。
 - 本步只增加短统计 oracle，不实现新的公共 API、MACE 统计、长轨迹框架或 restart。
   统计门只覆盖独立谐势的二阶矩，不等价于完整上游 Langevin/NVT 统计套件。
+
+## 23. T1 Torch NVTLangevin minimal restart（2026-09-19）
+
+- 新增 `test_dynamics_reference_langevin_restart.py` 和 `NVTLangevin.state_dict()` /
+  `load_state_dict()`：保存 `step_count`、`random_seed` 及已初始化的 per-system
+  `dt/temperature/friction`，支持普通固定晶胞 Batch 的新实例续跑。
+- 第 3 步保存后恢复 2 步，与连续运行 5 步的 positions、velocities、forces、energy
+  在 CPU 和 HCU 0 均一致；restart 测试各 `2 passed`，报告见
+  `reports/g2-torch-nvt-langevin-restart.md`。
+- 位置/速度/力、模型参数和 Batch 元数据仍由调用方负责保存；完整 checkpoint、inflight、
+  `atom_ptr`、`_out`、分布式 ownership 和跨设备逐位一致仍未实现。
