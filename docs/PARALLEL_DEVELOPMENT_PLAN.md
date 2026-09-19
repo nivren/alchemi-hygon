@@ -37,6 +37,18 @@ executor、测试、probe 和 report 中，不应再修改通用 executor 或大
 strategy/capability。它们各自的第一版不包括 NPT/NPH、变胞、域分解、生产 Triton/HIP 或
 M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
 
+### T1 当前状态（2026-09-19）
+
+- `TORCH-NVT-LANGEVIN` 已在 `develop` 合入 `1fafd7b`，完成固定晶胞 BAOAB Torch
+  reference、registry/catalog、generic executor binding、公共 `NVTLangevin` 显式
+  `torch_reference` 接线、CPU contract 和 HCU smoke；本次交付是可审查的窄 reference
+  slice。
+- 该状态不等于完整 Langevin/NVT 支持。上游完整统计/行为套件、checkpoint/restart、
+  `atom_ptr`、`_out`、inflight refill、分布式 ownership、torch.compile 和 Triton/HIP
+  生产实现仍未完成，后续应另建任务，不回填本分支。
+- 本里程碑满足第 6 节的“完成一个可审查里程碑后暂停”条件；后续开发前重新确认优先级，
+  不自动启动 M2、NPT/NPH、DomainParallel 或生产优化。
+
 ### 第二批：低耦合扩展功能
 
 如果有额外开发者，可以同时开展下面三项。它们不改变 B1 的架构方向，但新增的
