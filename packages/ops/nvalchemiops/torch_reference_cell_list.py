@@ -15,6 +15,11 @@ import math
 
 import torch
 
+from nvalchemiops._cell_list_abi import (
+    build_cell_atom_list_reference_into,
+    build_cell_csr_reference_into,
+    build_cell_keys_reference_into,
+)
 from nvalchemiops.torch_reference import (
     NeighborOverflowError,
     _normalize_periodic_geometry,
@@ -209,26 +214,30 @@ def _build_into(
     cell_atom_start_indices.zero_()
     if n_atoms == 0:
         return total_cells
-    fractional = positions @ torch.linalg.inv(geometry)
-    atom_shifts = torch.where(
-        periodic, torch.floor(fractional), torch.zeros_like(fractional)
+    keys = torch.empty(n_atoms, dtype=torch.int32, device=positions.device)
+    build_cell_keys_reference_into(
+        positions,
+        torch.linalg.inv(geometry),
+        dimensions,
+        periodic,
+        atom_periodic_shifts,
+        atom_to_cell_mapping,
+        keys,
     )
-    wrapped = fractional - atom_shifts
-    coordinates = torch.floor(wrapped * dimensions.to(positions.dtype)).to(torch.int64)
-    coordinates = torch.minimum(
-        torch.maximum(coordinates, torch.zeros_like(coordinates)),
-        dimensions.to(torch.int64) - 1,
+    build_cell_csr_reference_into(
+        keys,
+        atoms_per_cell_count[:total_cells],
+        cell_atom_start_indices[:total_cells],
+        global_atom_offset=global_atom_offset,
     )
-    atom_periodic_shifts.copy_(atom_shifts.to(torch.int32))
-    atom_to_cell_mapping.copy_(coordinates.to(torch.int32))
-    nx, ny, _ = (int(v.item()) for v in dimensions)
-    keys = coordinates[:, 0] + nx * (coordinates[:, 1] + ny * coordinates[:, 2])
-    counts = torch.bincount(keys, minlength=total_cells).to(torch.int32)
-    starts = counts.cumsum(0) - counts
-    atoms_per_cell_count[:total_cells].copy_(counts)
-    cell_atom_start_indices[:total_cells].copy_(starts + global_atom_offset)
-    cell_atom_list.copy_(
-        torch.argsort(keys, stable=True).to(torch.int32) + global_atom_offset
+    cell_cursor = torch.empty_like(atoms_per_cell_count[:total_cells])
+    build_cell_atom_list_reference_into(
+        keys,
+        atoms_per_cell_count[:total_cells],
+        cell_atom_start_indices[:total_cells],
+        cell_atom_list,
+        cell_cursor,
+        global_atom_offset=global_atom_offset,
     )
     return total_cells
 
@@ -741,8 +750,11 @@ def batch_build_cell_list(
     cell_atom_start_indices: torch.Tensor,
     cell_atom_list: torch.Tensor,
     min_cells_per_dimension: int = 4,
+    max_nbins: int = 8192,
 ) -> None:
     del neighbor_search_radius
+    if max_nbins <= 0:
+        raise ValueError("max_nbins must be positive")
     ptr = _prepare_batch_ptr(positions, batch_idx, None)
     if cell.shape != (ptr.numel() - 1, 3, 3) or pbc.shape != (ptr.numel() - 1, 3):
         raise ValueError("cell/pbc batch dimensions must match batch_idx")
@@ -754,7 +766,10 @@ def batch_build_cell_list(
         dims, _ = _grid_spec(
             cell[system],
             cutoff,
-            max_nbins=max(atoms_per_cell_count.numel() - cell_offset, 1),
+            max_nbins=min(
+                max_nbins,
+                max(atoms_per_cell_count.numel() - cell_offset, 1),
+            ),
             min_cells_per_dimension=min_cells_per_dimension,
         )
         n_cells = math.prod(int(v.item()) for v in dims)
@@ -982,6 +997,7 @@ def batch_cell_list(
         cell_atom_start_indices,
         cell_atom_list,
         min_cells_per_dimension=1,
+        max_nbins=8192,
     )
     rebuilt = _batch_pairs(
         positions,

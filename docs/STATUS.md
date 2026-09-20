@@ -26,7 +26,7 @@
 - 本文件后面的历史记录仍保留作为证据；若历史“下一步”与上述计划冲突，以该计划和最新
   交接记录为准。
 
-## 当前快照（2026-09-19）
+## 当前快照（2026-09-20）
 
 - T1 `TORCH-NVT-LANGEVIN` 窄 reference slice 已完成收口：从 `develop` 创建的 `codex/feature-torch-nvt-langevin` 新增固定晶胞 BAOAB Torch reference、`torch_reference.langevin-v1` catalog entry、局部 dispatcher/wrapper 接线和 focused compatibility tests。
 - CPU contract `12 passed`；本轮补充了当前 Torch contract 可映射的非统计上游行为：float32/float64、非均匀 batch、`masses [N,1]`、状态张量 mutation 边界和越界索引错误。项目 CPU gate 的 ops/framework/state/dynamics 子集全部通过。CPU probe 与主机权限 HCU 0 probe 均通过：float64、7 原子/2 system、`friction=0` 与 VV 一致、固定 seed 可复现、结果 finite。证据见 `reports/g2-torch-nvt-langevin.md`。
@@ -54,6 +54,365 @@
   10 组 device-loop median 分别约为 Torch 的 `11.51x/11.52x`。该结果只覆盖
   wrap+cell-coordinate+key 融合，不包含 sort/CSR/query/fill 或产品接线，不能宣称完整
   cell-list 加速；下一步是共享 ABI review 后再做 AOT/custom-op 候选。
+- 阶段二小点 1 已在工作分支固化 Torch shared cell-key build ABI：显式 FP32/FP64 几何输入、
+  `int32` shift/coordinate/key 输出 buffer、mixed-PBC 和 overflow 错误契约由 reference 实现
+  定义，既有 cell-list 改经该边界生成 key。CPU focused gate 为 `15 passed, 17 deselected`；
+  当前项目 `.venv` 虽报告 HIP 6.3，但没有可见设备，故本轮没有新增 HCU 或性能结论。详见
+  `reports/g2-cell-key-build-abi.md`。
+- 阶段二小点 2 已增加 native HIP cell-key mutation-only custom-op 边界：`torch.library` 的
+  `mutates_args`/fake 注册、gfx936 lazy loader、`.cpp/.cu` 源码和当前 stream kernel 均已落地；
+  CPU boundary/cell-list focused gate 为 `17 passed`，DTK 26.04 下 gfx936 编译、链接、加载和
+  wheel 源码打包通过。主机 HCU 0（BW200/gfx936）上 native probe 已验证 FP32/FP64
+  mixed-PBC/triclinic 的逐元素 output parity、空输入、非默认 stream 与 strided read-only
+  input；未测性能，也未登记 `hip` capability。详见 `reports/g2-cell-key-hip-boundary.md`。
+- 阶段二小点 3 已增加 gfx936 AOT wheel 构建入口：Hatchling 基线 wheel 经 native artifact
+  注入后为 `cp312-cp312-linux_x86_64`、`Root-Is-Purelib: false`，RECORD 全量校验通过。临时
+  解包后的 wheel 在主机 BW200 上实际加载内置 `.so` 并复现 FP32/FP64 parity、空输入、strided
+  input 和 stream probe；未测性能，未登记 `hip` capability。详见
+  `reports/g2-cell-key-aot-wheel.md`。
+- 阶段二小点 4 已冻结并接入 `cell_key -> CSR count/start` ABI：counts、exclusive starts、
+  global offset、空输入/overflow/error 合同由 Torch reference 定义，PBC cell-list build 已复用。
+  CPU focused `20 passed`；主机 BW200/gfx936 上专用 CSR probe 与完整 PBC cell-list probe 均
+  通过。尚无 native atomic count、scan、sort/fill/query 或性能结论，不登记 `hip` capability。
+  详见 `reports/g2-cell-key-csr-abi.md`。
+- 阶段二小点 5 已增加独立的 native HIP atomic-count custom-op：共享 ABI 现有 count-only Torch
+  oracle，HIP 路径以当前 stream `hipMemsetAsync + atomicAdd` 覆写 caller-owned count buffer；
+  CPU/非 HIP 调用明确失败且不回退。它未接入 `torch_reference_cell_list`、AOT wheel、dispatcher、
+  `auto` 或 `hip` capability。CPU focused `25 passed`；主机 BW200/gfx936 JIT probe 对 4099 keys/
+  137 cells 的普通、空、strided input 与非默认 stream 均与 Torch oracle 一致，既有完整 PBC
+  reference probe 也通过。尚无 isolated count 或端到端性能结论；详见
+  `reports/g2-cell-key-hip-count-boundary.md`。
+- 阶段二小点 6 已完成 HIP count 的固定 workload device-time 对照：BW200/gfx936、32768 keys/
+  4096 cells、20 warm-up、每 sample 100 次调用和每侧 20 个 HIP-event samples 下，uniform 与
+  single-cell atomic-contention 的 Torch/HIP median 分别为 `0.26104/0.20087 ms` 与
+  `0.26266/0.20278 ms`（Torch/HIP `1.300x/1.295x`，局部降低 `23.05%/22.80%`）。逐元素 count
+  在计时前后均一致；原始样本在 artifacts。它只支持保留 count candidate，未达到完整 neighbor
+  准入门槛，不改变 `auto`、dispatcher 或 `hip` capability；详见
+  `reports/g2-cell-key-count-benchmark.md`。
+- 阶段二小点 7 已以 ADR 0009 固定 HIP build 的整体设计：上游二次 per-atom count/fill 与 scan
+  边界被映射到 `fused geometry/PBC/key-count -> scan -> fill -> query`，而非继续孤立替换 primitive。
+  DTK 26.04 的 rocPRIM/hipCUB scan headers 和 hipcc 已只读确认；尚无 rocPRIM compile/HCU run，
+  不改变功能支持、`auto` 或 `hip` capability。下一小点仅实现/验证 standalone scan boundary。
+- 阶段二小点 8 已增加独立 native HIP rocPRIM exclusive-scan boundary：共享 ABI 的 counts 为只读
+  `(M,) int32` 输入，starts 与 caller-owned `uint8` workspace 为显式输出/scratch，global offset、
+  空输入、overflow、alias 与 stream 均有合同。CPU focused `29 passed`；主机 BW200/gfx936 实际
+  JIT 编译/执行通过 output parity、counts unchanged、empty、strided read-only counts 和 non-default
+  stream，既有 FP64 PBC cell-list probe 亦通过。未测性能，未接线 native count/key 或 full build，
+  不登记 `hip` capability、不改 `auto`；详见 `reports/g2-cell-start-scan-hip-boundary.md`。
+- 阶段二小点 9 已实现 batch-aware fused geometry/PBC/key/count candidate：严格连续 per-system
+  cell offsets 将异构 Batch 映射到一个 global CSR count slice；native HIP 在同一 per-atom kernel
+  中写 shift/mapping/key 并 atomic count。CPU focused `33 passed`；主机 BW200/gfx936 实际 JIT
+  run 的 257 atoms、两体系 mixed-PBC、FP32/FP64、empty B=1、strided inputs 和 non-default stream
+  全部与 Torch oracle 一致。未测性能，未接线 scan/fill/query 或 runtime，`auto`/`hip` capability
+  不变；详见 `reports/g2-batch-cell-key-count-hip-boundary.md`。
+- 阶段二小点 10 已完成同合同的 native fusion-vs-composition device-time 对照：BW200/gfx936、
+  FP32、2x16384 atoms、4096 global cells、20 warm-up、100 repeats/sample、20 HIP-event samples
+  下，uniform/single-cell 的 composed/fused median 为 `1.17562/0.79358 ms` 与
+  `1.17380/0.79173 ms`（`1.481x/1.483x`，融合局部降低 `32.50%/32.55%`）；输出在计时前后逐元素
+  一致且相对总体标准差均小于 2%。这仅支持保留融合 candidate，不是完整 neighbor 性能结论，不改
+  `auto`、dispatcher 或 `hip` capability；详见 `reports/g2-batch-cell-key-count-fusion-benchmark.md`。
+- 阶段二小点 11 已冻结 CSR atom-list fill ABI 与 Torch oracle：fill 读取 keys/counts/starts，写
+  caller-owned `cell_atom_list` 和独立 `cell_cursor`，public counts/starts 不被 cursor 覆写；stable
+  atom order、global atom offset、capacity tail、empty input 和错误合同均已定义。现有 Torch
+  reference 已复用该 ABI。CPU focused `27 passed`；主机 BW200/gfx936 PBC HCU probe 通过（full/half
+  `8/4`、pair/shift parity、layered counts、二阶梯度）。尚无 native HIP fill、fill 性能或 runtime
+  接线，不改变 `auto`/`hip` capability；详见 `reports/g2-cell-atom-list-fill-abi.md`。
+- 阶段二小点 12 已完成 native HIP atomic CSR fill correctness candidate：独立 cursor 在 current
+  stream 清零，atomic slot 写 global atom ID；同 cell 内原子顺序未指定，故仅以每 cell atom 集合
+  对照 stable Torch oracle。CPU focused `37 passed`；主机 BW200/gfx936 实际 JIT 编译/加载与运行的
+  257 atoms、异构 triclinic Batch/mixed-PBC、FP32/FP64、strided inputs、empty B=1、non-default
+  stream 均通过，cursor/counts/starts/capacity tail 合同成立。未测性能、未串接 key/count/scan、未
+  接入 runtime，`auto`/`hip` capability 不变；详见 `reports/g2-cell-atom-list-fill-hip-boundary.md`。
+- 阶段二小点 13 已完成 isolated native HIP Batch CSR build composition：显式串接 fused
+  geometry/PBC/key/count、rocPRIM scan 与 atomic fill，caller-owned workspace/output 合同不变。CPU
+  focused `39 passed`；同一主机上下文确认 device nodes、hipcc 与 BW200 可见，HCU 0 上三份 extension
+  实际 JIT/加载/执行，FP32/FP64、异构 triclinic Batch/mixed-PBC、`global_atom_offset`、strided input、
+  empty B=1 与 stream 的 keys/counts/starts 均逐元素一致，atom-list 按 cell set 一致。未测性能，
+  未验证 query/public pair order 或接入 runtime，`auto`/`hip` capability 不变；详见
+  `reports/g2-batch-cell-csr-build-hip-boundary.md`。
+- 阶段二小点 14 已验证 atomic CSR 内部无序不会泄露到当前 Torch direct query 的公共顺序：CPU
+  PBC/no-PBC、full/half 的 per-cell atom-list permutation 回归与 HCU 0 的 HIP build + Batch Torch
+  query 均使 matrix、counts、pair shifts、distances、vectors 及 row order 与 stable reference 一致。
+  当前无需 fill-side canonicalization；但不覆盖 target/pair outputs、pair-centric、compile 或 native
+  query。未测完整 neighbor 性能、未接入 runtime，`auto`/`hip` capability 不变；详见
+  `reports/g2-batch-cell-build-query-order-boundary.md`。
+- 阶段二小点 15 已完成固定合同的完整 device-time benchmark/profile：在 HCU 0、FP32、2x2048 atoms、
+  46592 cells、uniform/clustered、5 warm-up、8 samples 下，native build 比 Torch build 慢约
+  `18.4%`，现有 Torch query 基本持平，完整 native build+Torch query 比 Torch build+Torch query
+  慢 `2.9%--3.4%`。所有 build metadata/cell membership/public matrix/counts/shifts 在计时前后
+  一致；相对总体标准差 `0.26%--1.23%`。HIP profile 包含 JIT/module load，不能作为 steady-state
+  比例，但指向 query 的大量 index/elementwise/reduction/sort fragments。未修改 kernel/runtime，
+  不进入 `auto`；详见 `reports/g2-native-batch-cell-build-query-benchmark.md`。
+- 阶段二小点 16 已补充中小体系高 Batch 性能矩阵：HCU 0、FP32、uniform/clustered、
+  `46/92 atoms × 32/64 systems`，每组 3 warm-up、5 samples，global cells 为 `745472/1490944`。
+  native build 在 8 个 workload 中均慢于 Torch，median 约慢 `31%--45%`；native/Torch query 差异
+  约 `-0.62%--+0.06%`，full 除一个高方差 case 外慢约 `0.34%--0.63%`。这进一步证明当前
+  full pipeline 的主要成本在 query/materialization，而不是 build；不构成 native build 或 query
+  candidate 的 `auto` 准入证据。另记录 `2×16384` capacity 512 的显式 overflow，并以 1024 成功重跑，
+  说明容量必须按 workload sizing。未修改 kernel/runtime；详见
+  `reports/g2-batch-scale-performance-matrix.md`。
+- 阶段二小点 17 已实现最小 native HIP Batch query enumeration candidate：每个 source atom
+  遍历邻近 cell，执行 mixed-PBC wrapping/image shift、cutoff、self 排除和 full/half 过滤，输出
+  unordered row candidates；Torch reference 继续负责 canonicalization、distance/vector 和梯度。
+  CPU boundary `2 passed`；BW200/gfx936 HCU 0 实际 JIT/load/run 的 FP32/FP64、mixed PBC、full/half、
+  non-default stream、pair/shift/distance/vector parity 和显式 capacity overflow probe 均通过。
+  candidate 是 forward-only correctness slice，不接 dispatcher、`auto` 或 `hip` capability；详见
+  `reports/g2-batch-cell-query-candidate-hip-boundary.md`。
+- 阶段二小点 18 已在 `46/92 atoms × 32/64 systems` 高 Batch 矩阵上拆分 query device work：
+  native enumeration + Torch matrix/count/shift materialization 相对现有 Torch query 的 median
+  factor 为 `45.44x--101.16x`，8 个 uniform/clustered workload 均通过 query parity，candidate
+  full 相对总体标准差最高 `3.24%`。该结果只覆盖 FP32、固定 grid、无 optional distance/vector
+  output 的 HIP-event device timeline，不是 API wall-clock、完整 neighbor 或端到端加速，也不接入
+  runtime。下一小点补齐 distance/vector 和连续梯度合同；详见
+  `reports/g2-batch-query-materialization-benchmark.md`。
+- 阶段二小点 19 已增加可复用的 Torch candidate materialization helper：复用 reference stable
+  pair ordering，输出 public matrix/count/shift，并从原始 positions/cells 生成可微 distance/vector。
+  CPU focused `6 passed`；HCU 0/BW200/gfx936 上 FP32/FP64、mixed PBC、full/half、empty、非默认
+  stream、capacity overflow、public parity 与一二阶 geometry gradient 均通过。相同
+  `46/92 atoms × 32/64 systems` geometry workload 的 native enumeration + Torch materialization
+  相对完整 Torch geometry query 为 `35.20x--79.49x`，仍是 HIP-event device timeline，不是 API
+  wall-clock。candidate、helper 和 runtime 仍隔离，未登记 `hip`/`auto` capability；详见
+  `reports/g2-batch-query-geometry-materialization.md`。下一小点评估 canonicalization/geometry
+  中适合 Triton 或 HIP 的部分，不提前接入 runtime。
+- 阶段二小点 20 已将 Torch materialization helper 拆为固定 candidate 上的 topology
+  canonicalization/scatter、geometry distance/vector 和完整 helper 三个 HIP-event scope。相同
+  `46/92 atoms × 32/64 systems`、uniform/clustered 的 8 个 workload 均通过阶段间 public parity；
+  topology 占完整 helper `72%--75%`，geometry 占 `17%--19%`。因此下一优化候选优先评估 HIP
+  不规则 compaction/scatter/sort，而不是预设先优化 geometry；Triton geometry 保留为后续候选。
+  这仍不是 API wall-clock 或生产 backend 证据，不改变 dispatcher、`auto` 或 `hip` capability；详见
+  `reports/g2-batch-query-materialization-breakdown.md`。
+- 阶段二小点 21 已实现隔离 native HIP topology materialization candidate：对 unordered query
+  candidate 执行等价上游 `_sort_pairs` 的五字段稳定 rocPRIM radix sort、counts exclusive scan
+  和 public matrix/shift scatter；临时 workspace、字段 buffer 与 host-side pair-count sync 均明确
+  保留为 correctness candidate，不作性能实现。CPU focused `21 passed`；HCU 0/BW200/gfx936
+  上 FP32/FP64、Batch mixed-PBC、full/half、empty、non-default stream 的 public topology parity
+  通过，既有 distance/vector 及一二阶 geometry gradient probe 也保持通过。native candidate 仍
+  不计算 geometry、不接 dispatcher、`auto` 或 `hip` capability；详见
+  `reports/g2-batch-query-topology-materialization-hip-boundary.md`。下一小点在相同高 Batch 矩阵
+  对比 native topology candidate 与 Torch topology stage 的稳态 HIP-event device time。
+- 阶段二小点 22 已完成 topology candidate 的高 Batch device-time benchmark：HCU 0/BW200/gfx936、
+  FP32、`46/92 atoms × 32/64 systems`、uniform/clustered、3 warm-up/5 samples，8 个 workload
+  均通过计时前后 public topology parity。HIP/Torch topology median factor 为：`46×32` 的
+  `0.830x--0.860x`，`46×64` 的 `1.175x--1.274x`，`92×32` 的 `1.240x--1.365x`，`92×64` 的
+  `1.636x--1.696x`。因此当前 HIP candidate 只在低 Batch 局部 workload 有收益，Batch 增大后
+  反而变慢，不能进入 `auto` 或登记 `hip` capability。native scope 前的显式 device sync 不计入
+  event；candidate 内临时分配和 host pair-count sync 仍未优化。下一小点分析排序/字段 gather/
+  workspace 成本，评估单 key、workspace reuse 或 Triton 规则路径；详见
+  `reports/g2-batch-query-topology-materialization-benchmark.md`。
+- 阶段二小点 23 已完成 topology candidate 的受限 `hipprof` kernel profile：项目环境下在
+  HCU 0/BW200/gfx936、FP32 的 `46×32` 与 `92×64` uniform/clustered workload 上采集有效 trace，
+  四个 workload 的计时前后 public topology parity 均通过。按 native kernel 调用次数归并，五轮
+  radix-sort 相关 kernel 的单次累计 duration 约从 `0.755 ms` 增至 `1.638 ms`，明显高于
+  `gather_key` (`0.034/0.113 ms`)、`prepare_fields` (`0.011/0.030 ms`) 和 public scatter
+  (`0.007/0.009 ms`)；高输入下 rocPRIM sort 由 merge-path 类实现切换为 onesweep 类实现。该
+  profile 只用于热点定位，不是性能准入；混合进程 CSV 不能单独量化 exclusive scan、allocator
+  或 host sync。下一小点优先验证保持 public lexicographic order 的 single composite key，再
+  独立评估 workspace reuse/host sync；详见
+  `reports/g2-batch-query-topology-materialization-profile.md`。
+- 阶段二小点 24 已完成 isolated single composite-key correctness/overflow candidate：将
+  `row -> column -> shift_x -> shift_y -> shift_z` 编码为 signed `int64` key，并以一次 radix
+  sort 对照现有五次 int32 stable-sort candidate。HCU 0/BW200/gfx936 的 5 原子 mixed-sign
+  PBC fixture 在默认与非默认 stream 上 public topology parity 均通过，shift 范围溢出显式
+  拒绝；CPU focused `5 passed`。`int64` 仅是 packed key 的标量存储，不是 FP64 或 matrix-core
+  int64 计算能力；尚未测性能，未接入 dispatcher、AOT、`auto` 或 `hip` capability。下一步在
+  `46/92 × 32/64` 高 Batch 矩阵上比较 single-key 与五次 int32 sort，再独立处理 workspace
+  reuse/host sync；详见 `reports/g2-batch-query-topology-materialization-composite-key.md`。
+- 阶段二小点 25 已完成 composite-key topology candidate 的 parity-gated device-time benchmark：
+  HCU 0/BW200/gfx936、FP32、`46/92 atoms × 32/64 systems`、uniform/clustered、3 warm-up/5
+  samples 的 8 个 workload 均通过计时前后 public topology parity。single-key 相对现有五次
+  int32 stable-sort candidate 的 median factor 为 `0.310x--0.406x`，相对 Torch topology 为
+  `0.289x--0.526x`；`46×32` relative population std 最大约 `12.3%`，所以这是固定 scope 的
+  描述性 device timeline，不是 API wall-clock 或完整 neighbor 加速。两个 HIP candidate 仍
+  保留临时分配和 host pair-count sync，未接 dispatcher、AOT、`auto` 或 `hip` capability。
+  下一步把 composite candidate 扩展到现有 FP32/FP64、full/half、empty、mixed-PBC、capacity、
+  stream correctness boundary，再独立评估 workspace reuse/host-sync removal；详见
+  `reports/g2-batch-query-topology-materialization-composite-key-benchmark.md`。
+- 阶段二小点 26 已将 composite topology candidate 接入现有完整 HCU query/materialization
+  boundary：HCU 0/BW200/gfx936 上 FP32/FP64、mixed-PBC、full/half、non-default stream、
+  empty、native query capacity overflow 和 composite public-capacity rejection 均通过；
+  composite 的 matrix/count/shift 与 Torch reference 及五次 HIP stable-sort candidate 一致。
+  该 probe 中既有 geometry/autograd 检查仍验证 Torch continuous path，不扩大为 composite
+  geometry gradient 证据；未测性能，未接 dispatcher、AOT、`auto` 或 `hip` capability。下一步
+  可独立处理 workspace lifecycle 或 host pair-count synchronization；详见
+  `reports/g2-batch-query-topology-materialization-composite-key-boundary.md`。
+- 阶段二小点 27 已增加 composite-key caller-owned workspace reuse：预分配并复用 key/order/
+  row-start/sort/scan scratch；CPU focused `6 passed`，HCU 0/BW200/gfx936 完整 boundary 和
+  同一 workspace 连续复用 parity 通过。相同 `46/92 atoms × 32/64 systems`、uniform/clustered、
+  3 warm-up/5 samples 的 8 个 workload 中，reused/direct device-time factor 为
+  `0.900x--1.026x`，显式同步 API wall-clock factor 为 `0.902x--1.129x`；未形成稳定全矩阵
+  收益，不接 dispatcher、AOT、`auto` 或 `hip` capability。现有 `candidate_counts.sum().item()`
+  host sync 保留，下一步独立处理该同步边界；详见
+  `reports/g2-batch-query-topology-materialization-workspace.md`。
+- 阶段二小点 28 已移除 native topology materialization 两条 HIP scatter 路径中的
+  `candidate_counts.sum().item()` host synchronization：scatter 改为按 candidate 总容量发射，
+  kernel 在 device 侧根据 `candidate_counts` 跳过 padding。CPU focused `6 passed`，HCU 0/BW200/
+  gfx936 boundary 通过 FP32/FP64、mixed-PBC、full/half、empty、non-default stream、capacity、
+  workspace reuse 和全零 candidate-count case。相同 `46/92 × 32/64`、uniform/clustered、
+  3 warm-up/5 samples 的 8 个 workload 全部 parity 通过；point28 direct/point27 direct 的
+  描述性 device median factor 为 `0.817x--0.914x`，API wall-clock 为 `0.858x--1.042x`，但两轮
+  不是交替配对采样，不能直接宣称稳定 speedup。固定容量 scatter 可能增加稀疏场景无效线程，
+  因此仍不接 dispatcher、AOT、`auto` 或 `hip` capability；详见
+  `reports/g2-batch-query-topology-materialization-host-sync.md`。下一步可做 HIP 离散路径加
+  Torch geometry 的完整 hybrid pipeline 对照。
+- 阶段二小点 29 已将 native HIP query + composite-key topology + Torch geometry 串成 hybrid
+  query/materialization path，并新增 topology-to-geometry helper。CPU focused `11 passed`，含
+  topology geometry parity 与一/二阶 geometry gradient；HCU 0/BW200/gfx936 上 FP32/FP64、mixed
+  PBC、full/half、empty、capacity、stream 和完整 matrix/count/shift/distance/vector parity 通过。
+  在不重复计 cell-list build、固定 CSR metadata、`46/92 × 32/64`、uniform/clustered、3 warm-up/
+  5 samples 的 8 个 workload 上，hybrid/Torch device factor 为 `0.0120x--0.0257x`，API wall
+  factor 为 `0.0124x--0.0256x`；这是 query/materialization scope，不能扩大为完整 MD/MACE 或
+  整个 neighbor API 的加速结论。hybrid 仍不接 dispatcher、AOT、`auto` 或 `hip` capability；
+  详见 `reports/g2-batch-query-hybrid-torch-geometry.md`。下一步可独立评估 forward-only HIP/
+  Triton geometry candidate。
+- 阶段二小点 30 已增加隔离 native HIP forward geometry candidate：在相同 public
+  matrix/count/shift topology 上，以一个 `(row, slot)` kernel 线程计算 distance/vector，
+  并将其接入 native query + composite topology 的窄 hybrid path。CPU focused `8 passed`；
+  HCU 0/BW200/gfx936 上 FP32/FP64、mixed-PBC、full/half、empty、capacity、zero-count 和
+  non-default stream boundary 通过，native geometry 与 Torch public output parity 通过。
+  `46/92 × 32/64`、uniform/clustered 的 8 个 workload 中，geometry-only device factor 为
+  `0.0784x--0.1220x`、API factor 为 `0.1092x--0.1537x`；完整窄 hybrid query/materialization
+  factor 为 device `0.0069x--0.0146x`、API `0.0075x--0.0155x`。这些结果不包含 cell-list
+  build，不代表完整 neighbor/MD 加速；native geometry 仍 forward-only，不接 dispatcher、
+  AOT、`auto`、`hip` capability 或 autograd。详见
+  `reports/g2-batch-query-native-hip-geometry.md`。下一步先决定保留 Torch geometry 的梯度
+  路径还是设计 native autograd contract，再做 build-inclusive end-to-end 收口。
+
+- 阶段二小点 31 已新增 build-inclusive isolated end-to-end benchmark：每次调用都重新执行
+  cell-list build、native query candidate、composite-key topology materialization 和 geometry。
+  对照保留三条路径：Torch build/query/geometry reference、native build/query/topology +
+  Torch geometry（训练/梯度兼容 hybrid）、native build/query/topology + native HIP
+  forward-only geometry。HCU 0/BW200/gfx936、FP32、`46/92 × 32/64`、uniform/clustered、
+  3 warm-up/5 samples 的 8 workload 全部通过完整 public output parity；build-only native/
+  Torch factor 为 `1.311x--1.399x`，hybrid full device/API factor 为 `0.0246x--0.0510x`/
+  `0.0248x--0.0501x`，native geometry full device/API factor 为 `0.0193x--0.0384x`/
+  `0.0195x--0.0381x`。build 仍是单独优化热点，不能把完整 probe 结果扩大为默认 neighbor、
+  MD/MACE、rebuild 或 runtime 加速；三条路径仍不接 dispatcher、AOT、`auto` 或 `hip`
+  capability。详见 `reports/g2-batch-cell-build-query-materialization-benchmark.md`。下一步
+  建议独立拆分 build 的 key/count、scan、atomic fill 和 launch/occupancy 代价，再决定是否
+  进行 build/query/geometry 融合；Torch geometry 训练/梯度路径继续保留。
+
+- 阶段二小点 32 已完成 native HIP cell-list build 的分阶段 profiling：新增
+  `key/count -> rocPRIM scan -> atomic fill -> full build` 的 HIP-event/API wall-clock
+  benchmark，并在 46/92 × 32/64、uniform/clustered 的 8 workload 全部通过 CSR parity。
+  在 74.5 万 global cells 上三段约为 `0.80/0.70/0.81 ms`，在 149.1 万 cells 上为
+  `0.80/0.98/1.04 ms`；native/Torch full build 为 `1.311x--1.423x`。受限 hipprof 只用于
+  组成核验：module load 污染 API 时间，不能作稳态结论；但大量 `any/reduce` GPU kernels 与
+  代码审查都指出 public wrapper/custom-op 的重复 ABI validation 是显著开销，不能把问题
+  简化成 atomic fill kernel。下一步只实现私有 prevalidated direct-extension composition，
+  对外 API 保留完整 validation，并以同一 8 workload 先验证 direct/public 与 Torch CSR parity
+  和稳定收益；仍不接 dispatcher、AOT、`auto` 或 `hip` capability。详见
+  `reports/g2-batch-cell-build-breakdown-profile.md`。
+
+- 阶段二小点 33 已验证 private prevalidated direct-extension composition：公开
+  `build_batch_cell_csr_hip_into` 继续保留完整 validation，新增的 trusted helper 只对已由
+  上层验证的精确 buffer 集合直接串接已有 key/count、rocPRIM scan 和 atomic fill extension。
+  HCU 0/BW200/gfx936、FP32、`46/92 × 32/64`、uniform/clustered 的 8 workload 全部通过
+  direct/public/Torch CSR parity；trusted/public HIP-event factor 为 `0.0285x--0.0318x`，
+  trusted/Torch 为 `0.0398x--0.0423x`，API wall-clock 方向一致。该收益只说明重复
+  validation device work 可被消除，不代表完整 neighbor 或 MD 加速；trusted helper 仍不接
+  dispatcher、AOT、`auto` 或 `hip` capability。CPU focused `26 passed`，详见
+  `reports/g2-batch-cell-build-trusted-fastpath.md`。下一步评估安全的 prevalidated plan/
+  生命周期和 build-inclusive 重测；若不能安全表达，则转向 clear/scan/fill 算法优化。
+
+- 阶段二小点 34 已增加 `_TrustedBatchCellBuildPlan`：初始化时执行一次 checked public build，
+  随后在固定 tensor/workspace/storage 生命周期内调用 trusted composition。gfx936 上
+  `46/92 × 32/64`、uniform/clustered 8 workload 全部通过 plan/public/Torch CSR parity；
+  trusted/public HIP-event factor 为 `0.0281x--0.0313x`，trusted/Torch 为 `0.0394x--0.0413x`。
+  该 plan 仍是 isolated build candidate，不接 runtime；CPU focused `21 passed`，详见
+  `reports/g2-batch-cell-build-trusted-plan.md`。下一步把 plan 接入已有完整邻居 benchmark，
+  对比 public build、trusted plan build 和 Torch reference 的 build→query→topology→geometry
+  全流程；通过后再讨论 dispatcher/runtime 接线。
+
+- 阶段二小点 35 已将 trusted plan 接入完整隔离 `build -> native query -> composite-key topology
+  -> Torch geometry` pipeline，并为 public/trusted 两条 native 路径使用独立 geometry output
+  buffer。gfx936、FP32、`46/92 × 32/64`、uniform/clustered 的 8 workload 全部通过完整
+  public/trusted/Torch parity；public native/Torch full factor 为 `0.0249x--0.0501x`，trusted
+  plan/Torch full factor 为 `0.0121x--0.0257x`，trusted plan/public native 为 `0.472x--0.544x`。
+  该结果仍不接 dispatcher、AOT、`auto` 或 `hip` capability，不覆盖 rebuild/skin、变胞、
+  FP64 performance、native geometry autograd 或高级 query outputs。详见
+  `reports/g2-batch-cell-build-query-materialization-trusted-plan.md`。下一步进入 runtime-facing
+  capability/错误合同设计，先固定 Torch reference 接线，再决定显式 HIP 选择。
+- 阶段二 Point 36 的第一个 runtime-facing slice 已完成：新增 periodic fixed-cell
+  `NeighborListHook(backend="torch_reference", method="cell_list") -> LJ energy/force`
+  纵向回归，并明确显式 `backend="hip"`、`method="cell_list"` 必须以
+  `BackendUnavailableError` 失败，不允许静默 fallback。framework focused suite 为
+  `33 passed, 1 warning`，ops registry/cell-list suite 为 `31 passed`，`git diff --check`
+  和 `py_compile` 通过。该点只增加 CPU runtime wiring/error evidence；不登记 native HIP、
+  不改变 `auto`/Warp 语义，也不扩大为 MACE/FIRE2 或 HCU performance 支持。详见
+  `reports/g2-fixed-cell-torch-reference-runtime-boundary.md`。下一步收敛 fixed-cell
+  capability/error contract 的选择记录，再定义 native HIP runtime wrapper 的最小 ABI。
+- 阶段二 Point 36.2 已将 `compute_neighbors` 和 `NeighborListHook` 的邻居 selection
+  收敛到共同的 `resolve_neighbor_list_backend`：PBC/no-PBC、full/half、MATRIX/COO 和
+  method strategy 只在一个 framework helper 中构造，并统一生成中央 `BackendSelection`。
+  CPU framework focused suite 为 `34 passed, 1 warning`，`py_compile` 与
+  `git diff --check` 通过。该 helper 只描述 topology capability，不推断 geometry/force
+  或 native full-pipeline capability；不登记 HIP、不改变 Warp/`auto`。详见
+  `reports/g2-fixed-cell-neighbor-selection-contract.md`。下一步定义 native HIP runtime
+  wrapper 的最小 ABI 和 admission gate。
+- 阶段二 Point 36.3 已定义 native HIP Batch neighbor runtime 的最小 ABI/admission gate：
+  `checked build init -> trusted reusable CSR -> native unordered query -> composite-key
+  canonical full topology -> Torch geometry`。契约明确 workspace/lifetime、候选顺序、
+  fixed-cell/full-list/Batch/FP32/FP64 范围，以及 Torch geometry 的一阶/二阶梯度边界；
+  CPU contract suite 为 `15 passed`，`git diff --check` 通过。gate 显式拒绝 CPU、float16、
+  half-list、variable-cell、skin/rebuild、target/pair outputs、DomainParallel 和 native
+  geometry，并统一抛 `BackendUnavailableError`，不静默 fallback。该点仍未注册 `hip`、
+  未接 framework wrapper、未新增 HCU 执行或 MACE/FIRE2 证据。详见
+  `reports/g2-native-hip-neighbor-runtime-abi.md`。下一步将 gate 接到不改变默认路径的
+  native wrapper 骨架/显式调用边界。
+- 阶段二 Point 37 已完成显式 ops-side native HIP Batch neighbor wrapper：复用 checked/trusted
+  CSR build plan，串接 native candidate query、composite-key topology 和 Torch
+  distance/vector geometry。期间修复了 composite workspace size-query 将 int32 storage
+  误作 int64 key storage 的高 Batch 越界风险。ops Torch suite 为 `109 passed, 1 warning`；
+  gfx936 HCU 0 上 `46×32`、`92×64` public output parity 通过，`46×32` 一阶/二阶位置梯度
+  通过。该 wrapper 仍是显式 ops boundary，不注册 `hip`、不改变 `auto`/Warp、不代表
+  framework/MACE/FIRE2 已支持。详见 `reports/g2-native-hip-neighbor-runtime-wrapper.md`。
+  下一步进入 Point 38：接入 framework 的显式 HIP selection/executor 边界。
+- 阶段二 Point 38 已完成 framework 显式 HIP selection/executor 边界：新增
+  `hip.neighbor.cell_list-v1` registry entry 和公开 ABI adapter，串接
+  `framework selection -> ops dispatcher -> generic executor -> native build/query/composite
+  topology`。只登记 periodic、fixed-cell、Batch、full-list、MATRIX、FP32/FP64；no-PBC、
+  half、COO、skin/rebuild、变胞、target/pair、DomainParallel 和 `auto` 仍明确不支持。
+  `backend=None`/Warp、Torch reference 和 `auto` 默认行为不变。ops focused suite `38 passed`，
+  framework focused suite `11 passed, 1 warning`；gfx936/BW200、`HIP_VISIBLE_DEVICES=4`
+  上 `46×32` 与 `92×64` 的 framework 全链路对照分层 Torch cell-list build/query ABI 通过。
+  该点是功能接线证据，不是性能准入或 MACE/FIRE2 支持结论。详见
+  `reports/g2-framework-hip-neighbor-executor.md`。下一步是 Point 39：在第五张卡上测
+  包含 cell-list build 的完整 HIP/Torch API wall-clock，并核对适用 Hook 的输出/错误边界。
+- 阶段二 Point 39 已完成 framework public HIP neighbor API 的 build-inclusive wall-clock
+  与 Hook 边界验证。为保证大 Batch Torch baseline 可测，修复了 Torch reference
+  `batch_cell_list` allocation/build 对 `max_nbins=8192` 不一致的问题；为保证 HIP executor
+  可重复调用，修复了 topology workspace allocation 前未初始化 `candidate_counts` 的问题。
+  CPU cell-list focused suite 为 `14 passed`。在 BW200/gfx936、DTK 26.04、Torch HIP
+  `6.3.26093`、`HIP_VISIBLE_DEVICES=4`、FP32、fixed periodic/full/MATRIX、capacity 256
+  下，46×32 warm public API HIP/Torch median 为 `22.389/238.222 ms`（factor `0.09398x`），
+  92×64 为 `39.399/502.571 ms`（factor `0.07839x`）；两组 public output 对照均通过。
+  cold first-call 仅记录 runtime/extension load 与首次分配，源文件编译不计入；warm 样本
+  才用于窄范围描述性比较。`NeighborListHook(skin=0)` 通过，`skin>0` 对 HIP 明确抛出
+  unsupported。该结果不是 `auto` 准入，也不扩大到 no-PBC、half、COO、target/pair、
+  变胞、skin/rebuild、native geometry backward、compile/opcheck、DomainParallel 或
+  MACE/FIRE2。详见 `reports/g2-framework-hip-neighbor-wallclock.md`。下一步为 Point 40：
+  补齐显式 HIP executor 的 capacity/empty/dtype/format/unsupported-request 回归矩阵，
+  并验证无 skin Hook 的重复调用契约。
+- 阶段二 Point 40 已完成显式 HIP framework neighbor contract matrix：CPU ops registry
+  `7 passed`，framework neighbor `11 passed, 1 warning`；新增 no-PBC、half、COO、
+  distances/vectors rejection。HCU `HIP_VISIBLE_DEVICES=4` 的 46×32 FP32/FP64 public
+  matrix/counts/shifts 对照 Torch reference 通过，empty periodic input、`max_neighbors=1`
+  容量溢出明确报错，no-PBC/half/COO 明确拒绝，`NeighborListHook(skin=0)` 连续两次输出
+  一致。该点不改变 HIP capability 或 `auto`，不覆盖 skin/rebuild、变胞、target/pair、
+  native geometry backward、compile/opcheck、DomainParallel 或 MACE/FIRE2。完整记录见
+  `reports/g2-framework-hip-neighbor-contract.md`。下一步为 Point 41：将该 contract probe
+  纳入稳定 compatibility gate，并补 `max_neighbors=None` 自动容量增长/上界验证。
+- 阶段二 Point 41 已完成并作为当前窄 capability 的收口 gate：复用
+  `probes/framework_neighbor_hip_contract.py`，补充 `max_neighbors=None` 自动容量增长与
+  有限上界回归。CPU ops/framework/py_compile 通过；gfx936/BW200、
+  `HIP_VISIBLE_DEVICES=4` 的 46×32 HCU gate 通过，单原子小周期胞的容量从 `1` 增长到 `8`，
+  最大实际邻居数为 `6`，保守上界为 `343`，并与 Torch reference 对照一致。阶段二在
+  periodic/fixed-cell/Batch/full-list/MATRIX/FP32/FP64/`skin=0` 范围内收口；不扩大为
+  完整上游 capability，lifecycle reuse、skin/rebuild、变胞、native geometry backward、
+  compile/opcheck、DomainParallel、MACE/FIRE2 和 `auto` 仍独立排期。详见
+  `reports/g2-framework-hip-neighbor-compatibility-gate.md`。其中 `max_neighbors=None` 的
+  HIP 容量是本地 doubling policy，不等同上游 `estimate_max_neighbors` 的最小 16/16 对齐
+  padded layout；active neighbor 集合已对照，但容量形状兼容仍未承诺。
 
 ## 交接初始状态（历史，2026-09-05）
 

@@ -36,7 +36,7 @@ from __future__ import annotations
 import torch
 from nvalchemiops.dispatch import dispatch_neighbor_list
 
-from nvalchemi._backend import resolve_compute_backend
+from nvalchemi._backend import resolve_neighbor_list_backend
 from nvalchemi.data import Batch
 from nvalchemi.data.level_storage import SegmentedLevelStorage
 from nvalchemi.models.base import NeighborConfig, NeighborListFormat
@@ -282,17 +282,14 @@ def compute_neighbors(
         pbc = None
         cell = None
 
-    selection = resolve_compute_backend(
+    selection = resolve_neighbor_list_backend(
         backend,
-        operation="neighbor_list",
         device=batch.positions.device,
         dtype=batch.positions.dtype,
-        features={
-            "periodic" if pbc is not None else "no_pbc",
-            "half" if half_list else "full",
-            "matrix" if format == NeighborListFormat.MATRIX else "coo",
-        },
-        strategy=method,
+        periodic=pbc is not None,
+        half_list=half_list,
+        matrix_output=format == NeighborListFormat.MATRIX,
+        method=method,
     )
     selected_backend = selection.selected
     if selection.family != "warp":

@@ -62,12 +62,13 @@ from enum import Enum
 import torch
 from nvalchemiops.backend import (
     BackendSelection,
+    BackendUnavailableError,
     validate_backend_name,
 )
 from nvalchemiops.dispatch import dispatch_neighbor_list
 from nvalchemiops.torch_reference import NeighborOverflowError
 
-from nvalchemi._backend import resolve_compute_backend
+from nvalchemi._backend import resolve_neighbor_list_backend
 from nvalchemi.data import Batch
 from nvalchemi.hooks._context import HookContext
 from nvalchemi.models.base import NeighborConfig, NeighborListFormat
@@ -299,22 +300,20 @@ class NeighborListHook:
         pbc = getattr(ctx.batch, "pbc", None)
         if pbc is not None and not bool(pbc.any()):
             pbc = None
-        selection = resolve_compute_backend(
+        selection = resolve_neighbor_list_backend(
             self.backend,
-            operation="neighbor_list",
             device=ctx.batch.positions.device,
             dtype=ctx.batch.positions.dtype,
-            features={
-                "periodic" if pbc is not None else "no_pbc",
-                "half" if self.config.half_list else "full",
-                "matrix"
-                if self.config.format == NeighborListFormat.MATRIX
-                else "coo",
-            },
-            strategy=(
-                self.method if self.backend not in (None, "warp") else None
-            ),
+            periodic=pbc is not None,
+            half_list=self.config.half_list,
+            matrix_output=self.config.format == NeighborListFormat.MATRIX,
+            method=self.method,
         )
+        if selection.family == "hip" and self.skin != 0.0:
+            raise BackendUnavailableError(
+                "native HIP neighbor executor does not support skin/rebuild; "
+                "use skin=0 or the Torch reference backend"
+            )
         if selection.family != "warp":
             self._rebuild_reference(ctx.batch, selection=selection)
             return

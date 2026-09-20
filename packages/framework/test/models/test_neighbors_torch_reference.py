@@ -21,6 +21,7 @@ import pytest
 import torch
 
 from nvalchemi.data import AtomicData, Batch
+from nvalchemi._backend import resolve_neighbor_list_backend
 from nvalchemi.models.lj import LennardJonesModelWrapper
 from nvalchemi.models.base import NeighborListFormat
 from nvalchemi.neighbors import compute_neighbors
@@ -91,6 +92,78 @@ def test_compute_neighbors_rejects_unregistered_optimized_backend():
     """A framework caller cannot silently fall back from an unknown backend."""
     with pytest.raises(RuntimeError, match="no verified capability"):
         compute_neighbors(_make_batch(), cutoff=2.0, backend="triton")
+
+
+def test_compute_neighbors_rejects_unregistered_hip_pipeline():
+    """HIP is registered only for periodic HCU requests, not CPU fallback."""
+    with pytest.raises(RuntimeError, match="no verified capability"):
+        compute_neighbors(
+            _make_batch(),
+            cutoff=2.0,
+            backend="hip",
+            method="cell_list",
+        )
+
+
+@pytest.mark.parametrize("format", (NeighborListFormat.COO,))
+def test_compute_neighbors_rejects_hip_non_matrix_periodic_output(format):
+    """HIP remains explicit periodic/full/MATRIX only."""
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor([[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]]),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.eye(3).unsqueeze(0) * 2.0,
+                pbc=torch.ones((1, 3), dtype=torch.bool),
+            )
+        ]
+    )
+    with pytest.raises(RuntimeError, match="no verified capability"):
+        compute_neighbors(
+            batch,
+            cutoff=0.5,
+            format=format,
+            backend="hip",
+            method="cell_list",
+        )
+
+
+def test_compute_neighbors_rejects_hip_periodic_half_list():
+    """HIP does not silently turn a half-list request into a full list."""
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor([[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]]),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.eye(3).unsqueeze(0) * 2.0,
+                pbc=torch.ones((1, 3), dtype=torch.bool),
+            )
+        ]
+    )
+    with pytest.raises(RuntimeError, match="no verified capability"):
+        compute_neighbors(
+            batch,
+            cutoff=0.5,
+            half_list=True,
+            backend="hip",
+            method="cell_list",
+        )
+
+
+def test_neighbor_runtime_selection_records_one_shared_topology_contract():
+    selection = resolve_neighbor_list_backend(
+        "torch_reference",
+        device=torch.device("cpu"),
+        dtype=torch.float64,
+        periodic=True,
+        half_list=False,
+        matrix_output=True,
+        method="cell_list",
+    )
+    assert selection.operation == "neighbor_list"
+    assert selection.implementation_id == "torch_reference.neighbor.cell_list-v1"
+    assert selection.features == ("full", "matrix", "periodic")
+    assert selection.strategy == "cell_list"
 
 
 def test_compute_neighbors_torch_reference_pbc_writes_shifts():

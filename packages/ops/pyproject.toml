@@ -85,7 +85,7 @@ packages = ["nvalchemiops"]
 path = "nvalchemiops/__init__.py"
 
 [tool.hatch.build.targets.sdist]
-include = ["nvalchemiops/**/*.py"]
+include = ["nvalchemiops/**/*.py", "nvalchemiops/**/*.cpp", "nvalchemiops/**/*.cu"]
 
 [project.urls]
 

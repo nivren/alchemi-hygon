@@ -394,6 +394,11 @@ docs-rebuild: docs-clean docs  ## Clean and rebuild documentation
 build:  ## Build wheel package
 	uv build
 
+.PHONY: build-hip-cell-key-aot
+build-hip-cell-key-aot:  ## Build a gfx936 AOT wheel with the native cell-key extension
+	PYTHONPATH=../framework:. python ../../scripts/build_hip_cell_key_aot_wheel.py \
+		--source-dir . --out-dir dist/hip-cell-key-aot --build-dir build/hip-cell-key-aot
+
 .PHONY: clean
 clean:  ## Clean build artifacts
 	rm -rf build/

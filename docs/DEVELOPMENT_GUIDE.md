@@ -147,6 +147,22 @@ HIP 适合 cell-list、复杂邻居/迁移、原子操作、通信打包和需�
 - kernel 有了之后仍需 Torch reference 数值、HCU smoke、梯度/归约和性能回归；
 - HIP 源码放在 ops 对应的单一构建入口中，避免同一个算法同时存在无法同步的 C++/HIP 副本。
 
+当前 cell-key native HIP 子模块可用以下入口构建本机 AOT wheel：
+
+```bash
+source scripts/activate_hygon_env.sh project
+make -C packages/ops build-hip-cell-key-aot
+```
+
+该入口产出的是当前 CPython、DTK/HIP PyTorch 和 gfx936 的平台 wheel；安装前仍需验证运行时
+匹配。它不登记 `hip` backend，不能替代 output parity 或性能门槛。
+
+JIT 扩展使用 PyTorch `cpp_extension` 的 FileBaton lock。若编译进程被外部 timeout 或强制
+终止，显式 build cache 中可能残留 `lock`，后续进程会等待而不是重新编译。排查时先在同一
+设备上下文确认没有对应的 `ninja`/`hipcc`/应用进程；只有确认该 lock 属于自己的缓存且没有
+并发构建后，才删除这个明确的缓存 lock，再重新运行。发布或长时间运行路径应优先使用 AOT
+artifact，避免把 JIT 首次编译和 stale-lock 风险带入运行时。
+
 HIP 适配不等于自动获得 DomainParallel 支持。ghost、halo、ownership、通信归约和多层
 消息传递必须单独做双卡/多卡测试。
 

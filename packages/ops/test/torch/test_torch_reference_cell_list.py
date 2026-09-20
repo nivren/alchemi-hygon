@@ -88,6 +88,40 @@ def test_cell_list_auto_capacity_and_empty_input() -> None:
     assert empty_counts.shape == (0,)
 
 
+def test_large_mixed_pbc_batch_uses_consistent_cell_capacity() -> None:
+    """The high-level reference path must match its 8192-bin allocation."""
+    cells = torch.tensor(
+        [
+            [[16.0, 0.0, 0.0], [0.5, 16.0, 0.0], [0.3, 0.4, 16.0]],
+            [[12.0, 0.0, 0.0], [0.4, 12.0, 0.0], [0.2, 0.3, 12.0]],
+        ],
+        dtype=torch.float64,
+    )
+    pbc = torch.tensor([[True, False, True], [False, True, False]])
+    positions = torch.cat(
+        [
+            torch.rand((46, 3), dtype=torch.float64, generator=torch.Generator().manual_seed(1))
+            @ cells[0],
+            torch.rand((46, 3), dtype=torch.float64, generator=torch.Generator().manual_seed(2))
+            @ cells[1],
+        ]
+    )
+    batch_idx = torch.arange(2, dtype=torch.int32).repeat_interleave(46)
+
+    matrix, counts, shifts = neighbor_list(
+        positions,
+        0.6,
+        cell=cells,
+        pbc=pbc,
+        batch_idx=batch_idx,
+        max_neighbors=256,
+    )
+
+    assert matrix.shape == (92, 256)
+    assert shifts.shape == (92, 256, 3)
+    assert torch.all(counts <= 256)
+
+
 def test_periodic_cell_list_matches_dense_reference_and_overflow_is_explicit() -> None:
     """Periodic pairs/shifts match dense FP64 and capacity never truncates."""
     positions = torch.tensor(
@@ -209,6 +243,73 @@ def test_layered_build_query_matches_high_level_and_preserves_false_rebuild() ->
         rebuild_flags=torch.tensor(False),
     )
     assert torch.equal(matrix, saved)
+
+
+@pytest.mark.parametrize("periodic", (False, True))
+@pytest.mark.parametrize("half_fill", (False, True))
+def test_query_canonicalizes_permuted_atom_order_within_each_cell(
+    periodic: bool, half_fill: bool
+) -> None:
+    """Public query output is independent of an internal cell-list permutation."""
+    positions = torch.tensor(
+        [
+            [0.11, 0.12, 0.13],
+            [0.19, 0.18, 0.17],
+            [0.28, 0.24, 0.20],
+            [0.35, 0.31, 0.27],
+            [0.42, 0.38, 0.34],
+        ],
+        dtype=torch.float64,
+    )
+    cell = torch.eye(3, dtype=torch.float64) * 2.0
+    pbc = torch.full((3,), periodic, dtype=torch.bool)
+    max_cells, radius = estimate_cell_list_sizes(
+        cell, pbc, 0.45, min_cells_per_dimension=1
+    )
+    scratch = allocate_cell_list(positions.shape[0], max_cells, radius, positions.device)
+    build_cell_list(positions, 0.45, cell, pbc, *scratch, min_cells_per_dimension=1)
+    shifts, mapping, counts, starts, atom_list = scratch[2:]
+    del mapping
+    permuted = atom_list.clone()
+    for count, start in zip(counts.tolist(), starts.tolist(), strict=True):
+        if count > 1:
+            permuted[start : start + count] = torch.flip(
+                permuted[start : start + count], dims=(0,)
+            )
+
+    def query(atom_list_input: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        matrix = torch.full((positions.shape[0], 32), positions.shape[0], dtype=torch.int32)
+        matrix_shifts = torch.zeros((*matrix.shape, 3), dtype=torch.int32)
+        neighbor_counts = torch.zeros(positions.shape[0], dtype=torch.int32)
+        distances = torch.zeros(matrix.shape, dtype=positions.dtype)
+        vectors = torch.zeros((*matrix.shape, 3), dtype=positions.dtype)
+        query_cell_list(
+            positions,
+            0.45,
+            cell,
+            pbc,
+            scratch[0],
+            scratch[1],
+            shifts,
+            scratch[3],
+            counts,
+            starts,
+            atom_list_input,
+            matrix,
+            matrix_shifts,
+            neighbor_counts,
+            half_fill=half_fill,
+            return_distances=True,
+            return_vectors=True,
+            neighbor_distances=distances,
+            neighbor_vectors=vectors,
+        )
+        return matrix, neighbor_counts, matrix_shifts, distances, vectors
+
+    expected = query(atom_list)
+    actual = query(permuted)
+    for actual_value, expected_value in zip(actual, expected, strict=True):
+        torch.testing.assert_close(actual_value, expected_value, atol=1e-12, rtol=1e-12)
 
 
 def test_batch_selective_rebuild_preserves_unselected_system() -> None:

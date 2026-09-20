@@ -215,6 +215,39 @@ def test_reference_neighbor_hook_and_lj_wrapper_form_one_chain():
     )
 
 
+def test_reference_cell_list_hook_and_lj_wrapper_form_fixed_cell_periodic_chain():
+    """The fixed-cell cell-list strategy reaches the force-consuming model."""
+    batch = Batch.from_data_list(
+        [
+            AtomicData(
+                positions=torch.tensor(
+                    [[0.1, 0.0, 0.0], [1.9, 0.0, 0.0]], dtype=torch.float64
+                ),
+                atomic_numbers=torch.tensor([1, 1]),
+                cell=torch.diag(
+                    torch.tensor([2.0, 10.0, 10.0], dtype=torch.float64)
+                ).unsqueeze(0),
+                pbc=torch.tensor([[True, False, False]]),
+            )
+        ]
+    )
+    model = LennardJonesModelWrapper(
+        1.0,
+        1.0,
+        0.5,
+        backend="torch_reference",
+    )
+    (hook,) = model.make_neighbor_hooks(neighbor_list_method="cell_list")
+    hook(HookContext(batch=batch), hook.stage)
+    output = model(batch)
+
+    expected_energy = torch.tensor([[_lj_pair_energy(0.2)]], dtype=torch.float64)
+    assert torch.allclose(output["energy"], expected_energy, rtol=1e-12, atol=1e-12)
+    assert torch.allclose(
+        output["forces"].sum(dim=0), torch.zeros(3, dtype=torch.float64), atol=1e-12
+    )
+
+
 def test_lj_reference_ignores_pairs_kept_only_by_neighbor_skin():
     batch = Batch.from_data_list(
         [
