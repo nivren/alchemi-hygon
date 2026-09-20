@@ -9,6 +9,7 @@
 - `AGENTS.md`：放在项目根目录，供 Codex 自动读取，包含目标、约束、源码组织和首轮任务。
 - `docs/PROJECT_HANDOFF.md`：当前交接摘要、Feature Compatibility Contract、模块迁移和稳定架构边界；历史 Point 日志在 `docs/history/`。
 - `docs/STATUS.md`：当前状态、下一批任务、已取得实测证据和限制；支持范围以当前摘要和报告边界为准。
+- `docs/IMPLEMENTATION_STATUS_MATRIX.md`：按 framework、ops 和应用场景查看已完成能力、验证范围和限制。
 - `docs/DEVELOPMENT_ENVIRONMENT.md`：新开发者部署项目 reference 环境并运行最小验证的指南。
 - `docs/DEVELOPMENT_GUIDE.md`：后端、算子、功能、测试和 Git 协作开发指南。
 - `reports/README.md`：验证报告索引；先看里程碑 summary，再按需追溯单点报告。

@@ -46,6 +46,7 @@ README 只负责告诉你“先读什么、什么时候读什么”。支持范�
 
 | 文档 | 适用场景 |
 |---|---|
+| [IMPLEMENTATION_STATUS_MATRIX.md](docs/IMPLEMENTATION_STATUS_MATRIX.md) | 按 framework、ops 和应用场景查看已完成能力、验证范围与限制 |
 | [BACKEND_CAPABILITY_MATRIX.md](docs/BACKEND_CAPABILITY_MATRIX.md) | 查看当前各后端、设备、dtype、梯度和功能宽度 |
 | [PARALLEL_DEVELOPMENT_PLAN.md](docs/PARALLEL_DEVELOPMENT_PLAN.md) | 查看当前可启动任务、并行边界和验收流程 |
 | [BACKEND_PLATFORM_PIPELINE_PLAN.md](docs/BACKEND_PLATFORM_PIPELINE_PLAN.md) | 了解 M1、B0、T1、M2 以及 registry/profile/planner 的长期路线 |
