@@ -396,6 +396,18 @@ M2 planner；FIRE2 变胞弛豫作为下面的独立扩展任务实施。
   `reports/g2-framework-hip-neighbor-compatibility-gate.md`。当前 HIP 自动容量采用本地
   doubling policy，不承诺上游 `estimate_max_neighbors` 的最小 16/16 对齐 padded layout；
   这不改变 active neighbor 集合，但在扩大 public capability 前需单独统一容量形状。
+阶段二当前状态（2026-09-20）：Point 1–41 已完成，阶段二已按上述窄能力范围收口；提交
+`9f53f80` 已合并到 `develop`，并已推送到 `local-origin/develop` 与
+`github-origin/develop`。收口证据包括 CPU ops/framework focused tests，以及
+`HIP_VISIBLE_DEVICES=4`、gfx936/BW200 上的 46×32 HCU compatibility gate。当前交付仍只
+覆盖 periodic/fixed-cell/Batch/full-list/MATRIX、FP32/FP64、`skin=0`；不把该结果扩大为完整
+上游邻居后端支持。
+
+此前出现的“加载/设备同步变慢”已定位为超时终止 JIT 编译后遗留 PyTorch C++ extension
+`FileBaton` lock，后续进程因此在加载阶段等待；清理由本任务产生的 stale lock 后，query
+extension 可正常快速加载，完整 46×32 HCU gate 重跑通过。该运行时排障记录已同步到
+`docs/DEVELOPMENT_GUIDE.md`；后续长时间验证和发布路径优先使用 AOT 或受控 JIT cache。
+
 2. 可并行的实现模块为 build/binning、query+count/fill、pair geometry/materialization 和
    Batch/rebuild orchestration。HIP 优先评估不规则 query、原子写入和显式容量控制；Triton
    只评估规则分块、compact/geometry 等实测合适的部分，不预设固定优先级。
