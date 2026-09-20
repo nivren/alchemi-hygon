@@ -5,8 +5,9 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 ## 1. 当前基线
 
-- 工作基线：`develop`，最近已推送的产品文档基线为 `9e295ea`。
+- 工作基线：`develop`，最近已推送的文档重构基线为 `97325a4`。
 - `TORCH-NEIGHBOR-PBC-CELL` 阶段一 Torch reference 与阶段二 HIP 窄 capability 已收口。
+- `TORCH-NVT-LANGEVIN` 固定晶胞 BAOAB 窄 reference slice 已收口，不再作为当前任务。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
 - 当前任务应从 `develop` 创建短期个人分支，完成一个可独立验证的 slice 后再合并。
 
@@ -14,13 +15,26 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 1 | Langevin reference 生命周期 | 补齐固定晶胞 BAOAB 的行为、状态保存/恢复和最小 Batch 交接 | 分布式、生产 Triton/HIP、完整高级 checkpoint |
-| 2 | 固定晶胞 NHC reference | 建立 Nose-Hoover chain 的 Torch/CPU 正确性基线与公共接口 | NPT/NPH、变胞和生产后端 |
-| 3 | `TORCH-CELL-STRESS-FORCE` + coupled FIRE2 | 明确 stress 到 cell-force 的单位、shape、梯度和 FIRE2 变胞语义 | 完整 ASE 变胞兼容、后端优化 |
-| 4 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
+| 1 | 固定晶胞 NHC reference | 建立 Nose-Hoover chain 的 Torch/CPU 正确性基线与公共接口 | NPT/NPH、变胞和生产后端 |
+| 2 | `TORCH-CELL-STRESS-FORCE` + coupled FIRE2 | 明确 stress 到 cell-force 的单位、shape、梯度和 FIRE2 变胞语义 | 完整 ASE 变胞兼容、后端优化 |
+| 3 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
+
+### 已完成但不在当前队列：`TORCH-NVT-LANGEVIN`
+
+已完成并合入 `develop` 的固定晶胞 BAOAB Torch reference slice 包括：registry/catalog 和
+generic executor binding、公共 `NVTLangevin(backend="torch_reference")` 接线、float32/64、
+异构普通 Batch、空输入和显式错误、短谐势统计 oracle，以及 `state_dict()` / `load_state_dict()`
+的最小 integrator continuation state。当前 CPU 复核为 `15 passed`；CPU/HCU 证据见
+[`g2-torch-nvt-langevin.md`](../reports/g2-torch-nvt-langevin.md)、
+[`g2-torch-nvt-langevin-stat.md`](../reports/g2-torch-nvt-langevin-stat.md) 和
+[`g2-torch-nvt-langevin-restart.md`](../reports/g2-torch-nvt-langevin-restart.md)。
+
+这不扩大为完整上游 Langevin/NVT：通用 checkpoint、`atom_ptr`/`_out`、inflight refill、
+分布式 ownership、完整上游行为套件、跨设备逐位随机一致性、torch.compile 和生产 Triton/HIP
+仍是后续能力，不回填本任务。
 
 ## 3. 明确暂停项
 
@@ -34,7 +48,7 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 ## 4. 并行边界
 
-- Langevin/NHC 主要修改 `packages/ops` 的 dynamics reference、测试和对应报告。
+- NHC 主要修改 `packages/ops` 的 dynamics reference、测试和对应报告。
 - stress/FIRE2 主要修改 `packages/ops` 的 cell/stress、dynamics 和 framework wrapper，
   需要同步单位与梯度契约。
 - BFGS 主要修改 dynamics optimizer 与固定晶胞测试；不要顺带引入变胞状态。

@@ -6,8 +6,8 @@
 ## 当前基线
 
 - 当前分支：`develop`。
-- 阶段二实现提交：`9f53f80`；文档收口提交：`9e295ea`。
-- 两个产品远端 `local-origin/develop`、`github-origin/develop` 均已同步到 `9e295ea`。
+- 阶段二实现提交：`9f53f80`；上一轮文档收口提交：`9e295ea`；当前文档重构提交：`97325a4`。
+- 两个产品远端 `local-origin/develop`、`github-origin/develop` 均已同步到 `97325a4`。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -18,7 +18,7 @@
 | Torch reference neighbor/cell-list | 已实现窄 reference | periodic/no-PBC、full/half、MATRIX/COO、mixed/triclinic Batch、image shift、容量、selective rebuild、连续 distance/vector 一二阶路径 | 不等于完整上游生产 cell-list；完整 target/pair/compile/opcheck/DomainParallel 仍未完成 |
 | 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、fixed-cell、Batch、full-list、MATRIX、FP32/FP64、`skin=0`、`max_neighbors=None` 本地 doubling capacity | 不进入 `auto`；不支持 no-PBC、half、COO、skin/rebuild、target/pair、变胞、native geometry backward、compile/opcheck、DomainParallel |
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
-| Langevin | 窄 reference slice | 固定晶胞 BAOAB、统计、普通 Batch 最小 continuation state | 完整行为套件、通用 checkpoint/restart、inflight、分布式、生产 Triton/HIP 未完成 |
+| Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NHC、NPT/NPH、变胞 stress/FIRE2、生产后端未完成 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
@@ -37,6 +37,15 @@
 - 当前阶段二 summary：[`reports/g2-framework-hip-neighbor-compatibility-gate.md`](../reports/g2-framework-hip-neighbor-compatibility-gate.md)。
   相关报告按主题见 [`reports/README.md`](../reports/README.md)。
 
+## Langevin 窄 slice 收口证据
+
+- 公共固定晶胞 BAOAB reference、registry/executor 接线和 contract：
+  [`g2-torch-nvt-langevin.md`](../reports/g2-torch-nvt-langevin.md)。
+- 独立谐势短统计 oracle：[`g2-torch-nvt-langevin-stat.md`](../reports/g2-torch-nvt-langevin-stat.md)。
+- 普通 Batch 的最小 integrator continuation state：
+  [`g2-torch-nvt-langevin-restart.md`](../reports/g2-torch-nvt-langevin-restart.md)。
+- 当前工作树 CPU 复核：三个兼容性文件合计 `15 passed`；历史 HCU 证据保留原报告中的真实卡号。
+
 ## 运行时排障记录
 
 此前“加载/设备同步在当前卡上异常变慢”已定位为：超时终止 JIT 编译后遗留 PyTorch C++
@@ -49,10 +58,9 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 具体 owner 和分支需用户确认后再启动。当前计划见
 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)：
 
-1. Langevin 剩余 reference 行为和状态生命周期；
-2. 固定晶胞 Nose-Hoover chain reference；
-3. `TORCH-CELL-STRESS-FORCE` 与 coupled FIRE2 variable-cell；
-4. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. 固定晶胞 Nose-Hoover chain reference；
+2. `TORCH-CELL-STRESS-FORCE` 与 coupled FIRE2 variable-cell；
+3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

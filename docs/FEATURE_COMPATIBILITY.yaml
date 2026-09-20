@@ -169,7 +169,7 @@
       "id": "dynamics.fused_stage",
       "category": "A",
       "status": "planned",
-      "implementation_scope": "G2 FusedStage/inflight reference 状态与 sampler/sink 编排子集已验证；完整多阶段、NVT/Langevin 和分布式流水线仍未完成",
+      "implementation_scope": "G2 FusedStage/inflight reference 状态与 sampler/sink 编排子集已验证；完整多阶段 NVT/Langevin 集成和分布式流水线仍未完成",
       "scenario": "逐体系阶段迁移、阶段预算、不同收敛速度、共享模型和 Hooks 时序",
       "source": {
         "repository": "framework",
@@ -260,7 +260,7 @@
       "id": "dynamics.inflight",
       "category": "A",
       "status": "planned",
-      "implementation_scope": "G2 reference 已验证毕业、补位、状态清理、send path 收缩和 HostMemory 写入子集；真实 MACE/FIRE2 短 inflight 已通过，长轨迹和 NVT/Langevin 仍未完成",
+      "implementation_scope": "G2 reference 已验证毕业、补位、状态清理、send path 收缩和 HostMemory 写入子集；真实 MACE/FIRE2 短 inflight 已通过，长轨迹和完整 NVT/Langevin 子阶段接入仍未完成",
       "scenario": "完成只写一次、补位状态重置、容量限制、采样耗尽和稳定 ID",
       "source": {
         "repository": "framework",
@@ -337,7 +337,7 @@
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
-        "已验证真实 MACE/FIRE2 的短 inflight 补位；尚未验证长轨迹 occupancy、NVT/Langevin 子阶段状态、checkpoint/restart 和多卡 ownership"
+        "已验证真实 MACE/FIRE2 的短 inflight 补位；尚未验证长轨迹 occupancy、完整 NVT/Langevin 子阶段 state lifecycle、checkpoint/restart 和多卡 ownership"
       ],
       "release_gate": "G2"
     },
@@ -1546,7 +1546,7 @@
       "id": "dynamics.integrators",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "M1 固定晶胞 NVE 及 FIRE/FIRE2 的 VV 阶段在 framework 生命周期中冻结 selection；T1 固定晶胞 BAOAB Langevin 已接入 Torch reference、catalog 和局部 dispatcher；Nose-Hoover/NPT 及完整 dynamics 仍未接线",
+      "implementation_scope": "M1 固定晶胞 NVE 及 FIRE/FIRE2 的 VV 阶段在 framework 生命周期中冻结 selection；T1 固定晶胞 BAOAB Langevin 窄 reference、catalog、局部 dispatcher、短统计和最小 continuation state 已完成；Nose-Hoover/NPT 及完整 dynamics 仍未接线",
       "scenario": "NVE/Langevin/Nose-Hoover/NPT 更新、随机数、温压单位、mask/原位更新",
       "source": {
         "repository": "ops",
@@ -1730,6 +1730,8 @@
           "probes/dynamics_reference_compile.py",
           "test/dynamics/test_ops.py::TestVelocityVerlet",
           "test/compatibility/test_dynamics_reference_langevin.py",
+          "test/compatibility/test_dynamics_reference_langevin_statistics.py",
+          "test/compatibility/test_dynamics_reference_langevin_restart.py",
           "probes/dynamics_reference_langevin.py"
         ],
         "evidence": [
@@ -1750,8 +1752,8 @@
         ]
       },
       "limitations": [
-        "已完成公共 NVE 的固定晶胞 reference 单步/短 run 接线，并新增固定晶胞 BAOAB Langevin 的 Torch reference 与公共 NVTLangevin 显式 backend 接线；Nose-Hoover/NPT、完整多阶段状态和生产 dynamics 仍未完成",
-        "Langevin 当前仅覆盖 forward-only 固定晶胞 reference 和普通 Batch 的最小 integrator continuation state；上游 Warp 行为套件、通用 checkpoint/restart、完整长轨迹温度统计、inflight、分布式 ownership 和跨设备逐位随机一致性仍未验证；统计与 restart 仅有短 oracle/续跑的 CPU/HCU 证据",
+        "已完成公共 NVE 的固定晶胞 reference 单步/短 run 接线，以及固定晶胞 BAOAB Langevin 的 Torch reference、公共 NVTLangevin 显式 backend 接线、短统计 oracle 和普通 Batch 最小 integrator continuation state；Nose-Hoover/NPT、完整多阶段状态和生产 dynamics 仍未完成",
+        "Langevin 窄 slice 已覆盖 forward-only 固定晶胞 reference、float32/64、异构普通 Batch、空输入/错误、短谐势统计和最小 state_dict/load_state_dict 续跑；通用 checkpoint、atom_ptr/_out、inflight、分布式 ownership、完整上游行为/统计套件、跨设备逐位随机一致性和 torch.compile 仍未验证",
         "上游 Warp-backed dynamics API 的默认路径保留但未在 HCU 验证；上游 dynamics 行为套件仍需按 reference backend 解除运行阻断",
         "kinetic energy custom op 可通过严格 torch.compile；FIRE2 和 temperature reference 在 fullgraph=True 下仍有 graph break/数据依赖分支，默认 fullgraph=False 仅保证可运行，不保证完整编译优化"
       ],

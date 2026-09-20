@@ -69,8 +69,10 @@ compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry
 ## 6. 当前任务和暂停点
 
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。
-当前建议顺序是 Langevin 剩余 reference 生命周期、固定晶胞 NHC、FIRE2 stress→cell-force/
-variable-cell、固定晶胞 ASE-compatible BFGS。未确认 owner 前不自动创建新分支。
+`TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
+state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。
+当前建议顺序是固定晶胞 NHC、FIRE2 stress→cell-force/variable-cell、固定晶胞
+ASE-compatible BFGS。未确认 owner 前不自动创建新分支。
 
 继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。
 
