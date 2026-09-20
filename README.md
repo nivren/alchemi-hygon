@@ -5,12 +5,12 @@ nvalchemi-toolkit-ops 为完整上游基线，保留 framework/ops 两个包边�
 Torch reference、Triton、HIP 后端边界内逐步适配 Hygon DCU。
 
 这是面向开发者的入口，不是用户安装包。支持范围和实测证据以
-[docs/STATUS.md](docs/STATUS.md) 与 reports/ 为准。
+[docs/STATUS.md](docs/STATUS.md) 与 [reports/README.md](reports/README.md) 为准。
 
 ## 开发者文档导航
 
 README 只负责告诉你“先读什么、什么时候读什么”。支持范围和真实验证结果以
-[STATUS.md](docs/STATUS.md) 与 [reports/](reports/) 为准。
+[STATUS.md](docs/STATUS.md) 与 [reports/README.md](reports/README.md) 为准。
 
 ### 每次开始开发：先建立共同认识
 
@@ -19,13 +19,13 @@ README 只负责告诉你“先读什么、什么时候读什么”。支持范�
 1. [AGENTS.md](AGENTS.md)：项目长期约束、目录边界、后端和 Git 规则。
 2. [docs/STATUS.md](docs/STATUS.md)：当前阶段、已验证范围、阻塞项和下一步。
 3. [docs/DEVELOPER_ARCHITECTURE.md](docs/DEVELOPER_ARCHITECTURE.md)：系统结构图、数据流和后端选择流。
-4. [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md)：项目背景、历史决策和完整交接上下文。
+4. [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md)：稳定架构边界、兼容性契约和当前交接。
 
 ### 基础版本上的日常开发
 
 | 文档 | 适用场景 |
 |---|---|
-| [TEAM_DEVELOPMENT_BASELINE.md](docs/TEAM_DEVELOPMENT_BASELINE.md) | 了解当前可并行开发的基础版本、golden paths、任务边界和 CPU/HCU gate |
+| [TEAM_DEVELOPMENT_BASELINE.md](docs/history/TEAM_DEVELOPMENT_BASELINE.md) | 查阅 B0 历史基线、golden paths 和当时的协作门禁 |
 | [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) | 了解算子契约、Torch reference、Triton/HIP、测试和协作规则 |
 | [ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) | 新增任意 Torch operation 时，按最小闭环逐项执行 |
 | [TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md) | 没有项目经验时，按实例手把手开发一个 Torch 积分器 |
@@ -47,11 +47,13 @@ README 只负责告诉你“先读什么、什么时候读什么”。支持范�
 | 文档 | 适用场景 |
 |---|---|
 | [BACKEND_CAPABILITY_MATRIX.md](docs/BACKEND_CAPABILITY_MATRIX.md) | 查看当前各后端、设备、dtype、梯度和功能宽度 |
+| [PARALLEL_DEVELOPMENT_PLAN.md](docs/PARALLEL_DEVELOPMENT_PLAN.md) | 查看当前可启动任务、并行边界和验收流程 |
 | [BACKEND_PLATFORM_PIPELINE_PLAN.md](docs/BACKEND_PLATFORM_PIPELINE_PLAN.md) | 了解 M1、B0、T1、M2 以及 registry/profile/planner 的长期路线 |
-| [reports/](reports/) | 查看已经实际运行的 CPU/HCU/数值摘要；没有报告的内容不要写成 verified |
+| [reports/README.md](reports/README.md) | 按主题查找已经实际运行的 CPU/HCU/数值摘要；没有报告的内容不要写成 verified |
 
-最短阅读路径：新成员走“每次开始开发”→“基础版本”；新增 Torch operation 再读
-`ADD_TORCH_OPERATION.md`；开发积分器优先读手把手教程；首次部署再读 `START_HERE.md`。
+最短阅读路径：新成员走“每次开始开发”→当前 `PARALLEL_DEVELOPMENT_PLAN.md`；新增 Torch
+operation 再读 `ADD_TORCH_OPERATION.md`；开发积分器优先读手把手教程；首次部署再读
+`START_HERE.md`。B0 基线文档仅用于追溯历史协作约定。
 
 ## 目录边界
 
@@ -84,7 +86,7 @@ HCU 批验证只在已分配的设备、DTK 已加载且 `/dev/kfd`、`/dev/dri`
 必须显式指定设备；该结果才可作为新的 DCU 验证证据：
 
 ~~~bash
-HIP_VISIBLE_DEVICES=0 scripts/check_hcu_reference_smoke.sh
+HIP_VISIBLE_DEVICES=4 scripts/check_hcu_reference_smoke.sh
 ~~~
 
 两个包都含顶层 test 包名，pytest 应分进程运行：
@@ -160,7 +162,8 @@ docs/UPSTREAM.md 中记录官方 URL、实际来源、SHA、完整历史状态�
 ## 当前后端边界
 
 - Torch reference 是当前正确性基线，已注册并有 CPU/HCU 窄 slice 证据。
-- Triton 和 HIP 工具链基础探针已通过，但生产 neighbor/LJ/MLIP kernel 尚未因此完成。
+- Triton 和 HIP 工具链基础探针已通过；HIP 邻居已有显式 periodic/fixed-cell/Batch/full/MATRIX
+  窄 capability，但生产 neighbor/LJ/MLIP kernel 尚未因此完成。
 - Warp 默认路径和上游公共 API 保留；不要把 HCU reference 改成默认静默回退。
 - 新后端必须先进入 dispatcher/capability gate，再由 framework 显式传递。
 - 具体算子必须分别说明 forward、一阶梯度、二阶梯度、PBC、full/half neighbor、
@@ -186,6 +189,6 @@ git diff --check、相关测试和可获得的 HCU 探针，并使用 git commit
 
 详细规则见 [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md)。
 团队协作入口、已收口的 golden paths 与下一个任务队列见
-[docs/TEAM_DEVELOPMENT_BASELINE.md](docs/TEAM_DEVELOPMENT_BASELINE.md)；新增 Torch operation
+[docs/history/TEAM_DEVELOPMENT_BASELINE.md](docs/history/TEAM_DEVELOPMENT_BASELINE.md)；新增 Torch operation
 按 [docs/ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) 走最小闭环；新手积分器教程见
 [docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)。

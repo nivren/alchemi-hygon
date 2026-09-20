@@ -20,7 +20,11 @@ PlatformFingerprint -> ImplementationRegistry -> BackendProfile
 - `PipelinePlanner` 根据全 pipeline 的约束、代价和 profile 生成一次冻结计划。
 - runtime 只执行 `BackendPlan`，不在每个算子入口重复解析，也不在生产路径临时 benchmark。
 
-本计划不承诺立即实现 Triton/HIP，也不把当前 Torch reference 窄 slice 扩大成完整生产支持。当前仍保留历史模块/内部 executor `nvalchemiops.torch_reference_cell_list`，但它已不再作为全局 backend 名称对外请求；正式公开选择是 `backend="torch_reference", method="cell_list"`。迁移后，cell-list 是 neighbor operation 的 strategy/method，而不是全局 backend 家族。
+本计划不把当前 Torch/HIP 窄 slice 扩大成完整生产支持，也不承诺 Triton/HIP 已覆盖所有
+operation。当前仍保留历史模块/内部 executor `nvalchemiops.torch_reference_cell_list`，但它
+已不再作为全局 backend 名称对外请求；正式公开选择是 `backend="torch_reference",
+method="cell_list"`。迁移后，cell-list 是 neighbor operation 的 strategy/method，而不是
+全局 backend 家族。当前显式 HIP 邻居 capability 的窄边界以能力矩阵和 STATUS 为准。
 
 ## 2. 核心语义
 
@@ -108,7 +112,8 @@ component explicit override
 3. 登记当前 Warp legacy、Torch dense reference 和 no-PBC Torch cell-list 过渡实现。
 4. 将 neighbor 的 cell-list 改为 `backend="torch_reference", method="cell_list"`（或等价 operation strategy），逐步移除未发布的全局 `torch_reference_cell_list` 名称；`compute_neighbors` 与 `NeighborListHook` 仍保留兼容的公共 backend 参数。
 5. 保留并扩大 pre-resolved `BackendSelection` 传递，确保 framework → dispatcher 单次解析。
-6. 新增 ADR 0006；将当前 cell-list ADR 标记为过渡/被新语义取代，而不是删除历史。
+6. 已完成：ADR 0006 记录 registry/strategy 语义，原 cell-list ADR 已保留为 ADR 0010，
+   不删除历史。
 
 门槛：registry 单测、dense/cell-list CPU/HCU contract、未知/未注册请求显式失败、legacy/default reverse guard、operation 文档审计通过。完成后停止并确认下一阶段。
 
@@ -201,16 +206,17 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
    kinetics/periodic/observer golden paths、state lifecycle、compileall 和 diff check。HCU gate
    沿用 B0 的候选集成分支模式，已在本地 `team/b1-executor-binding-candidate` 指针、主机权限
    HCU 0 上通过；因此 B1 当前窄 slice 可登记为 HCU verified。该结果不扩大 capability 宽度，
-   也不构成性能或完整生产后端结论。B1 完成后，下一任务才是 `TORCH-NVT-LANGEVIN`；
-   `TORCH-NEIGHBOR-PBC-CELL` 与 `TORCH-NVT-NHC` 保持独立队列。
+   也不构成性能或完整生产后端结论。B1 之后的 `TORCH-NVT-LANGEVIN` 窄 reference 和
+   `TORCH-NEIGHBOR-PBC-CELL` 阶段一/二已经分别收口；当前剩余任务按
+   `docs/PARALLEL_DEVELOPMENT_PLAN.md` 的立即启动表执行，`TORCH-NVT-NHC` 保持独立队列。
 
 ### T1：基础版后的首批并行任务
 
 按独立 operation 合入，而不是将它们做成一个大分支：
 
-1. `TORCH-NEIGHBOR-PBC-CELL`：周期 full-list cell-list reference；
-2. `TORCH-NVT-LANGEVIN`：固定晶胞 NVTLangevin reference；
-3. `TORCH-NVT-NHC`：固定晶胞 Nose-Hoover chain reference。
+1. `TORCH-NVT-LANGEVIN`：补齐固定晶胞 reference 的剩余行为/状态生命周期；
+2. `TORCH-NVT-NHC`：固定晶胞 Nose-Hoover chain reference；
+3. `TORCH-FIRE2-VARIABLE-CELL` 与 `TORCH-BFGS-ASE-COMPAT`：按各自契约并行推进。
 
 用户追加批准以下低耦合 T1 扩展任务：
 

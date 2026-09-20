@@ -41,7 +41,7 @@ callers to repeat an incomplete backend enum.
 M1 does not create PlatformFingerprint, BackendProfile, Frozen BackendPlan,
 runtime fallback policy or whole-pipeline planning. No default path changes:
 ``None`` remains legacy Warp and ``auto`` still resolves only the dense Torch
-reference capability currently registered. ADR 0005 remains the cell-list
+reference capability currently registered. ADR 0010 remains the cell-list
 algorithm contract, but its public backend-name decision is superseded here.
 
 CPU and BW200/gfx936 HCU contract evidence is recorded in

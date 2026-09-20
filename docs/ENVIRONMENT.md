@@ -30,13 +30,15 @@ source scripts/activate_hygon_env.sh exploration   # 已验证的探索环境
 
 `activate_hygon_env.sh` 会根据当前 shell 自动选择 DTK 脚本：bash 使用 `/opt/dtk-26.04/env.sh`，zsh 使用 `/opt/dtk-26.04/env.zsh`。也可以直接加载对应脚本，但不能在 zsh 中直接 source 只适合 bash 的 `env.sh`。脚本还会激活选定 Python 环境，并设置项目 `PYTHONPATH`、北外 PyPI 镜像和 `/data/envs/uv-cache`；GPU 可见性、线程数和超时仍需由探针或作业命令显式指定。
 
+本机当前单卡验证统一使用第五张卡 `HIP_VISIBLE_DEVICES=4`；下方历史盘点中的旧卡号和结果只作溯源，不改写历史证据。
+
 环境脚本已在 bash 和 zsh 中实测：`DTKROOT=/opt/dtk-26.04`，项目 `.venv`
 中的海光 Torch `torch.cuda.is_available()=True`。HCU 运行前使用仓库内的基础
 探针确认当前 shell，而不要用 heredoc 临时拼接多行 Python：
 
 ```bash
 source scripts/activate_hygon_env.sh project
-HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 60 \
+HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 timeout 60 \
   .venv/bin/python -u probes/torch_probe.py --device cuda
 ```
 

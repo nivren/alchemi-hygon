@@ -1,4 +1,4 @@
-# ADR 0005: opt-in no-PBC Torch reference cell-list
+# ADR 0010: opt-in no-PBC Torch reference cell-list
 
 - Status: superseded in part by ADR 0006
 - Date: 2026-09-08

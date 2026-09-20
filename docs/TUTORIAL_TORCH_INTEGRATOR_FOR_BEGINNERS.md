@@ -55,7 +55,7 @@ git log -5 --oneline --decorate
 别人的改动，不要用 `reset --hard`、`git checkout --` 或覆盖式复制，先确认文件归属。
 
 先读：`AGENTS.md`、`docs/PROJECT_HANDOFF.md`、`docs/STATUS.md`、
-`docs/TEAM_DEVELOPMENT_BASELINE.md`、`docs/ADD_TORCH_OPERATION.md`。
+`docs/PARALLEL_DEVELOPMENT_PLAN.md`、`docs/ADD_TORCH_OPERATION.md`。
 
 ### 1.2 创建自己的分支
 
@@ -659,7 +659,7 @@ probe 至少支持：
 PYTHONPATH=packages/framework:packages/ops \
   .venv/bin/python probes/dynamics_reference_langevin.py --device cpu
 
-HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 90 \
+HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 timeout 90 \
   .venv/bin/python probes/dynamics_reference_langevin.py --device cuda
 ```
 

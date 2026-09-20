@@ -1318,7 +1318,10 @@
           "probes/pbc_lj_nve_reference.py",
           "probes/neighbor_baseline.py",
           "probes/framework_neighbor_hip_wallclock.py",
-          "probes/framework_neighbor_hip_contract.py"
+          "probes/framework_neighbor_hip_contract.py",
+          "probes/framework_neighbor_hip_boundary.py",
+          "packages/ops/test/torch/test_hip_batch_neighbor_runtime.py",
+          "packages/ops/test/torch/test_hip_neighbor_executor.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
@@ -1341,7 +1344,8 @@
           "reports/g2-framework-hip-neighbor-wallclock.md",
           "reports/g2-framework-hip-neighbor-contract.md",
           "reports/g2-framework-hip-neighbor-compatibility-gate.md",
-          "adr/0005-torch-reference-cell-list.md",
+          "reports/README.md",
+          "adr/0010-torch-reference-cell-list.md",
           "adr/0006-implementation-registry-and-neighbor-strategy.md"
         ],
         "environments": [

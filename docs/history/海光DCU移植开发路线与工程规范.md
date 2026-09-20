@@ -1,3 +1,6 @@
+> 这是历史调研基线，不是当前路线入口。当前规则和任务请阅读 [`../../AGENTS.md`](../../AGENTS.md)、
+> [`../STATUS.md`](../STATUS.md) 和 [`../PARALLEL_DEVELOPMENT_PLAN.md`](../PARALLEL_DEVELOPMENT_PLAN.md)。
+
 # nvalchemi-toolkit 海光 DCU 移植：技术路线、开发计划与工程规范
 
 > 历史调研基线：2026-09-05。本文用于背景参考，不是当前状态或版本锁定文件；卡型、DTK、PyTorch、Triton、人员和工期均以根目录 `AGENTS.md`、`docs/STATUS.md`、`docs/UPSTREAM_LOCK.yaml` 和实际证据为准。本文中的目录、优先级和阶段建议不覆盖后续已采用的 B0/T1 路线。

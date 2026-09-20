@@ -7,11 +7,12 @@
 ## 1. 这份交接包包含什么
 
 - `AGENTS.md`：放在项目根目录，供 Codex 自动读取，包含目标、约束、源码组织和首轮任务。
-- `docs/PROJECT_HANDOFF.md`：完整开发背景、Feature Compatibility Contract、模块迁移、探针和验收路线。
-- `docs/STATUS.md`：初始状态、后续交接和已取得实测证据；支持范围以当前快照和报告边界为准。
+- `docs/PROJECT_HANDOFF.md`：当前交接摘要、Feature Compatibility Contract、模块迁移和稳定架构边界；历史 Point 日志在 `docs/history/`。
+- `docs/STATUS.md`：当前状态、下一批任务、已取得实测证据和限制；支持范围以当前摘要和报告边界为准。
 - `docs/DEVELOPMENT_ENVIRONMENT.md`：新开发者部署项目 reference 环境并运行最小验证的指南。
 - `docs/DEVELOPMENT_GUIDE.md`：后端、算子、功能、测试和 Git 协作开发指南。
-- `docs/海光DCU移植开发路线与工程规范.md`：此前调研原文，作为历史背景保留；修订意见在 PROJECT_HANDOFF 中。
+- `reports/README.md`：验证报告索引；先看里程碑 summary，再按需追溯单点报告。
+- `docs/history/海光DCU移植开发路线与工程规范.md`：此前调研原文，作为历史背景保留；修订意见在 PROJECT_HANDOFF 中。
 - `.gitignore`：排除上游参考 clone、本地环境和大体积计算输出。
 
 主文档是 AGENTS.md，建议整包复制，确保详细引用可读。这里只提供文件和命令说明，未在用户服务器上创建目录、安装软件或 clone 仓库。

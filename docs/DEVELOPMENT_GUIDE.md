@@ -4,15 +4,16 @@
 开发 agent。它补充而不替代：
 
 - [AGENTS.md](../AGENTS.md)：必须遵守的项目级规则；
-- [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)：架构背景、阶段目标和历史交接；
+- [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)：稳定架构边界、阶段目标和当前交接；
 - [FEATURE_COMPATIBILITY.yaml](FEATURE_COMPATIBILITY.yaml)：逐特性契约和状态；
 - [UPSTREAM.md](UPSTREAM.md) / [UPSTREAM_LOCK.yaml](UPSTREAM_LOCK.yaml)：上游来源和锁定 SHA；
 - [DEVELOPMENT_ENVIRONMENT.md](DEVELOPMENT_ENVIRONMENT.md)：环境部署和 HCU 运行方法。
 
 当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
 Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、device、dtype、梯度等级和
-特性集合登记已验证的 Torch reference 宽度；triton、hip 名称已被识别但尚未作为可用后端
-注册。默认 Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
+特性集合登记已验证宽度；Triton 尚无生产 capability，HIP 目前只登记了邻居
+`hip.neighbor.cell_list-v1` 的 periodic/fixed-cell/Batch/full/MATRIX 窄 capability。默认
+Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
 
 ## 1. 开始前：定位工作范围
 
@@ -39,7 +40,7 @@ rg -n "目标符号或功能名" packages/framework packages/ops packages probes
 | 跨包行为 | packages/framework/test/compatibility/ | 两包安装/import 和纵向链；根 `tests/` 目录目前是未来集中测试的规划入口 |
 | 设备/性能探针 | probes/ | reports/摘要与 artifacts/原始输出 |
 
-不要顺手重排邻近代码、全库格式化或修改无关的 STATUS.md 历史段落；这些是最常见的
+不要顺手重排邻近代码、全库格式化或修改无关的 STATUS.md 当前摘要及 history 日志；这些是最常见的
 合并冲突来源。
 
 ## 2. 先写契约，再写实现
@@ -76,8 +77,8 @@ ops 的 backend.py 提供 `ImplementationRegistry`、开放的 `BackendRequest`�
 默认实现清单已按操作族放在私有的
 `packages/ops/nvalchemiops/_backend_catalog/`：它只能声明 `Implementation` metadata，不能
 导入 Torch/Warp/HIP executor。`backend.py` 保留 registry 的公共 API 和历史登记顺序；新增
-operation 应按 [TEAM_DEVELOPMENT_BASELINE.md](TEAM_DEVELOPMENT_BASELINE.md) 和
-[ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md) 完成最小闭环。
+operation 应按 [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md) 完成最小闭环；B0 历史门禁见
+[history/TEAM_DEVELOPMENT_BASELINE.md](history/TEAM_DEVELOPMENT_BASELINE.md)。
 
 选择后端不能只看 device.type == "cuda" 或设备名中是否含 cuda：海光 HIP Torch 也使用
 torch.cuda 命名空间。至少结合构建信息、torch.version.hip、设备可用性、目标架构、输入规模、
@@ -89,8 +90,10 @@ dtype、梯度等级和实际 benchmark。
 - backend="torch_reference"：显式选择正确性优先 reference；
 - neighbor 的 cell-list：显式使用 `backend="torch_reference",
   method="cell_list"`；它是 operation strategy，不是全局 backend；
-- backend="triton" / "hip"：未注册时必须抛 BackendUnavailableError；实现和测试完成后才
+- backend="triton"：当前未注册，必须抛 BackendUnavailableError；实现和测试完成后才
   能登记；
+- backend="hip"：只对已登记的邻居窄 capability 生效；其它 operation 或不满足
+  periodic/fixed-cell/Batch/full/MATRIX/FP32/FP64/skin=0 契约时必须明确失败；
 - backend="auto"：只在能力过滤、后端注册和证据齐全时选择；当前 slice 只会选已注册的
   reference，并针对每个选择签名首次报告实际后端和原因；
 - backend="warp"：NVIDIA 上游参考路径，不能被 HCU 修改偷偷替换。
@@ -384,7 +387,7 @@ external/当产品源，不要 squash 掉需要追踪的上游历史。若冲突
 
 - 不全库重排 import、重命名或格式化；
 - 不把性能数据、状态历史和新功能代码混在一个大提交；
-- STATUS.md 采用追加式交接，避免重写历史段落；
+- STATUS.md 只维护当前摘要；历史交接追加到 `docs/history/`，避免把历史日志和当前结论混在一起；
 - FEATURE_COMPATIBILITY.yaml 只修改目标条目或在末尾追加，不做无关格式化；
 - UPSTREAM.md 的补丁表按 ID 追加，ID 不复用；
 - 每个后端/算子指定单一 owner 和路径，另一个人修改前先在提交或任务中说明范围；

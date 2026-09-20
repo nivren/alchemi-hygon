@@ -176,7 +176,8 @@ flowchart TD
 
 ### 已有 Torch reference golden paths
 
-- neighbors：dense periodic/no-PBC full-list；no-PBC cell-list 是显式 strategy；
+- neighbors：dense periodic/no-PBC full-list；Torch `cell_list` 是显式 strategy；HIP
+  `cell_list` 已有 periodic/fixed-cell/Batch/full/MATRIX 的显式窄 capability；
 - LJ：energy/force 以及有限的二阶路径；
 - fixed-cell dynamics：VV、FIRE、FIRE2、kinetics；
 - periodic：位置 wrap；
@@ -189,8 +190,8 @@ flowchart TD
 ### 当前仍在边界外的内容
 
 - PlatformFingerprint、BackendProfile、Frozen BackendPlan（M2）；
-- periodic cell-list、NVTLangevin、NVT Nose-Hoover、NPT/NPH；
-- 生产 Triton/HIP neighbor/LJ/MLIP kernel；
+- 完整上游周期 cell-list capability、NVTLangevin、NVT Nose-Hoover、NPT/NPH；
+- 生产 Triton/HIP neighbor/LJ/MLIP kernel；当前 HIP 邻居窄 capability 不等于生产后端；
 - 完整 checkpoint/restart、长轨迹性能门槛、单体系多卡域分解。
 
 开发者要做上述任务时，应按独立 operation 建立契约，不要顺手修改全局 backend 语义。
@@ -221,7 +222,7 @@ scripts/check_cpu_reference.sh
 HCU batch 必须显式指定已分配设备：
 
 ```bash
-HIP_VISIBLE_DEVICES=0 scripts/check_hcu_reference_smoke.sh
+HIP_VISIBLE_DEVICES=4 scripts/check_hcu_reference_smoke.sh
 ```
 
 没有真实 HCU 运行记录时，只能报告 CPU verified 或 HCU pending。HCU 失败后不能自动切到

@@ -1,14 +1,18 @@
-# 基础开发版本 v0.1
+> 这是 B0 历史基线，不是当前任务入口。当前状态和任务请阅读 [`../STATUS.md`](../STATUS.md) 与
+> [`../PARALLEL_DEVELOPMENT_PLAN.md`](../PARALLEL_DEVELOPMENT_PLAN.md)。
+
+# 基础开发版本 v0.1（历史基线）
 
 状态：B0 已合入共享 `develop`（集成提交 `da394b6`）。CPU gate 和 B0 HCU smoke
-（HCU 0，2026-09-09）均已通过；`team/dev-baseline-v0.1` 保留为本轮集成指针。
+（HCU 0，2026-09-09）均已通过；`team/dev-baseline-v0.1` 保留为历史集成指针。
+当前开发基线和任务队列以 `docs/STATUS.md` 与 `docs/PARALLEL_DEVELOPMENT_PLAN.md` 为准。
 
 本版本的目的不是宣称完整 DCU production backend，而是提供一个可供 2--3 人并行开发的
 稳定起点：后端选择边界集中、三个可运行的 Torch-reference golden paths、可重复的 CPU
 gate、以及显式的 HCU 批验证入口。
 
-开发者先看[系统结构图](DEVELOPER_ARCHITECTURE.md)，再按本文的任务边界和
-[Torch 积分器新手教程](TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)进入具体模块。
+开发者先看[系统结构图](../DEVELOPER_ARCHITECTURE.md)，再按本文的任务边界和
+[Torch 积分器新手教程](../TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)进入具体模块。
 
 ## 已收口的边界
 
@@ -28,7 +32,7 @@ HCU 可见性、`torch.cuda` 命名或缺 Warp 自动解释为切换后端的理
 `Implementation` metadata 和 executor 字符串，不能导入 executor 或初始化 Warp；公共 registry
 API 和默认登记顺序仍由 `nvalchemiops.backend` 保证。
 
-## 本版本明确不做的事
+## 本版本当时明确不做的事
 
 - 不实现 PlatformFingerprint、BackendProfile、Frozen BackendPlan 或 M2 planner。
 - 不新增 periodic cell-list、NVTLangevin/NVT Nose-Hoover、NPT/NPH 或变胞 dynamics。
@@ -62,15 +66,15 @@ strategy，一人拥有 thermostat/integrator reference，一人拥有跨包回�
 - `scripts/check_cpu_reference.sh` 通过；HCU 批次按实际运行结果追加证据，未运行时明确 pending。
 - `FEATURE_COMPATIBILITY.yaml`、`STATUS.md` 和 report 只登记实际覆盖的切片与限制。
 
-完整步骤见 [ADD_TORCH_OPERATION.md](ADD_TORCH_OPERATION.md)。面向第一次参与项目开发者的
+完整步骤见 [ADD_TORCH_OPERATION.md](../ADD_TORCH_OPERATION.md)。面向第一次参与项目开发者的
 手把手积分器教程见
-[TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)，
+[TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](../TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)，
 其中以 `TORCH-NVT-LANGEVIN` 为实际练习案例，并用已完成的 VV 作为对照。
 
-## 基线后的独立任务队列
+## 基线后的历史任务队列
 
-进入实际并行开发前，先阅读[并行开发工作计划](PARALLEL_DEVELOPMENT_PLAN.md)。本文保留任务
-队列和基础门禁；分支命名、文件 ownership、共享热点与合入顺序以该计划为准。
+进入实际并行开发前，先阅读当前[并行开发工作计划](../PARALLEL_DEVELOPMENT_PLAN.md)。下面只保留
+2026-09-09 B0 基线形成时的任务快照；当前任务、文件 ownership、共享热点与合入顺序以该计划为准。
 
 | ID | 任务 | 前提与验收 |
 |---|---|---|

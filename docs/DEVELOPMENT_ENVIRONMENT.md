@@ -141,7 +141,7 @@ HCU 验证必须在 /dev/kfd、/dev/dri 可见的主机权限终端执行：
 
 ~~~bash
 source scripts/activate_hygon_env.sh project
-HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 60 \
+HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 timeout 60 \
   .venv/bin/python -u probes/torch_probe.py --device cuda
 ~~~
 
@@ -167,7 +167,7 @@ PYTHONPATH=packages/framework:packages/ops \
   packages/framework/test/models/test_lj_torch_reference.py
 ~~~
 
-HCU 运行时给第二条命令加 HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 120。测试
+HCU 运行时给第二条命令加 HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 timeout 120。测试
 通过只说明对应 reference slice 通过，不代表完整上游测试、生产 cell-list、Triton/HIP
 kernel 或 DomainParallel 已通过。
 
@@ -178,14 +178,15 @@ kernel 或 DomainParallel 已通过。
 ~~~bash
 source scripts/activate_hygon_env.sh project
 PYTHONPATH=packages/framework:packages/ops \
-  HIP_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 timeout 120 \
+  HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 timeout 120 \
   .venv/bin/python -u probes/mace_probe.py \
   --device cuda \
   --checkpoint /path/to/MACE-OFF23_small.model
 ~~~
 
 checkpoint 路径必须是真实文件。报告中记录路径的脱敏标识或 SHA256，不要提交模型、数据、
-token 或完整环境变量。当前已验证的本地模型和 HCU 结果见 docs/STATUS.md 与 reports/。
+token 或完整环境变量。当前已验证的本地模型和 HCU 结果见 `docs/STATUS.md` 与
+[`reports/README.md`](../reports/README.md)。
 
 ## 6. HCU 作业注意事项
 
