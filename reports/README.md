@@ -13,6 +13,7 @@
 | HIP framework wall-clock | [`g2-framework-hip-neighbor-wallclock.md`](g2-framework-hip-neighbor-wallclock.md) | warm public API 描述性 evidence，不是 `auto` 准入 |
 | MACE/FIRE2 reference | [`g2-mace-fire2-batch32-tier1.md`](g2-mace-fire2-batch32-tier1.md) | 固定晶胞 reference；不代表变胞或生产 HIP/MACE |
 | Langevin reference | [`g2-torch-nvt-langevin.md`](g2-torch-nvt-langevin.md)、[`g2-torch-nvt-langevin-stat.md`](g2-torch-nvt-langevin-stat.md)、[`g2-torch-nvt-langevin-restart.md`](g2-torch-nvt-langevin-restart.md) | 固定晶胞 BAOAB 窄 reference slice 已完成；不等于完整上游 Langevin/NVT 或生产后端 |
+| Hygon distributed preflight | [`dcu-distributed-preflight-2026-09-21.md`](dcu-distributed-preflight-2026-09-21.md) | P0/P1 单卡、P2/P3 backend、P4/2-rank、P5/P6/P7/P8/P9 correctness、P10 baseline、P11 async/stream correctness、P12 operation-count stability、P13 memory behavior、P14 topology record 通过；P11 未观察到稳定 overlap 收益，DomainParallel 未验证 |
 
 ## 邻居 cell-list 报告分组
 
