@@ -789,7 +789,7 @@ def _fire2_coord_cell_max_displacement_kernel(
     The raw trial update is:
 
     ``cell_raw = H + factor * dt * Hdot``
-    ``r_raw = (cell_raw @ H^-1) @ r + factor * dt * v``
+    ``r_raw = (cell_raw.T @ H^-T) @ r + factor * dt * v``
 
     where ``factor`` is ``1`` downhill and ``-0.5`` uphill.  The per-system
     maximum is computed from the actual Cartesian atomic displacement
@@ -822,7 +822,8 @@ def _fire2_coord_cell_max_displacement_kernel(
     cell_old_inv = wp.inverse(cell_old)
     cell_step_raw = factor * local_dt * cell_velocities[sys]
     cell_raw = cell_old + cell_step_raw
-    transform = cell_raw * cell_old_inv
+    # UBF-011 / fork c4c3bb5: H has row vectors, Warp positions are columns.
+    transform = wp.transpose(cell_raw) * wp.transpose(cell_old_inv)
 
     position_old = positions[atom_idx]
     raw_displacement = (
@@ -877,7 +878,8 @@ def _fire2_coord_cell_apply_positions_kernel(
     cell_old_inv = wp.inverse(cell_old)
     cell_step_raw = factor * local_dt * cell_velocities[sys]
     cell_raw = cell_old + cell_step_raw
-    transform = cell_raw * cell_old_inv
+    # UBF-011 / fork c4c3bb5: use the same row-cell map for cap and apply.
+    transform = wp.transpose(cell_raw) * wp.transpose(cell_old_inv)
 
     inv = one
     mn = max_norm[sys]

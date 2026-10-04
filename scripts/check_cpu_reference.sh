@@ -25,6 +25,7 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/ops/test/torch/test_torch_reference_cell_list.py \
   packages/ops/test/torch/test_torch_stress.py \
   packages/ops/test/torch/test_torch_cell_tools.py \
+  packages/ops/test/torch/test_variable_cell_fire.py \
   packages/ops/test/torch/test_torch_nhc.py
 
 "$_baseline_python" -m pytest -q \
@@ -36,6 +37,7 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/framework/test/compatibility/test_backend_selection_propagation.py \
   packages/framework/test/compatibility/test_cell_stress_force_reference.py \
   packages/framework/test/compatibility/test_cell_tools_reference.py \
+  packages/framework/test/compatibility/test_variable_cell_fire_reference.py \
   packages/framework/test/compatibility/test_dynamics_reference_velocity_verlet.py \
   packages/framework/test/compatibility/test_dynamics_reference_langevin.py \
   packages/framework/test/compatibility/test_dynamics_reference_nhc.py \

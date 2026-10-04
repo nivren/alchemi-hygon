@@ -46,13 +46,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import torch
+from nvalchemiops.backend import BackendSelection
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.dynamics._ops._bridge import _make_state_batch, _to_per_system
 from nvalchemi.dynamics._ops.fire import fire2_step_coord, fire2_step_coord_cell
 from nvalchemi.dynamics.base import BaseDynamics
-from nvalchemi._backend import resolve_compute_backend
-from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.dynamics.base import ConvergenceHook
@@ -346,8 +346,24 @@ class FIRE2VariableCell(BaseDynamics):
             operation="fire2",
             device=batch.positions.device,
             dtype=batch.positions.dtype,
-            gradient_order=1,
+            gradient_order=0,
             features={"variable_cell"},
+        )
+        self._stress_selection = resolve_compute_backend(
+            self._backend_selection.family,
+            operation="stress_to_cell_force",
+            device=dev,
+            dtype=dtype,
+            gradient_order=2,
+            features={"row_cell"},
+        )
+        self._cell_tools_selection = resolve_compute_backend(
+            self._backend_selection.family,
+            operation="cell_tools",
+            device=dev,
+            dtype=dtype,
+            gradient_order=0,
+            features={"row_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
@@ -368,15 +384,18 @@ class FIRE2VariableCell(BaseDynamics):
             Current batch; *positions*, *velocities*, and *cell*
             updated in-place.
         """
-        # Variable-cell FIRE2 remains Warp-backed until stress/cell reference
-        # operators are implemented.  Import it locally so fixed-cell FIRE2
-        # stays usable without Warp.
+        # The stress selection is frozen at initialization, like the step.
         from nvalchemi.dynamics._ops.npt_nph import stress_to_cell_force
 
         volumes = torch.linalg.det(batch.cell).abs()
         # batch.stress is tensile-positive Cauchy stress -W/V (eV/A^3).
         stress_sigma = batch.stress
-        cell_force = stress_to_cell_force(stress_sigma, batch.cell, volumes)
+        cell_force = stress_to_cell_force(
+            stress_sigma,
+            batch.cell,
+            volumes,
+            selection=self._stress_selection,
+        )
         fire2_step_coord_cell(
             batch.positions.detach(),
             batch.velocities,

@@ -477,8 +477,7 @@ def fire2_step_coord(
 
 
 def fire2_step_coord_cell(*args: object, **kwargs: object) -> None:
-    """Variable-cell FIRE2 remains blocked on the virial/stress contract."""
-    del args, kwargs
-    raise NotImplementedError(
-        "reference FIRE2 variable-cell path requires a verified virial/stress contract"
-    )
+    """Compatibility import; the native variable-cell executor is ops-owned."""
+    from nvalchemiops.cell_fire_reference import fire2_step_coord_cell as step
+
+    return step(*args, **kwargs)

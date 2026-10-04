@@ -16,7 +16,7 @@
 Cell alignment hook for variable-cell optimization.
 
 Provides :class:`AlignCellHook`, which aligns periodic simulation cells to
-upper-triangular (right-handed) form before the first optimizer step, and
+lower-triangular (right-handed) form before the first optimizer step, and
 :func:`_align_atomic_data_cell`, a standalone utility for aligning a single
 :class:`~nvalchemi.data.AtomicData` instance.
 """
@@ -27,6 +27,7 @@ from enum import Enum
 
 import torch
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.dynamics._ops.cell_align import align_cell
 from nvalchemi.dynamics.base import DynamicsStage
 from nvalchemi.hooks._context import DynamicsContext
@@ -38,7 +39,7 @@ class AlignCellHook:
     r"""Align periodic cells before the first variable-cell FIRE2 step.
 
     Transforms each periodic system's cell matrix to the standard
-    upper-triangular (right-handed) form:
+    lower-triangular (right-handed) form:
 
     .. math::
 
@@ -74,9 +75,11 @@ class AlignCellHook:
     >>> optimizer = FIRE2VariableCell(model=model, hooks=[hook])
     """
 
-    def __init__(self, frequency: int = 1) -> None:
+    def __init__(self, frequency: int = 1, *, backend: str | None = None) -> None:
         self.stage = DynamicsStage.BEFORE_STEP
         self.frequency = frequency
+        self.backend = backend
+        self._selection = None
 
     def __call__(self, ctx: DynamicsContext, stage: Enum) -> None:
         """Align the current batch when any periodic cell is not triangular."""
@@ -97,21 +100,80 @@ class AlignCellHook:
                 periodic_mask = pbc.unsqueeze(0).any(dim=-1)
         else:
             periodic_mask = pbc.any(dim=-1)
+        # The fork's newer context carries active_graph_mask. Keep the locked
+        # context/schema: derive its equivalent from existing status/exit_status.
+        active = getattr(ctx, "active_graph_mask", None)
+        status = getattr(batch, "status", None)
+        exit_status = getattr(ctx.workflow, "exit_status", None)
+        if active is None and status is not None and exit_status is not None:
+            active = status.reshape(-1) < exit_status
+        if active is not None:
+            periodic_mask = periodic_mask & active
         if not periodic_mask.any():
             return
-
-        positions = batch.positions.contiguous()
-        cell = batch.cell.contiguous()
+        # UBF-014: fork b12b54c protects the periodic/active subset. Also
+        # rotate cached vectors/tensors, which the fork still leaves unchanged.
+        # Alignment is a preprocessing operation, not a repeated optimizer step.
+        nonlower = torch.triu(batch.cell, 1).ne(0).any(dim=(-1, -2))
+        nonpositive = (batch.cell.diagonal(dim1=-2, dim2=-1) <= 0).any(-1)
+        selected_systems = periodic_mask & (nonlower | nonpositive)
+        if not selected_systems.any():
+            return
+        atom_mask = selected_systems[batch.batch_idx.long()]
+        positions = batch.positions[atom_mask].clone()
+        cell = batch.cell[selected_systems].clone()
         if positions.dtype not in (torch.float32, torch.float64):
             raise TypeError(
                 "Cell alignment only supports float32/float64 positions, got "
                 f"{positions.dtype}."
             )
+        workflow = ctx.workflow
+        if self._selection is None:
+            inherited = getattr(workflow, "_cell_tools_selection", None)
+            request = (
+                self.backend
+                if self.backend is not None
+                else getattr(workflow, "backend", None)
+            )
+            self._selection = resolve_compute_backend(
+                request,
+                operation="cell_tools",
+                device=positions.device,
+                dtype=positions.dtype,
+                gradient_order=0,
+                features={"row_cell"},
+                selection=inherited if self.backend is None else None,
+            )
         if cell.dtype != positions.dtype:
-            cell = cell.to(dtype=positions.dtype)
-
-        batch_idx = batch.batch_idx.to(dtype=torch.int32).contiguous()
-        align_cell(positions, cell, batch_idx)
-
-        batch.positions = positions
-        batch.cell = cell
+            if self._selection.family != "warp":
+                raise TypeError("cell must share positions dtype")
+            cell = cell.to(dtype=positions.dtype)  # Retain the legacy hook cast.
+        state = getattr(workflow, "_state", None)
+        for name in ("cell_velocities", "cell_velocity"):
+            motion = getattr(state, name, None)
+            if motion is not None and bool(motion[selected_systems].ne(0).any()):
+                raise ValueError("align cells before initializing cell motion")
+        systems = torch.full(
+            (batch.num_graphs,), -1, device=positions.device, dtype=torch.int64
+        )
+        systems[selected_systems] = torch.arange(
+            int(selected_systems.sum()), device=positions.device
+        )
+        batch_idx = systems[batch.batch_idx.long()[atom_mask]].int()
+        old_cell = cell.clone()
+        align_cell(positions, cell, batch_idx, selection=self._selection)
+        transform = torch.linalg.solve(cell, old_cell)
+        with torch.no_grad():
+            batch.positions[atom_mask] = positions
+            batch.cell[selected_systems] = cell
+            for name in ("velocities", "forces"):
+                field = getattr(batch, name, None)
+                if field is not None:
+                    field[atom_mask] = torch.bmm(
+                        transform[batch_idx.long()], field[atom_mask, :, None]
+                    ).squeeze(-1)
+            stress = getattr(batch, "stress", None)
+            if stress is not None:
+                stress[selected_systems] = (
+                    transform @ stress[selected_systems] @ transform.mT
+                )

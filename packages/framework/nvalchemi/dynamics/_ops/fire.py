@@ -809,7 +809,7 @@ def fire2_step_coord_cell(
         operation="fire2",
         device=positions.device,
         dtype=positions.dtype,
-        gradient_order=1,
+        gradient_order=0,
         features={"variable_cell"},
         selection=selection,
     )

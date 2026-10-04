@@ -398,6 +398,8 @@ assert [item.implementation_id for item in catalog.default_implementations()] ==
     'torch_reference.fire-v1',
     'torch_reference.fire2-v1',
     'torch_reference.kinetics-v1',
+    'torch_reference.fire2-cell-v1',
+    'torch_reference.fire-cell-v1',
     'torch_reference.langevin-v1',
     'torch_reference.nose_hoover-v1',
     'torch_reference.periodic_wrap-v1',

@@ -163,6 +163,6 @@ def test_fire2_matches_independent_scalar_reference_for_mixed_batch() -> None:
         assert torch.allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
 
-def test_fire2_variable_cell_is_explicitly_blocked() -> None:
-    with pytest.raises(NotImplementedError, match="virial/stress"):
+def test_fire2_variable_cell_compatibility_requires_actual_state() -> None:
+    with pytest.raises(TypeError, match="required"):
         fire2_step_coord_cell()
