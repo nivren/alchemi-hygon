@@ -22,7 +22,8 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
 "$_baseline_python" -m pytest -q \
   packages/ops/test/torch/test_backend_registry.py \
   packages/ops/test/torch/test_torch_reference_backend.py \
-  packages/ops/test/torch/test_torch_reference_cell_list.py
+  packages/ops/test/torch/test_torch_reference_cell_list.py \
+  packages/ops/test/torch/test_torch_nhc.py
 
 "$_baseline_python" -m pytest -q \
   packages/framework/test/models/test_lj_torch_reference.py::test_reference_model_builds_neighbor_hook_without_eager_dynamics_import
@@ -33,6 +34,8 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/framework/test/compatibility/test_backend_selection_propagation.py \
   packages/framework/test/compatibility/test_dynamics_reference_velocity_verlet.py \
   packages/framework/test/compatibility/test_dynamics_reference_langevin.py \
+  packages/framework/test/compatibility/test_dynamics_reference_nhc.py \
+  packages/framework/test/compatibility/test_dynamics_reference_nhc_physics.py \
   packages/framework/test/compatibility/test_dynamics_reference_fire.py \
   packages/framework/test/compatibility/test_public_dynamics_reference.py \
   packages/framework/test/dynamics/test_hook_utils.py \

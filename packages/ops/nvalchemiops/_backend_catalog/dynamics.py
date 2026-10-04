@@ -66,4 +66,21 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         evidence="T1 fixed-cell BAOAB Langevin reference contract",
         default_strategy=True,
     ),
+    Implementation(
+        implementation_id="torch_reference.nose_hoover-v1",
+        operation="nose_hoover",
+        family="torch_reference",
+        executor="nvalchemi._dynamics_reference.nose_hoover",
+        entrypoints=(
+            "nhc_compute_masses",
+            "nhc_chain_update",
+            "nhc_velocity_half_step",
+            "nhc_position_update",
+        ),
+        executor_owner="framework",
+        features=frozenset({"fixed_cell"}),
+        max_gradient_order=0,
+        evidence="fixed-cell NHC contract: docs/TORCH_NVT_NHC_CONTRACT.md",
+        default_strategy=True,
+    ),
 )

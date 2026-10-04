@@ -38,21 +38,10 @@ from __future__ import annotations
 
 import torch
 import torch.library
-import warp as wp
-from nvalchemiops.dynamics.integrators import (
-    nhc_compute_masses as _nhc_compute_masses,
-)
-from nvalchemiops.dynamics.integrators import (
-    nhc_position_update as _nhc_pos_update,
-)
-from nvalchemiops.dynamics.integrators import (
-    nhc_thermostat_chain_update as _nhc_chain_update,
-)
-from nvalchemiops.dynamics.integrators import (
-    nhc_velocity_half_step as _nhc_vel_half,
-)
+from nvalchemiops.backend import BackendSelection
+from nvalchemiops.executor import execute_selected
 
-from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+from nvalchemi._backend import resolve_compute_backend
 
 __all__ = [
     "nhc_compute_masses",
@@ -62,7 +51,7 @@ __all__ = [
 ]
 
 
-def nhc_compute_masses(
+def _nhc_compute_masses_warp(
     temperature: torch.Tensor,
     thermostat_time: torch.Tensor,
     masses: torch.Tensor,
@@ -75,19 +64,13 @@ def nhc_compute_masses(
     :math:`Q_1 = N_f\, k_BT\, \tau_T^{2}`, :math:`Q_k = k_BT\, \tau_T^{2}` for :math:`k > 1`.
 
     .. note::
-        The underlying kernel takes scalar *ndof*, *target_temp*, and *tau*
-        arguments, so for heterogeneous batches the first system's values are
-        used as the representative parameters.  All systems in the batch must
-        share the same temperature and coupling time for correct results.
-
-    .. note::
         Workaround: toolkit-ops ``nhc_compute_masses`` defaults to
         ``device="cuda:0"`` when no device is given.  We pass it explicitly.
 
     Parameters
     ----------
     temperature : torch.Tensor
-        Per-system target temperature in Kelvin ``[M]``.
+        Per-system target kT in eV ``[M]``.
     thermostat_time : torch.Tensor
         Per-system thermostat coupling time :math:`\tau_T` ``[M]``, same dtype.
     masses : torch.Tensor
@@ -102,6 +85,13 @@ def nhc_compute_masses(
     torch.Tensor
         Chain masses ``[M, chain_length]``, same dtype as *temperature*.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        nhc_compute_masses as _nhc_compute_masses,
+    )
+
+    from nvalchemi.dynamics._ops._bridge import _scalar_type
+
     M = temperature.shape[0]
     dtype = temperature.dtype
     scl_t = _scalar_type(dtype)
@@ -138,7 +128,7 @@ def nhc_compute_masses(
         "dt_chain",
     },
 )
-def nhc_chain_update(
+def _nhc_chain_update_warp(
     velocities: torch.Tensor,
     masses: torch.Tensor,
     eta: torch.Tensor,
@@ -153,6 +143,7 @@ def nhc_chain_update(
     dt_chain: torch.Tensor,
     batch_idx: torch.Tensor,
     compute_ke: bool = True,
+    nloops: int = 1,
 ) -> None:
     r"""Propagate the Nosé-Hoover chain and scale particle velocities.
 
@@ -174,7 +165,7 @@ def nhc_chain_update(
     Q : torch.Tensor
         Chain masses ``[M, C]``, same dtype.
     temperature : torch.Tensor
-        Per-system target temperature in Kelvin ``[M]``, same dtype.
+        Per-system target kT in eV ``[M]``, same dtype.
     dt : torch.Tensor
         Per-system timestep ``[M]``, same dtype.
     ndof : torch.Tensor
@@ -196,6 +187,13 @@ def nhc_chain_update(
         domain-parallel path fills it with the mesh-global :math:`2\,\mathrm{KE}` so the thermostat
         couples to the whole system rather than a single rank's owned shard.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        nhc_thermostat_chain_update as _nhc_chain_update,
+    )
+
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     M = temperature.shape[0]
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
@@ -204,6 +202,9 @@ def nhc_chain_update(
     # Only forward the flag when non-default so the common path stays compatible
     # with ops builds that predate it.
     extra = {} if compute_ke else {"compute_ke": False}
+    # Upstream fix NHC-YOSHIDA: the public order was never forwarded to ops.
+    # Keep the low-level default=1 ABI, while NVTNoseHoover passes 3 or 5.
+    extra["nloops"] = nloops
     _nhc_chain_update(
         wp.from_torch(velocities, dtype=vec_t),
         wp.from_torch(masses, dtype=scl_t),
@@ -223,7 +224,7 @@ def nhc_chain_update(
     )
 
 
-@nhc_chain_update.register_fake
+@_nhc_chain_update_warp.register_fake
 def _nhc_chain_update_fake(
     velocities,
     masses,
@@ -239,6 +240,7 @@ def _nhc_chain_update_fake(
     dt_chain,
     batch_idx,
     compute_ke=True,
+    nloops=1,
 ) -> None:
     pass
 
@@ -246,7 +248,7 @@ def _nhc_chain_update_fake(
 @torch.library.custom_op(
     "nvalchemi::nhc_velocity_half_step", mutates_args={"velocities"}
 )
-def nhc_velocity_half_step(
+def _nhc_velocity_half_step_warp(
     velocities: torch.Tensor,
     forces: torch.Tensor,
     masses: torch.Tensor,
@@ -270,6 +272,13 @@ def nhc_velocity_half_step(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        nhc_velocity_half_step as _nhc_vel_half,
+    )
+
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -282,13 +291,13 @@ def nhc_velocity_half_step(
     )
 
 
-@nhc_velocity_half_step.register_fake
+@_nhc_velocity_half_step_warp.register_fake
 def _nhc_velocity_half_step_fake(velocities, forces, masses, dt, batch_idx) -> None:
     pass
 
 
 @torch.library.custom_op("nvalchemi::nhc_position_update", mutates_args={"positions"})
-def nhc_position_update(
+def _nhc_position_update_warp(
     positions: torch.Tensor,
     velocities: torch.Tensor,
     dt: torch.Tensor,
@@ -309,6 +318,11 @@ def nhc_position_update(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import nhc_position_update as _nhc_pos_update
+
+    from nvalchemi.dynamics._ops._bridge import _scalar_type, _vec_type
+
     dtype = positions.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -320,6 +334,113 @@ def nhc_position_update(
     )
 
 
-@nhc_position_update.register_fake
+@_nhc_position_update_warp.register_fake
 def _nhc_position_update_fake(positions, velocities, dt, batch_idx) -> None:
     pass
+
+
+def _resolve(
+    backend: str | None, selection: BackendSelection | None, tensor: torch.Tensor
+) -> BackendSelection:
+    return resolve_compute_backend(
+        backend,
+        operation="nose_hoover",
+        device=tensor.device,
+        dtype=tensor.dtype,
+        gradient_order=0,
+        features={"fixed_cell"},
+        selection=selection,
+    )
+
+
+def nhc_compute_masses(
+    temperature,
+    thermostat_time,
+    masses,
+    batch_idx,
+    chain_length,
+    *,
+    backend=None,
+    selection=None,
+):
+    return execute_selected(
+        _resolve(backend, selection, temperature),
+        "nhc_compute_masses",
+        _nhc_compute_masses_warp,
+        temperature,
+        thermostat_time,
+        masses,
+        batch_idx,
+        chain_length,
+    )
+
+
+def nhc_chain_update(
+    velocities,
+    masses,
+    eta,
+    eta_dot,
+    Q,
+    temperature,
+    dt,
+    ndof,
+    ke2,
+    total_scale,
+    step_scale,
+    dt_chain,
+    batch_idx,
+    compute_ke=True,
+    nloops=1,
+    *,
+    backend=None,
+    selection=None,
+):
+    return execute_selected(
+        _resolve(backend, selection, velocities),
+        "nhc_chain_update",
+        _nhc_chain_update_warp,
+        velocities,
+        masses,
+        eta,
+        eta_dot,
+        Q,
+        temperature,
+        dt,
+        ndof,
+        ke2,
+        total_scale,
+        step_scale,
+        dt_chain,
+        batch_idx,
+        compute_ke,
+        nloops,
+    )
+
+
+def nhc_velocity_half_step(
+    velocities, forces, masses, dt, batch_idx, *, backend=None, selection=None
+):
+    return execute_selected(
+        _resolve(backend, selection, velocities),
+        "nhc_velocity_half_step",
+        _nhc_velocity_half_step_warp,
+        velocities,
+        forces,
+        masses,
+        dt,
+        batch_idx,
+    )
+
+
+def nhc_position_update(
+    positions, velocities, dt, batch_idx, *, backend=None, selection=None
+):
+    return execute_selected(
+        _resolve(backend, selection, positions),
+        "nhc_position_update",
+        _nhc_position_update_warp,
+        positions,
+        velocities,
+        dt,
+        batch_idx,
+    )
