@@ -3688,6 +3688,79 @@
         "Short HCU MACE only; no long real-potential statistical or performance claim; HCU gradients/compile and Inductor unverified"
       ],
       "release_gate": "G2_fixed_cell_reference_only"
+    },
+    {
+      "id": "TORCH-CELL-STRESS-FORCE",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "给定晶胞上的 stress/cell-force 基础计算、周期 MACE 应力评估与小模型 stress loss 参数梯度",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemi/models/_utils.py",
+          "nvalchemi/dynamics/_ops/npt_nph.py",
+          "nvalchemiops/dynamics/utils/cell_filter.py"
+        ],
+        "symbols": [
+          "prepare_strain",
+          "apply_strain",
+          "autograd_stresses",
+          "stress_to_cell_force"
+        ],
+        "reference_fixes": [
+          "ops fork c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a",
+          "framework fork 4bf8bc8084a2f588c332e0bf090978ba4ba76c4b"
+        ]
+      },
+      "contract": {
+        "api": "stress_to_cell_force(stress, cell, volume, keep_aligned=True, *, backend=None, selection=None); preserve npt_nph import and legacy torch.ops name",
+        "data": "stress/cell [B,3,3], volume [B]; FP32/64 same dtype/device; strided allowed; fresh contiguous output, no mutation/alias; B=0 differentiable; finite stress/invertible H/positive supplied V",
+        "details": "Row lattice r=s@H; tensile-positive sigma=-W/V=dE/depsilon/V; F_H=-V H^-T sigma in eV/Angstrom. keep_aligned projects lower triangle. Volume independent in autograd. Reject invalid/unsupported input/backend; current stream with validation host synchronization; no bitwise cross-device guarantee, no CPU/dtype fallback. See docs/TORCH_CELL_STRESS_FORCE_CONTRACT.md and UBF-009."
+      },
+      "dependencies": [
+        "torch",
+        "framework strain/autograd stress tools",
+        "generic ops executor catalog",
+        "optional model wrapper and Torch neighbor/geometry"
+      ],
+      "backends": {
+        "upstream": "Warp (lazy); corrected formula, execution unverified",
+        "target": [
+          "torch_reference"
+        ],
+        "implementation_id": "torch_reference.stress_to_cell_force-v1",
+        "executor_owner": "ops"
+      },
+      "gradient_level": "conversion stress/cell/volume first+second; CPU gradcheck/gradgradcheck; HCU first parity; CPU toy-model mixed-second stress loss to parameter",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [
+          "packages/framework/test/models/test_pipeline.py"
+        ],
+        "dcu_tests": [
+          "packages/ops/test/torch/test_torch_stress.py",
+          "packages/framework/test/compatibility/test_cell_stress_force_reference.py",
+          "probes/cell_stress_force_reference.py"
+        ],
+        "evidence": [
+          "reports/g2-torch-cell-stress-force.md",
+          "docs/TORCH_CELL_STRESS_FORCE_CONTRACT.md",
+          "docs/UPSTREAM_BUGFIXES.md#UBF-009"
+        ],
+        "environments": [
+          "project .venv / DTK26.04 / torch2.9.0 HIP6.3.26093 / HCU4 BW1000 64G gfx936"
+        ]
+      },
+      "limitations": [
+        "No cell alignment/packing/affine update, variable-cell FIRE/FIRE2, NPT/NPH, ASE filter or DomainParallel port in this slice",
+        "Real periodic MACE FP32 forward/CPU-HCU parity only; finite differences use FP64 with unchanged neighbor/image topology",
+        "Real MACE/MLIP stress training and other model families unverified; toy CPU parameter-gradient test is not full training evidence",
+        "HCU second derivatives/compile/opcheck, legacy Warp/NVIDIA execution and production HIP/Triton unverified",
+        "No ill-conditioned matrix accuracy or performance claim; formula correction can change legacy variable-cell forces/trajectories"
+      ],
+      "release_gate": "G2_stress_cell_force_reference_only"
     }
   ]
 }

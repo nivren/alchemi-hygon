@@ -8,6 +8,10 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 - 本轮 NHC 起点 `7a90fcf`，开发分支 `codex/feat-fixed-cell-nhc`；实现提交 `b4050ec`，随本轮交付到本地 `develop`，未推送。
 - `TORCH-NEIGHBOR-PBC-CELL` 阶段一 Torch reference 与阶段二 HIP 窄 capability 已收口。
 - `TORCH-NVT-LANGEVIN` 固定晶胞 BAOAB 窄 reference slice 已收口，不再作为当前任务。
+- `TORCH-CELL-STRESS-FORCE` 基础 slice 位于 `codex/feat-cell-stress-force`，起点
+  `e6dd99c`，实现与测试提交 `a76107e`；未合并/推送。该 slice 排除晶胞及 FIRE/FIRE2。
+- MPA-0 + 原生 FIRE/FIRE2 的里程碑1已获用户确认：基础收口、来源/契约和 CPU 单点验证。
+  后续每个里程碑先说明目的与方案，用户确认后实施。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
 - 当前任务应从 `develop` 创建短期个人分支，完成一个可独立验证的 slice 后再合并。
 
@@ -15,11 +19,18 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 1 | `TORCH-CELL-STRESS-FORCE` + coupled FIRE2 | 明确 stress 到 cell-force 的单位、shape、梯度和 FIRE2 变胞语义 | 完整 ASE 变胞兼容、后端优化 |
+| 1 | coupled FIRE2 variable-cell 与晶胞工具（待确认） | 使用已完成的基础转换，单独验收晶胞状态、坐标映射和耦合优化语义 | 完整 ASE 变胞兼容、NPT/NPH、后端优化 |
 | 2 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
+
+### Stress/cell-force 已完成基础 reference
+
+转换支持 FP32/64、完整/下三角晶胞力、显式 reference 与单次 selection；已有 strain/stress
+工具和小模型 stress loss 混合二阶路径经 CPU 回归验证，真实周期非正交 MACE 经 CPU/HCU4
+forward/parity 与 FP64 有限差分验证。证据见 [报告](../reports/g2-torch-cell-stress-force.md)。
+该完成项不包含晶胞更新、变胞 FIRE/FIRE2 或完整 MLIP 训练，不自动启动下一项。
 
 ### NHC 已完成窄 reference
 
@@ -55,8 +66,8 @@ generic executor binding、公共 `NVTLangevin(backend="torch_reference")` 接�
 ## 4. 并行边界
 
 - NHC 主要修改 `packages/ops` 的 dynamics reference、测试和对应报告。
-- stress/FIRE2 主要修改 `packages/ops` 的 cell/stress、dynamics 和 framework wrapper，
-  需要同步单位与梯度契约。
+- stress 基础 reference 与后续 FIRE/FIRE2 晶胞耦合分开验收；后者主要修改
+  `packages/ops` 的 cell/dynamics 和 framework wrapper，需要单独的状态与数值契约。
 - BFGS 主要修改 dynamics optimizer 与固定晶胞测试；不要顺带引入变胞状态。
 - 共享文件 `docs/STATUS.md`、`docs/PROJECT_HANDOFF.md`、`docs/FEATURE_COMPATIBILITY.yaml`
   和能力矩阵由集成者在 slice 完成后统一更新，避免多个分支同时重写当前状态。

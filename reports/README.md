@@ -14,6 +14,7 @@
 | MACE/FIRE2 reference | [`g2-mace-fire2-batch32-tier1.md`](g2-mace-fire2-batch32-tier1.md) | 固定晶胞 reference；不代表变胞或生产 HIP/MACE |
 | Langevin reference | [`g2-torch-nvt-langevin.md`](g2-torch-nvt-langevin.md)、[`g2-torch-nvt-langevin-stat.md`](g2-torch-nvt-langevin-stat.md)、[`g2-torch-nvt-langevin-restart.md`](g2-torch-nvt-langevin-restart.md) | 固定晶胞 BAOAB 窄 reference slice 已完成；不等于完整上游 Langevin/NVT 或生产后端 |
 | NHC reference | [`g2-torch-nvt-nhc.md`](g2-torch-nvt-nhc.md) | 固定晶胞 Torch reference、批处理生命周期和单 HCU 短 MACE；Warp/NVIDIA、分布式、完整 checkpoint、生产后端未验收 |
+| Stress/cell-force 基础 | [`g2-torch-cell-stress-force.md`](g2-torch-cell-stress-force.md) | CPU/HCU reference、周期 MACE 应力与 FP64 有限差分；不包含晶胞更新、变胞 FIRE/FIRE2、NPT/NPH 或完整 MLIP 训练 |
 | Hygon distributed preflight | [`dcu-distributed-preflight-2026-09-21.md`](dcu-distributed-preflight-2026-09-21.md) | P0/P1 单卡、P2/P3 backend、P4/2-rank、P5/P6/P7/P8/P9 correctness、P10 baseline、P11 async/stream correctness、P12 operation-count stability、P13 memory behavior、P14 topology record 通过；P11 未观察到稳定 overlap 收益，DomainParallel 未验证 |
 
 ## 邻居 cell-list 报告分组

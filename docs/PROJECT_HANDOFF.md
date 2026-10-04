@@ -77,8 +77,16 @@ state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STA
 保留异构 Batch、Hooks、FusedStage、scalar refill、最小 continuation；CPU/HCU 证据和
 四项上游逻辑修正见 [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md)。
 不承诺 vector arrivals、完整 workflow checkpoint、Warp/NVIDIA、DomainParallel 或生产后端。
-后续建议顺序是 FIRE2 stress→cell-force/variable-cell、固定晶胞 ASE-compatible BFGS。
-未确认 owner 前不自动创建下一任务分支。
+`TORCH-CELL-STRESS-FORCE` 基础 slice 明确排除晶胞及 FIRE/FIRE2 移植。
+该 slice 位于 `codex/feat-cell-stress-force`，起点 `e6dd99c`，实现与测试提交 `a76107e`，
+文档独立收口；未合并/推送；
+保留旧 stress API/import，ops reference 与 generic executor 接线已完成，CPU/HCU4 的转换和
+真实周期 MACE 应力证据见 [报告](../reports/g2-torch-cell-stress-force.md) 与
+[契约](TORCH_CELL_STRESS_FORCE_CONTRACT.md)。公式修正记录为 UBF-009；Warp 未执行。
+用户已确认下一目标为 MPA-0 + 原生 FIRE/FIRE2 弛豫，当前仅启动里程碑1：基础收口、
+来源/契约和 CPU 单点验证。后续先晶胞工具，再 FIRE2 和指定 fork 修复后的 FIRE，
+最后应用编排与 HCU 验收；每个里程碑均先给目的与方案，用户确认后实施。
+固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
 继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。
 

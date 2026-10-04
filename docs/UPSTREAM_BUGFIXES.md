@@ -37,6 +37,7 @@ issue/PR、官方修复 SHA 和核验日期缺失时写明，不由本地测试�
 | [UBF-006](#ubf-006hostmemory-快照与活跃数据共享存储) | CPU 轨迹帧被后续更新改写 | framework | 现有原因注释 | LP-008 | 已提交 `b5fd0ae`；历史 CPU/HCU 验证 |
 | [UBF-007](#ubf-007mace-本地-checkpoint-被交给下载器) | 声明支持本地路径却按 URL 处理 | framework | 现有原因注释 | LP-005/069 | 已提交 `3f5b544`；历史回归和模型执行证据 |
 | [UBF-008](#ubf-008uniform-storage-多属性复制使用不同目标槽位) | 多属性 put 复用已变更的占用 mask | framework | 现有原因注释 | LP-004/070 | 已提交 `3f89f6b`；Torch 双属性回归 |
+| [UBF-009](#ubf-009行晶格的-stress-to-cell-force-乘法顺序错误) | 非正交行晶格的晶胞力公式错误 | ops/framework | `CELL-STRESS-ROW` | LP-072/073 | 实现提交 `a76107e`；CPU/HCU reference 通过，Warp 未执行 |
 
 NHC 条目的共同来源：
 
@@ -216,6 +217,34 @@ copied_mask 重放同一复制集合。该逻辑位于共同 LevelStorage 层，
 不能把 uniform 的已确认缺陷直接推广到全部 segmented 操作。
 
 **上游状态**：uniform 多属性映射修复为上游候选；Warp 执行证据与 Torch 对照须分别核验。
+
+## UBF-009：行晶格的 stress-to-cell-force 乘法顺序错误
+
+**来源**：锁定 ops `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1` 的
+`dynamics/utils/cell_filter.py` stress kernel/接口，以及锁定 framework
+`4dfe3723def34df3fadb245981081ccf8c94c257` 的 `dynamics/_ops/npt_nph.py` 转换说明。
+
+**问题与依据**：原 kernel 使用 `-V sigma H^-T`；行晶格 `r=s@H`、
+`H'=H@(I+epsilon)` 要求固定分数坐标的负能量梯度为 `-V H^-T sigma`。
+独立非正交周期谐键 FP64 有限差分复现旧公式偏差。部分说明的 compression-positive/
+upper-triangular 与公共拉伸为正、实际下三角投影不一致。
+
+**修正与影响**：Torch reference 和本地 legacy Warp kernel 均更正公式；转换说明同步
+更正，源码标记 `CELL-STRESS-ROW / UBF-009`。保留原位置参数、keep_aligned 默认值和
+None/warp 默认选择；legacy 变胞晶胞力/轨迹可能变化。未移植 fork 的晶胞更新、
+FIRE/FIRE2、归一化、仿射映射或 DomainParallel 修复。reference 后端、fake/autograd
+和依赖隔离是平台适配，与这个上游缺陷分开归因。
+
+**参考修复**：用户指定 fork
+[ops c4c3bb56b6c6](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a)
+及 [framework 4bf8bc8084a2](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/4bf8bc8084a2f588c332e0bf090978ba4ba76c4b)。
+不更改上游锁定，不整体同步 develop；fork 已修正不代表 NVIDIA 官方修复状态。
+
+**本地状态**：`codex/feat-cell-stress-force` 实现与测试提交 `a76107e`，未合并、未推送。
+CPU 一二阶/有限差分、公共接线、小模型 stress loss 参数反向、真实周期 MACE 和
+HCU4 窄 smoke 见 [报告](../reports/g2-torch-cell-stress-force.md)。Warp 缺失，legacy
+kernel 未执行；不能把 Torch 通过当作 Warp/NVIDIA parity。本轮未向 NVIDIA 提交
+issue/PR，未核验其当前分支。补丁索引 LP-072/073。
 
 ## 3. 上游没有的实现与本地扩展
 

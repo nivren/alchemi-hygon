@@ -10,6 +10,7 @@
 | `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `fire2` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `nose_hoover` | 固定晶胞 NHC，C1–8、Yoshida3/5、FP32/64 | 原地 MD forward-only；functional v输入CPU一二阶已验证 | `torch_reference` | HCU4 12组CPU/HCU对照、短真实MACE；见NHC报告 |
+| `stress_to_cell_force` | row-cell `[B,3,3]`、FP32/64、完整/下三角投影、strided/empty | 一阶/二阶；CPU gradcheck/gradgradcheck；HCU 一阶 | `torch_reference` | HCU4 转换/stream、周期非正交真实 MACE；FP64 有限差分；见 [报告](../reports/g2-torch-cell-stress-force.md) |
 | `kinetics` / `segmented_reduce` | 按 graph 归约 | 一阶 / forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `periodic_wrap` | 原地周期坐标包裹 | forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 
@@ -24,7 +25,7 @@ capability 仍未完成验证。
 ## M1 单次选择传递
 
 固定晶胞的 NVE、FIRE、FIRE2、LJ model，以及 periodic、kinetics、segmented
-reduction 和 observer 辅助路径，均由 framework 按 operation 解析一次
+reduction、stress-to-cell-force 和 observer 辅助路径，均由 framework 按 operation 解析一次
 `BackendSelection`，再传给 dispatcher 的通用 executor binding；binding 按 catalog 声明的
 entrypoint lazy load，不会用原始 backend 请求再次解析，也不维护 operation 分派表。
 FIRE 与 FIRE2 使用独立的 operation/implementation ID：
@@ -43,7 +44,7 @@ HCU、Triton 或 HIP 生产实现证据。
 以下模块可以顶层导入 Warp，但只能通过明确的 Warp/NVIDIA 功能路径到达：
 
 - `data/buffer_kernels.py`、`data/warp_storage_backend.py`
-- `dynamics/_ops/{cell_align,langevin,npt_nph,thermostat_utils}.py`
+- `dynamics/_ops/{cell_align,langevin,thermostat_utils}.py`
 - `models/_ops/lj.py`、`models/_ops/electrostatics/ewald.py`
 
 reference 公共导入和已登记的 reference operation 不得触发上述模块的顶层 Warp 依赖。新的顶层 Warp 依赖必须先加入白名单并补导入边界测试，或下沉至显式路径。
@@ -51,3 +52,7 @@ reference 公共导入和已登记的 reference operation 不得触发上述模�
 NHC dispatcher 的 Warp 导入已下沉到 legacy 函数，reference 公共导入不加载 Warp；
 [本次报告](../reports/g2-torch-nvt-nhc.md)区分 CPU chain ABI 的 eager compile/opcheck
 与未验证的完整 workflow/HCU compile、DomainParallel。
+
+`npt_nph.py` 保留旧 stress import 路径，barostat/Warp 依赖已下沉到调用内；基础 reference
+转换由 `_ops/stress.py` 接线。该导入隔离不构成 NPT/NPH 或变胞 FIRE/FIRE2 后端支持。
+转换的 CPU compile/opcheck 已验证，HCU 二阶/compile 与 legacy Warp 数值未验证。

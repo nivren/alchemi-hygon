@@ -7,6 +7,7 @@
 
 - 当前交付基线：本地 `develop`；NHC 开发分支 `codex/feat-fixed-cell-nhc`，起点 `7a90fcf`。
 - NHC 实现与测试提交：`b4050ec`；相关文档随本轮本地合并交付。未推送、未核验远端同步状态。
+- Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`，文档独立收口；未合并、未推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -19,7 +20,8 @@
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
-| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、变胞 stress/FIRE2、生产后端未完成 |
+| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、变胞 FIRE/FIRE2、生产后端未完成 |
+| stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 和变胞 FIRE/FIRE2 未验证 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml) 为准；本表不把窄 slice 扩大为完整
@@ -59,6 +61,24 @@
 - CPU FP64 谐势：dt减半，扩展能量峰峰误差降至约1/4；不是长 MACE NVT 统计或性能承诺。
 - vector 参数支持普通 Batch，但 refill 需 scalar 参数；完整 workflow checkpoint、
   DomainParallel、Warp/NVIDIA、HCU compile/autograd 和生产后端未验收。
+
+## Stress/cell-force 基础 reference（2026-10-04）
+
+- 契约与证据：[TORCH_CELL_STRESS_FORCE_CONTRACT.md](TORCH_CELL_STRESS_FORCE_CONTRACT.md)、
+  [g2-torch-cell-stress-force.md](../reports/g2-torch-cell-stress-force.md)。
+- 保留旧四位置参数、`npt_nph` import 和 legacy `torch.ops`；新增 keyword-only
+  backend/selection，reference 由 ops executor 执行，无 Warp/barostat 导入。
+- 参考指定 fork 修正行晶格公式 `F_H=-V H^-T sigma`；源码标记 `CELL-STRESS-ROW`，
+  [UBF-009](UPSTREAM_BUGFIXES.md#ubf-009行晶格的-stress-to-cell-force-乘法顺序错误) 记录来源、数值影响与 Warp 未执行边界。
+- 新增 ops 15 项与 framework 11 项 focused 回归；现有 stress 工具选择集
+  `12 passed, 1 skipped`，跳过项需要 CUDA；小模型实际 stress loss 反向到参数通过。
+- 完整 CPU gate 退出0，分进程为 `82 passed, 3 skipped`、`1 passed`、`168 passed`、
+  `22 passed`、`24 passed`，合计 `297 passed, 3 skipped`；compileall/diff检查通过。
+  初次180秒限时在已有 Inductor 测试处结束；单编译线程复核后重跑整套通过，未改测试/容差。
+- HCU4/BW1000/gfx936 FP32/64 转换、一阶反向、非默认 stream 及真实周期 MACE parity 通过，
+  CPU/HCU probe 均退出0；FP64 MACE stress 有限差分最大绝对误差约 `1.93e-10 eV/Å³`。
+- 真实 MACE FP32 仅 forward/parity；FP64 作能量有限差分 oracle，未训练真实 MACE。
+  变胞 FIRE/FIRE2、晶胞对齐/打包/更新、NPT/NPH 和 production backend 不在本轮范围。
 
 ## 运行时排障记录
 
@@ -184,9 +204,12 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 具体 owner 和分支需用户确认后再启动。当前计划见
 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)：
 
-固定晶胞 NHC reference 已完成上述窄范围，并随本轮交付到本地 `develop`。后续队列：
+固定晶胞 NHC reference 已在本地 `develop`；stress/cell-force 基础已完成上述窄范围，
+实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
+用户已确认启动 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1：基础收口、来源/契约和 CPU 单点验证。
+后续每个里程碑需先说明目的与方案，用户确认后实施；后续待确认队列：
 
-1. `TORCH-CELL-STRESS-FORCE` 与 coupled FIRE2 variable-cell；
+1. coupled FIRE2 variable-cell 与晶胞工具（独立任务，不能由基础转换完成推定已支持）；
 2. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
