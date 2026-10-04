@@ -47,6 +47,7 @@ def test_dispatchers_do_not_hardcode_implementation_selection() -> None:
         framework_root / "dynamics" / "_ops" / "fire.py",
         framework_root / "dynamics" / "_ops" / "langevin.py",
         framework_root / "dynamics" / "_ops" / "nose_hoover.py",
+        framework_root / "dynamics" / "_ops" / "stress.py",
         framework_root / "dynamics" / "hooks" / "_utils.py",
         ops_root / "dispatch.py",
         ops_root / "torch_backend.py",

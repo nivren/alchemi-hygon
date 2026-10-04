@@ -57,50 +57,15 @@ import inspect
 
 import torch
 import torch.library
-import warp as wp
-from nvalchemiops.dynamics.integrators import (
-    compute_barostat_mass as _compute_baro_mass,
-)
-from nvalchemiops.dynamics.integrators import (
-    compute_kinetic_tensor as _compute_KT,
-)
-from nvalchemiops.dynamics.integrators import (
-    compute_pressure_tensor as _compute_P,
-)
-from nvalchemiops.dynamics.integrators import (
-    compute_scalar_pressure as _compute_P_scalar,
-)
-from nvalchemiops.dynamics.integrators import (
-    nph_barostat_half_step as _nph_baro_half,
-)
-from nvalchemiops.dynamics.integrators import (
-    nph_velocity_half_step as _nph_vel_half,
-)
-from nvalchemiops.dynamics.integrators import (
-    npt_barostat_half_step as _npt_baro_half,
-)
-from nvalchemiops.dynamics.integrators import (
-    npt_cell_update as _npt_cell_update,
-)
-from nvalchemiops.dynamics.integrators import (
-    npt_position_update as _npt_pos_update,
-)
-from nvalchemiops.dynamics.integrators import (
-    npt_thermostat_half_step as _npt_thermo_half,
-)
-from nvalchemiops.dynamics.integrators import (
-    npt_velocity_half_step as _npt_vel_half,
-)
-from nvalchemiops.dynamics.integrators.npt import vec9d, vec9f
-from nvalchemiops.dynamics.utils.cell_filter import (
-    stress_to_cell_force as _stress_to_cell,
-)
 
 from nvalchemi.dynamics._ops._bridge import _mat_type, _scalar_type, _vec_type
+from nvalchemi.dynamics._ops.stress import stress_to_cell_force
 
 
 def _vec9_type(dtype: torch.dtype):
     """Return the warp vec9 type matching the given torch float dtype."""
+    from nvalchemiops.dynamics.integrators.npt import vec9d, vec9f
+
     return vec9f if dtype == torch.float32 else vec9d
 
 
@@ -118,6 +83,8 @@ def _target_pressure_wp_array(target_pressure: torch.Tensor):
     wp.array
         Warp array with scalar, vec3, or vec9 dtype as appropriate.
     """
+    import warp as wp
+
     dtype = target_pressure.dtype
     scl_t = _scalar_type(dtype)
     vec_t = _vec_type(dtype)
@@ -191,6 +158,9 @@ def compute_kinetic_tensor(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import compute_kinetic_tensor as _compute_KT
+
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -266,6 +236,9 @@ def compute_pressure_tensor(
     torch.Tensor
         Pressure tensor ``[M, 9]`` (vec9 layout), same dtype as *velocities*.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import compute_pressure_tensor as _compute_P
+
     M = virial.shape[0]
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
@@ -322,6 +295,11 @@ def compute_scalar_pressure(
     scalar_pressures : torch.Tensor
         Output buffer ``[M]``, same dtype.  Written in-place.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        compute_scalar_pressure as _compute_P_scalar,
+    )
+
     dtype = pressure_tensor.dtype
     vec9_t = _vec9_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -363,6 +341,11 @@ def compute_barostat_mass(
     masses_out : torch.Tensor
         Output buffer ``[M]``, same dtype.  Written in-place.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        compute_barostat_mass as _compute_baro_mass,
+    )
+
     dtype = masses_out.dtype
     scl_t = _scalar_type(dtype)
     _compute_baro_mass(
@@ -421,6 +404,11 @@ def nph_barostat_half_step(
     dt : torch.Tensor
         Per-system timestep ``[M]``, same dtype.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        nph_barostat_half_step as _nph_baro_half,
+    )
+
     dtype = cell_velocity.dtype
     mat_t = _mat_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -497,6 +485,11 @@ def nph_velocity_half_step(
         Pressure control mode: ``"isotropic"``, ``"anisotropic"``,
         or ``"triclinic"``.  Default ``"isotropic"``.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        nph_velocity_half_step as _nph_vel_half,
+    )
+
     N = velocities.shape[0]
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
@@ -575,6 +568,11 @@ def npt_barostat_half_step(
     dt : torch.Tensor
         Per-system timestep ``[M]``, same dtype.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        npt_barostat_half_step as _npt_baro_half,
+    )
+
     dtype = cell_velocity.dtype
     mat_t = _mat_type(dtype)
     scl_t = _scalar_type(dtype)
@@ -665,6 +663,11 @@ def npt_thermostat_half_step(
     dt : torch.Tensor
         Per-system timestep ``[M]``, same dtype.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        npt_thermostat_half_step as _npt_thermo_half,
+    )
+
     dtype = eta.dtype
     scl_t = _scalar_type(dtype)
     _npt_thermo_half(
@@ -742,6 +745,11 @@ def npt_velocity_half_step(
         Pressure control mode: ``"isotropic"``, ``"anisotropic"``,
         or ``"triclinic"``.  Default ``"isotropic"``.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import (
+        npt_velocity_half_step as _npt_vel_half,
+    )
+
     N = velocities.shape[0]
     dtype = velocities.dtype
     vec_t = _vec_type(dtype)
@@ -815,6 +823,9 @@ def npt_position_update(
     batch_idx : torch.Tensor
         Per-atom system index ``[N]``, int32, non-decreasing.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import npt_position_update as _npt_pos_update
+
     dtype = positions.dtype
     vec_t = _vec_type(dtype)
     mat_t = _mat_type(dtype)
@@ -856,6 +867,9 @@ def npt_cell_update(
     dt : torch.Tensor
         Per-system timestep ``[M]``, same dtype.
     """
+    import warp as wp
+    from nvalchemiops.dynamics.integrators import npt_cell_update as _npt_cell_update
+
     dtype = cell.dtype
     scl_t = _scalar_type(dtype)
     mat_t = _mat_type(dtype)
@@ -869,57 +883,3 @@ def npt_cell_update(
 @npt_cell_update.register_fake
 def _npt_cell_update_fake(cell, cell_velocity, dt) -> None:
     pass
-
-
-@torch.library.custom_op("nvalchemi::stress_to_cell_force", mutates_args=())
-def stress_to_cell_force(
-    stress: torch.Tensor,
-    cell: torch.Tensor,
-    volume: torch.Tensor,
-    keep_aligned: bool = True,
-) -> torch.Tensor:
-    r"""Convert tensile-positive Cauchy stress to cell force.
-
-    .. math::
-
-        F_\mathrm{cell} = -V \sigma (h^{-1})^\mathrm{T}
-
-    Used by variable-cell FIRE/FIRE2 optimizers to obtain the force on
-    the cell degrees of freedom from the model's stress output.
-
-    Parameters
-    ----------
-    stress : torch.Tensor
-        Per-system tensile-positive Cauchy stress tensor ``[M, 3, 3]``,
-        float32 or float64.
-    cell : torch.Tensor
-        Per-system cell matrix ``[M, 3, 3]``, same dtype.
-    volume : torch.Tensor
-        Per-system cell volume ``[M]``, same dtype.
-    keep_aligned : bool, optional
-        If True, enforce upper-triangular symmetry on the cell force.
-        Default True.
-
-    Returns
-    -------
-    torch.Tensor
-        Cell force ``[M, 3, 3]``, same dtype as *stress*.
-    """
-    dtype = stress.dtype
-    mat_t = _mat_type(dtype)
-    scl_t = _scalar_type(dtype)
-    M = stress.shape[0]
-    cell_force = torch.empty(M, 3, 3, dtype=dtype, device=stress.device)
-    _stress_to_cell(
-        wp.from_torch(stress, dtype=mat_t),
-        wp.from_torch(cell, dtype=mat_t),
-        wp.from_torch(volume, dtype=scl_t),
-        wp.from_torch(cell_force, dtype=mat_t),
-        keep_aligned=keep_aligned,
-    )
-    return cell_force
-
-
-@stress_to_cell_force.register_fake
-def _stress_to_cell_force_fake(stress, cell, volume, keep_aligned=True) -> torch.Tensor:
-    return stress.new_empty(stress.shape[0], 3, 3)

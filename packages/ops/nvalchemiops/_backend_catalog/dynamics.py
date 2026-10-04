@@ -1,11 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Metadata for fixed-cell Torch-reference dynamics operations."""
+"""Metadata for Torch-reference dynamics and stress conversion operations."""
 
 from nvalchemiops._backend_types import Implementation
 
 IMPLEMENTATIONS: tuple[Implementation, ...] = (
+    Implementation(
+        implementation_id="torch_reference.stress_to_cell_force-v1",
+        operation="stress_to_cell_force",
+        family="torch_reference",
+        executor="nvalchemiops.stress_reference",
+        entrypoints=("stress_to_cell_force",),
+        executor_owner="ops",
+        features=frozenset({"row_cell"}),
+        max_gradient_order=2,
+        evidence="docs/TORCH_CELL_STRESS_FORCE_CONTRACT.md",
+        default_strategy=True,
+    ),
     Implementation(
         implementation_id="torch_reference.velocity_verlet-v1",
         operation="velocity_verlet",

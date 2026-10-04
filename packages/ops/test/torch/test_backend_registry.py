@@ -384,12 +384,14 @@ import sys
 import nvalchemiops._backend_catalog as catalog
 assert 'warp' not in sys.modules
 assert 'nvalchemiops.torch_reference' not in sys.modules
+assert 'nvalchemiops.stress_reference' not in sys.modules
 assert [item.implementation_id for item in catalog.default_implementations()] == [
     'warp.legacy-upstream-v1',
     'torch_reference.neighbor.dense-v1',
     'torch_reference.neighbor.cell_list-v1',
     'hip.neighbor.cell_list-v1',
     'torch_reference.lj_energy_forces-v1',
+    'torch_reference.stress_to_cell_force-v1',
     'torch_reference.velocity_verlet-v1',
     'torch_reference.fire-v1',
     'torch_reference.fire2-v1',
@@ -402,7 +404,7 @@ assert [item.implementation_id for item in catalog.default_implementations()] ==
 """
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(package_root)
-    subprocess.run(
+    subprocess.run(  # noqa: S603 - fixed catalog inventory script
         [sys.executable, "-c", script],
         env=environment,
         check=True,

@@ -699,29 +699,28 @@ def _stress_to_cell_force_kernel(
 
     .. math::
 
-        \mathbf{F}_{\text{cell}} = -V \cdot \boldsymbol{\sigma} \cdot (\mathbf{H}^{-1})^T
+        \mathbf{F}_{\text{cell}} = -V \cdot (\mathbf{H}^{-1})^T \cdot \boldsymbol{\sigma}
 
     where V is cell volume, :math:`\sigma` is the stress tensor, and H is the cell matrix.
 
-    For upper-triangular cells, this simplifies since H^{-1} is also upper-triangular.
+    For lower-triangular cells, this simplifies since H^{-1} is also lower-triangular.
 
     Parameters
     ----------
     stress : wp.array, shape (B,), dtype=wp.mat33*
         Stress tensor in tension-positive (negative for compression)
         convention, in energy/volume units.  For zero-pressure relaxation
-        this is typically ``virial / V`` where virial = :math:`-\sum_i \mathbf{r}_i \otimes \mathbf{F}_i` from the
-        LJ kernel.  For finite external pressure use
-        ``P_ext − P_internal`` (see ``virial_to_stress``).
+        this is typically ``-virial / V`` for the potential virial returned by the LJ kernel.  For finite external pressure use
+        ``sigma + P_ext * I``.
     cell : wp.array, shape (B,), dtype=wp.mat33*
-        Cell matrices (should be upper-triangular from align_cell).
+        Cell matrices (should be lower-triangular from align_cell).
     volume : wp.array, shape (B,), dtype=wp.float*
         Cell volumes.
     cell_force : wp.array, shape (B,), dtype=wp.mat33*
         Output cell force matrices.
     keep_aligned : wp.bool
         If True, zero out upper-triangular off-diagonal elements [0,1], [0,2], [1,2]
-        to prevent the cell from rotating away from upper-triangular form.
+        to prevent the cell from rotating away from lower-triangular form.
 
     Launch Grid
     -----------
@@ -736,7 +735,7 @@ def _stress_to_cell_force_kernel(
       expands the cell, while positive stress (tension) produces a negative
       cell force that contracts the cell.
     - When keep_aligned=True, the upper off-diagonal elements are zeroed to
-      maintain the upper-triangular cell representation from align_cell().
+      maintain the lower-triangular cell representation from align_cell().
       This is essential for stable variable-cell optimization.
     """
     sys = wp.tid()
@@ -748,12 +747,12 @@ def _stress_to_cell_force_kernel(
     # Compute H^{-1}
     H_inv = wp.inverse(H)
 
-    # F_cell = -V * S @ H_inv^T
-    # Note: in warp, H_inv * x is matrix-vector, we need transpose
+    # CELL-STRESS-ROW / UBF-009: row lattices require -V H^-T @ S.
+    # Matches fork ops c4c3bb56b6c6; fixed-fractional energy-gradient oracle.
     H_inv_T = wp.transpose(H_inv)
-    Fc = type(S[0, 0])(-1.0) * V * wp.mul(S, H_inv_T)
+    Fc = type(S[0, 0])(-1.0) * V * wp.mul(H_inv_T, S)
 
-    # Zero upper off-diagonal to keep cell aligned (upper-triangular)
+    # Zero upper off-diagonal to keep cell aligned (lower-triangular)
     if keep_aligned:
         _zero = type(S[0, 0])(0.0)
         Fc_aligned = type(Fc)(
@@ -1729,7 +1728,7 @@ def stress_to_cell_force(
     r"""
     Convert stress tensor to cell force for optimization.
 
-    Computes: F_cell = -V * sigma * (H^{-1})^T
+    Computes: F_cell = -V * (H^{-1})^T * sigma (row lattice vectors)
 
     This is the "force" on the cell that, when minimized, leads to
     zero stress (pressure equilibration).
@@ -1738,7 +1737,7 @@ def stress_to_cell_force(
     ----------
     stress : wp.array(dtype=wp.mat33f or wp.mat33d)
         Stress tensor. Shape (B,).
-        Convention: positive values indicate compression.
+        Cartesian Cauchy stress: tensile-positive, in energy/volume units.
     cell : wp.array(dtype=wp.mat33f or wp.mat33d)
         Cell matrices. Shape (B,).
     volume : wp.array
@@ -1749,7 +1748,7 @@ def stress_to_cell_force(
     keep_aligned : bool, default=True
         If True, zero out upper-triangular off-diagonal elements [0,1], [0,2], [1,2]
         of the cell force. This is **essential** to prevent the cell from rotating
-        away from the upper-triangular form established by `align_cell()`.
+        away from the lower-triangular form established by `align_cell()`.
         Only set to False if you know what you're doing.
     device : str, optional
         Warp device.
@@ -1772,7 +1771,7 @@ def stress_to_cell_force(
         [F20, F21, F22]
 
     This prevents the optimizer from introducing rotations that would break
-    the upper-triangular cell representation from `align_cell()`.
+    the lower-triangular cell representation from `align_cell()`.
     """
     if device is None:
         device = stress.device
