@@ -7,6 +7,7 @@
 - [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md)：稳定架构边界、阶段目标和当前交接；
 - [FEATURE_COMPATIBILITY.yaml](FEATURE_COMPATIBILITY.yaml)：逐特性契约和状态；
 - [UPSTREAM.md](UPSTREAM.md) / [UPSTREAM_LOCK.yaml](UPSTREAM_LOCK.yaml)：上游来源和锁定 SHA；
+- [UPSTREAM_BUGFIXES.md](UPSTREAM_BUGFIXES.md)：上游缺陷、逻辑修正依据与反馈跟踪；
 - [DEVELOPMENT_ENVIRONMENT.md](DEVELOPMENT_ENVIRONMENT.md)：环境部署和 HCU 运行方法。
 
 当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
@@ -184,6 +185,8 @@ HIP 适配不等于自动获得 DomainParallel 支持。ghost、halo、ownership
 
 在 FEATURE_COMPATIBILITY.yaml 登记稳定 feature ID。导入文件的任何修改同时更新
 UPSTREAM.md 的本地补丁清单，写清默认路径影响和 upstream candidate；不要只写“适配海光”。
+若同时更正上游计算逻辑、状态语义或补齐原接口实现，应在 UPSTREAM_BUGFIXES.md
+登记问题依据、修改影响、源码注释标记、回归与上游反馈状态；新增能力和本地实现缺陷分别归因。
 
 ### 4.2 写 reference 和 contract tests
 

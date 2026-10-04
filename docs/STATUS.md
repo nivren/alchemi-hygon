@@ -1,13 +1,12 @@
 # 当前开发状态
 
-更新时间：2026-09-22。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
+更新时间：2026-10-04。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
 [`docs/history/STATUS.md`](history/STATUS.md)。
 
 ## 当前基线
 
-- 当前分支：`develop`。
-- 阶段二实现提交：`9f53f80`；上一轮文档收口提交：`9e295ea`；当前文档重构提交：`97325a4`。
-- 两个产品远端 `local-origin/develop`、`github-origin/develop` 均已同步到 `97325a4`。
+- 当前交付基线：本地 `develop`；NHC 开发分支 `codex/feat-fixed-cell-nhc`，起点 `7a90fcf`。
+- NHC 实现与测试提交：`b4050ec`；相关文档随本轮本地合并交付。未推送、未核验远端同步状态。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -19,7 +18,8 @@
 | 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、fixed-cell、Batch、full-list、MATRIX、FP32/FP64、`skin=0`、`max_neighbors=None` 本地 doubling capacity | 不进入 `auto`；不支持 no-PBC、half、COO、skin/rebuild、target/pair、变胞、native geometry backward、compile/opcheck、DomainParallel |
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
-| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NHC、NPT/NPH、变胞 stress/FIRE2、生产后端未完成 |
+| 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
+| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、变胞 stress/FIRE2、生产后端未完成 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml) 为准；本表不把窄 slice 扩大为完整
@@ -45,6 +45,20 @@
 - 普通 Batch 的最小 integrator continuation state：
   [`g2-torch-nvt-langevin-restart.md`](../reports/g2-torch-nvt-langevin-restart.md)。
 - 当前工作树 CPU 复核：三个兼容性文件合计 `15 passed`；历史 HCU 证据保留原报告中的真实卡号。
+
+## NHC 固定晶胞 reference（2026-10-04）
+
+- 实现与上游四项修正见 [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md)；代码旁标记
+  `NHC-YOSHIDA`、`NHC-REFILL`、`NHC-MASK`、`NHC-ETA`，未改变上游锁定版本。
+- NHC focused ops `22 passed, 3 skipped`；三项跳过因 Warp 缺失。framework 生命周期
+  与物理 oracle 合计 `21 passed`，已加入 CPU reference gate。
+- 本次 CPU gate 退出码0：分进程 `67 passed, 3 skipped`、`1 passed`、`157 passed`、
+  `22 passed`、`24 passed`，合计 `271 passed, 3 skipped`；compileall 与 diff检查通过。
+- HCU4：FP32/64 × C=1/3/8 × Yoshida3/5 的12组 CPU/HCU 对照通过；真实 MACE
+  水/甲烷异构 Batch 3步、2+1续算和第4步 mask 通过，退出码0、结束后设备正常。
+- CPU FP64 谐势：dt减半，扩展能量峰峰误差降至约1/4；不是长 MACE NVT 统计或性能承诺。
+- vector 参数支持普通 Batch，但 refill 需 scalar 参数；完整 workflow checkpoint、
+  DomainParallel、Warp/NVIDIA、HCU compile/autograd 和生产后端未验收。
 
 ## 运行时排障记录
 
@@ -170,9 +184,10 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 具体 owner 和分支需用户确认后再启动。当前计划见
 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)：
 
-1. 固定晶胞 Nose-Hoover chain reference；
-2. `TORCH-CELL-STRESS-FORCE` 与 coupled FIRE2 variable-cell；
-3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+固定晶胞 NHC reference 已完成上述窄范围，并随本轮交付到本地 `develop`。后续队列：
+
+1. `TORCH-CELL-STRESS-FORCE` 与 coupled FIRE2 variable-cell；
+2. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。
