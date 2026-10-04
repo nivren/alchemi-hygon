@@ -7,6 +7,28 @@ from nvalchemiops._backend_types import Implementation
 
 IMPLEMENTATIONS: tuple[Implementation, ...] = (
     Implementation(
+        implementation_id="torch_reference.cell_tools-v1",
+        operation="cell_tools",
+        family="torch_reference",
+        executor="nvalchemiops.cell_reference",
+        entrypoints=(
+            "align_cell",
+            "extend_batch_idx",
+            "extend_atom_ptr",
+            "pack_positions_with_cell",
+            "unpack_positions_with_cell",
+            "pack_velocities_with_cell",
+            "unpack_velocities_with_cell",
+            "pack_forces_with_cell",
+            "pack_masses_with_cell",
+        ),
+        executor_owner="ops",
+        features=frozenset({"row_cell", "six_cell_dofs"}),
+        max_gradient_order=0,
+        evidence="docs/TORCH_CELL_TOOLS_CONTRACT.md",
+        default_strategy=True,
+    ),
+    Implementation(
         implementation_id="torch_reference.stress_to_cell_force-v1",
         operation="stress_to_cell_force",
         family="torch_reference",

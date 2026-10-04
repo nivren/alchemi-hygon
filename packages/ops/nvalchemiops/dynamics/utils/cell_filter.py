@@ -27,8 +27,8 @@ The approach follows the "filter" pattern:
 - Results are unpacked back to atomic positions and cell
 
 Key features:
-- Cell alignment to upper-triangular form for stability
-- 6-DOF cell representation (upper-triangular: a, b*cos(gamma), b*sin(gamma), c1, c2, c3)
+- Cell alignment to lower-triangular form for stability
+- 6-DOF cell representation (lower-triangular: a, b*cos(gamma), b*sin(gamma), c1, c2, c3)
 - Stress-to-cell-force conversion with proper volume scaling
 - batch_idx/atom_ptr extension for batched systems
 
@@ -79,9 +79,9 @@ def _align_cell_kernel(
     cell: wp.array(dtype=Any),
     transform: wp.array(dtype=Any),
 ):
-    r"""Align cell to upper-triangular (right-handed) form.
+    r"""Align cell to lower-triangular (right-handed) form.
 
-    Transforms the cell matrix to the standard upper-triangular form:
+    Transforms the cell matrix to the standard lower-triangular form:
 
     .. math::
 
@@ -155,7 +155,7 @@ def _align_cell_kernel(
     c2 = (c * (cos_alpha - cos_beta * cos_gamma)) / sin_gamma
     c3 = wp.sqrt(wp.max(_zero, c * c - c1 * c1 - c2 * c2))
 
-    # Construct aligned cell (upper triangular)
+    # Construct aligned cell (lower triangular)
     cell_r = type(_cell)(
         a,
         _zero,
@@ -168,9 +168,10 @@ def _align_cell_kernel(
         c3,
     )
 
-    # Compute transformation matrix: r = cell_r_inv @ original_cell
+    # UBF-010: preserve original H in the transform even for left-handed
+    # inputs. Using the sign-flipped _cell negates fractional coordinates.
     cell_r_inv = wp.inverse(cell_r)
-    r = cell_r_inv * _cell
+    r = cell_r_inv * cell[tid]
 
     # Store results
     cell[tid] = cell_r
@@ -256,7 +257,7 @@ def _pack_positions_kernel(
 
     Combines N atomic positions with 6 cell parameters (stored as 2 vec3s) into
     a single extended array of shape (N + 2,). The cell is assumed to be in
-    upper-triangular form from align_cell().
+    lower-triangular form from align_cell().
 
     Cell packing format:
         extended[N]   = [H[0,0], H[1,0], H[2,0]] = [a, b*cos(gamma), c1]
@@ -267,7 +268,7 @@ def _pack_positions_kernel(
     positions : wp.array, shape (N,), dtype=vec3f or vec3d
         Atomic positions.
     cell : wp.array, shape (1,), dtype=mat33f or mat33d
-        Cell matrix (should be upper-triangular from align_cell).
+        Cell matrix (should be lower-triangular from align_cell).
     extended : wp.array, shape (N + 2,), dtype=vec3f or vec3d
         OUTPUT: Extended position array. Modified in-place.
     num_atoms : wp.int32
@@ -303,7 +304,7 @@ def _unpack_positions_kernel(
 ):
     """Unpack extended position array to atomic positions and cell (single system).
 
-    Extracts N atomic positions and reconstructs the upper-triangular cell matrix
+    Extracts N atomic positions and reconstructs the lower-triangular cell matrix
     from the extended array. This is the inverse of _pack_positions_kernel.
 
     Parameters
@@ -313,7 +314,7 @@ def _unpack_positions_kernel(
     positions : wp.array, shape (N,), dtype=vec3f or vec3d
         OUTPUT: Atomic positions. Modified in-place.
     cell : wp.array, shape (1,), dtype=mat33f or mat33d
-        OUTPUT: Reconstructed upper-triangular cell matrix. Modified in-place.
+        OUTPUT: Reconstructed lower-triangular cell matrix. Modified in-place.
     num_atoms : wp.int32
         Number of atoms (N).
 
@@ -1113,10 +1114,10 @@ def align_cell(
     device: str = None,
 ) -> tuple[wp.array, wp.array]:
     """
-    Align cell to upper-triangular form and transform positions accordingly.
+    Align cell to lower-triangular form and transform positions accordingly.
 
     This is a one-time preprocessing step before variable-cell optimization.
-    The cell is transformed to the standard upper-triangular form, and
+    The cell is transformed to the standard lower-triangular form, and
     positions are rotated to maintain their fractional coordinates.
 
     Parameters
@@ -1313,7 +1314,7 @@ def pack_positions_with_cell(
     positions : wp.array(dtype=wp.vec3f or wp.vec3d)
         Atomic positions. Shape (N,) for single system or (total_atoms,) for batched.
     cell : wp.array(dtype=wp.mat33f or wp.mat33d)
-        Cell matrix (should be upper-triangular from align_cell).
+        Cell matrix (should be lower-triangular from align_cell).
         Shape (1,) for single system or (B,) for batched.
     extended : wp.array
         Output extended array. Caller must pre-allocate.
