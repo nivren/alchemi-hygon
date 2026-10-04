@@ -1767,8 +1767,8 @@
     {
       "id": "dynamics.fire",
       "category": "B",
-      "status": "planned",
-      "implementation_scope": "M1 将 FIRE 与 FIRE2 登记为独立 operation/implementation ID；固定晶胞 reference selection 由 framework 冻结，变胞 Torch reference 因缺少 variable_cell capability 明确失败；MPA-0 后续变胞移植契约见 docs/TORCH_MACE_MPA0_RELAXATION_CONTRACT.md：原生六项 FIRE2、指定 fork 修复后的完整晶胞 FIRE，当前仅完成来源审查与计划",
+      "status": "implemented",
+      "implementation_scope": "固定晶胞 FIRE/FIRE2 reference 保留；M3 新增原生六项 FIRE2、指定 fork 修复后的完整矩阵 FIRE reference；各自控制和步序不统一，optimizer/stress/align selection 冻结。变胞详细契约与证据单列 TORCH-VARIABLE-CELL-FIRE；完整收敛/退出补位及目标 MPA-0 HCU 尚未验收",
       "scenario": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
       "source": {
         "repository": "ops",
@@ -1894,7 +1894,7 @@
         ]
       },
         "limitations": [
-          "已完成公共固定晶胞 FIRE/FIRE2 的 reference 接线，并在一个 Batch 中完成 32×92 周期 MACE 固定晶胞弛豫；异构 [46,92] 的 3 步 HostMemory 轨迹、短 inflight 补位和 HCU mixed/single 收敛对照已验证；CPU 完整收敛仍受 reference 性能限制，变胞 FIRE2、stress、长轨迹 occupancy 和完整上游行为套件尚未接线",
+          "公共固定晶胞 FIRE/FIRE2、32×92 周期 MACE 固定晶胞弛豫和异构短 inflight 证据保留；变胞 FIRE2/FIRE 另在 M3 完成单步/解析势 CPU-HCU 与 MPA-0 CPU 三步。长轨迹、变胞收敛/退出补位、MPA-0 HCU 和完整上游行为套件尚未验收",
         "上游 Warp-backed FIRE/FIRE2 默认路径保留但未在 HCU 验证；本次 32×92 结果只覆盖 Torch reference 单卡和固定晶胞",
         "FIRE2 reference 在 torch.compile(fullgraph=True) 下因输入校验和动态分支暂不通过；fullgraph=False 可运行但会产生 graph breaks，未承诺完整编译优化"
       ],
@@ -3801,13 +3801,57 @@
         "environments": ["project .venv / torch2.9.0 / DTK26.04 / HIP6.3.26093 / HCU4 BW1000 64G"]
       },
       "limitations": [
-        "No affine optimizer updates, variable-cell FIRE/FIRE2, NPT/NPH or ASE filters; AlignCellHook lifecycle selection awaits M3",
+        "This M2 primitive slice does not include optimizer updates; M3 variable-cell optimizers and AlignCellHook preprocessing are separately recorded in TORCH-VARIABLE-CELL-FIRE; NPT/NPH/ASE filters remain excluded",
         "Legacy Warp numerical execution and full original suites unavailable; bridge stub only tests writeback",
-        "CPU/HCU analytic geometry and packing only; MPA-0 rotated model E/F/stress and relaxation remain unverified",
+        "M2 evidence is analytic geometry/packing only; M3 adds separate CPU MPA-0 rotation covariance and three-step wiring, without target HCU or full relaxation evidence",
         "No compile/autograd/production HIP-Triton/performance or ill-conditioned-cell accuracy claim",
         "extend_batch_idx append layout must not be paired with interleaved batch pack"
       ],
       "release_gate": "G2_native_cell_primitives_reference_only"
+    },
+    {
+      "id": "TORCH-VARIABLE-CELL-FIRE",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "M3 原生 FIRE2 六项及 fork 完整3×3 FIRE；周期晶体原子/晶胞联合更新",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemi/dynamics/optimizers/fire.py", "nvalchemi/dynamics/optimizers/fire2.py", "nvalchemi/dynamics/hooks/cell_align.py", "nvalchemiops/torch/fire2.py", "nvalchemiops/dynamics/utils/cell_filter.py", "nvalchemiops/dynamics/optimizers/fire.py"],
+        "symbols": ["FIREVariableCell", "FIRE2VariableCell", "AlignCellHook", "fire2_step_coord_cell", "fire_update"],
+        "reference_fixes": ["fork framework b12b54c", "fork ops c4c3bb5/eadc3ee", "UBF-011/012/013", "UBF-014 fork periodic-active subset plus local cached frame covariance"]
+      },
+      "contract": {
+        "api": "Existing public optimizer signatures/defaults; AlignCellHook adds keyword-only backend. Two-stage fire_cell bridge is private backend wiring, not a new scientific filter API",
+        "data": "FP32/64, atoms [N,3], row-cell/state [B,3,3], per-system controls; sorted int32/64 indices. FIRE2 interleaved 3N+6 and count-scaled cell force; FIRE interleaved 3N+9, atomic masses, unit cell optimization mass",
+        "details": "In-place eager mutation, independent output storage, strided nonoverlapping state; current stream with validation sync. FIRE2 new-alpha/old-dt mixing, uphill -.5 motion/reset, atom Cartesian cap also scales dt. FIRE pre/post half-kicks, joint control-before-mixing, atom/cell-row cap scales drift only. Row affine map r H^-1 dH. FIRE2 requires aligned lower cell; Hook preprocessing preserves periodic/active subsets and cached F/v/stress frame, rejects reorientation after cell motion. Full contract: docs/TORCH_VARIABLE_CELL_FIRE_CONTRACT.md"
+      },
+      "dependencies": ["torch", "stress_to_cell_force", "cell_tools", "generic executor", "optional lazy legacy Warp"],
+      "backends": {
+        "upstream": "None/warp preserved; fork repairs applied; actual Warp execution unverified",
+        "target": ["torch_reference"],
+        "implementation_ids": ["torch_reference.fire2-cell-v1", "torch_reference.fire-cell-v1"],
+        "executor_owner": "ops",
+        "executor": "nvalchemiops.cell_fire_reference"
+      },
+      "gradient_level": "forward-only eager gradient_order=0; requires_grad rejected by update executor; existing stress conversion gradients preserved, no differentiable optimization trajectory claim",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": ["Original Warp numerical suites not executed; existing fixed-cell reference API regressions retained"],
+        "dcu_tests": ["packages/ops/test/torch/test_variable_cell_fire.py", "packages/framework/test/compatibility/test_variable_cell_fire_reference.py", "probes/variable_cell_fire_reference.py", "probes/mace_mpa0_variable_cell_short.py"],
+        "evidence": ["docs/TORCH_VARIABLE_CELL_FIRE_CONTRACT.md", "reports/g2-variable-cell-fire-m3.md", "artifacts/variable-cell-fire-m3/hcu4.json", "artifacts/variable-cell-fire-m3/mpa0-cpu-short.json"],
+        "environments": ["project .venv / torch2.9.0 / DTK26.04 / HIP6.3.26093 / HCU4 BW1000 64G gfx936"]
+      },
+      "limitations": [
+        "CPU independent NumPy and public analytic convergence; HCU16 single-step/4 public25-step cases; not full materials convergence",
+        "MPA-0 CPU three CIFs/two precisions/two optimizers for three steps, initial FIRE2 alignment covariance and final E/F/stress consistency only; HCU_MPA0 not_run",
+        "Workflow convergence/refill/sinks/variable-cell neighbor lifecycle await M4; target HCU acceptance awaits M5",
+        "No actual Warp/NVIDIA fixtures, compile/autograd trajectory/checkpoint/DomainParallel/NPT-NPH/ASE filters or production HIP-Triton/performance claim",
+        "FIRE2 all-N=0 no advance; zero-atom member in nonempty optimizer Batch explicitly rejected; empty packing support does not imply optimizer support",
+        "Full FIRE needs no AlignCellHook; Hook is preprocessing, not support for repeated full-cell reorientation during motion"
+      ],
+      "release_gate": "G2_M3_variable_cell_update_reference_only"
     }
   ]
 }

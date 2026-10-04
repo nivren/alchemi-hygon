@@ -13,6 +13,8 @@
 | HIP framework wall-clock | [`g2-framework-hip-neighbor-wallclock.md`](g2-framework-hip-neighbor-wallclock.md) | warm public API 描述性 evidence，不是 `auto` 准入 |
 | MACE/FIRE2 reference | [`g2-mace-fire2-batch32-tier1.md`](g2-mace-fire2-batch32-tier1.md) | 固定晶胞 reference；不代表变胞或生产 HIP/MACE |
 | MPA-0 弛豫 M1 | [`g2-mace-mpa0-m1-cpu-baseline.md`](g2-mace-mpa0-m1-cpu-baseline.md) | 三个真实 CIF 的 CPU 单点与有限差分；目标 HCU/变胞弛豫未验证 |
+| MPA-0 弛豫 M2 | [`g2-cell-tools-m2.md`](g2-cell-tools-m2.md) | 通用晶胞工具 CPU/HCU4 primitive；未含优化步 |
+| MPA-0 弛豫 M3 | [`g2-variable-cell-fire-m3.md`](g2-variable-cell-fire-m3.md) | 原生变胞 FIRE2/fork FIRE、CPU/HCU解析势及MPA-0 CPU三步；完整应用/目标HCU待M4/M5 |
 | Langevin reference | [`g2-torch-nvt-langevin.md`](g2-torch-nvt-langevin.md)、[`g2-torch-nvt-langevin-stat.md`](g2-torch-nvt-langevin-stat.md)、[`g2-torch-nvt-langevin-restart.md`](g2-torch-nvt-langevin-restart.md) | 固定晶胞 BAOAB 窄 reference slice 已完成；不等于完整上游 Langevin/NVT 或生产后端 |
 | NHC reference | [`g2-torch-nvt-nhc.md`](g2-torch-nvt-nhc.md) | 固定晶胞 Torch reference、批处理生命周期和单 HCU 短 MACE；Warp/NVIDIA、分布式、完整 checkpoint、生产后端未验收 |
 | Stress/cell-force 基础 | [`g2-torch-cell-stress-force.md`](g2-torch-cell-stress-force.md) | CPU/HCU reference、周期 MACE 应力与 FP64 有限差分；不包含晶胞更新、变胞 FIRE/FIRE2、NPT/NPH 或完整 MLIP 训练 |

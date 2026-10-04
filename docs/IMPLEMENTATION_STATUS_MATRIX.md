@@ -27,8 +27,9 @@
 | FusedStage、Hooks、inflight | 阶段迁移、sampler/sink、observer、短补位 | 已实现 reference 子集 | FusedStage/inflight 状态收缩、sampler/sink、真实 MACE/FIRE2 短补位和 Hook reference 子集 | NVT/Langevin 完整阶段接入、长轨迹 occupancy、完整 checkpoint/restart、DomainParallel ownership | [`g2-upstream-inflight-reference.md`](../reports/g2-upstream-inflight-reference.md)、[`g2-mace-fire2-inflight-reference.md`](../reports/g2-mace-fire2-inflight-reference.md) |
 | 固定晶胞 NHC | `NVTNoseHoover(backend="torch_reference")` | 已验证窄 reference | 异构 Batch、FP32/64、C1–8、Yoshida3/5、scalar refill、FusedStage/Hook、continuation、HCU4短 MACE | Warp/NVIDIA、vector arrivals、完整 checkpoint、DomainParallel、生产后端 | [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md) |
 | stress/cell-force 基础 | strain/stress 工具、`stress_to_cell_force` wrapper | 已验证窄 reference | CPU 小模型 stress loss 反向到参数；CPU/HCU4 周期非正交 MACE 应力/晶胞力、FP64 有限差分；保留旧 API/import | 不推进晶胞；完整 MLIP 训练、Warp、HCU 二阶/compile 未验收 | [`g2-torch-cell-stress-force.md`](../reports/g2-torch-cell-stress-force.md) |
-| 通用晶胞工具 | 原生 align、六项 pack/unpack、extend | 已验证窄 reference | CPU28项/公共接线10项；HCU4 FP32/64 六组；分数坐标/metric/异构边界保护 | Warp、compile/梯度、模型旋转和优化器生命周期 | [`g2-cell-tools-m2.md`](../reports/g2-cell-tools-m2.md) |
-| 变胞 dynamics 与 BFGS | variable-cell FIRE/FIRE2、NPT/NPH、ASE BFGS | 计划/未接入 | 基础 stress 与晶胞工具已具备，应用耦合未移植 | NPT/NPH、变胞 FIRE/FIRE2、固定晶胞 ASE-compatible BFGS 单独排队 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)、[`adr/0008-ase-compatible-bfgs.md`](../adr/0008-ase-compatible-bfgs.md) |
+| 通用晶胞工具 | 原生 align、六项 pack/unpack、extend | 已验证窄 reference | M2 primitive CPU/HCU；M3 Hook 预处理的周期/active 子集和 F/v/stress 协变、MPA-0 CPU旋转对照 | Warp、compile/梯度、运行中重对齐 | [`g2-cell-tools-m2.md`](../reports/g2-cell-tools-m2.md)、[`g2-variable-cell-fire-m3.md`](../reports/g2-variable-cell-fire-m3.md) |
+| 变胞 FIRE/FIRE2 | `FIRE2VariableCell` 六项、fork `FIREVariableCell` 完整矩阵 | 已验证窄 reference | 独立单步/CPU解析势；HCU4单步/25步；MPA-0 CPU三CIF、FP32/64各3步及最终单点一致性 | 真实收敛、退出补位/邻居生命周期、MPA-0 HCU、checkpoint/DD/生产后端 | [`g2-variable-cell-fire-m3.md`](../reports/g2-variable-cell-fire-m3.md) |
+| NPT/NPH 与 BFGS | barostat dynamics、ASE-compatible BFGS | 计划/未接入 | 保留原接口；分别排队 | 原生变胞优化器完成不代表这些算法已接入 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)、[`adr/0008-ase-compatible-bfgs.md`](../adr/0008-ase-compatible-bfgs.md) |
 | 分布式/DomainParallel | 多卡通信、单大体系域分解 | 计划/未接入 | 仅有局部通信或上游 reference 审计，不构成应用能力 | 单大体系 ownership、halo/迁移、长程和完整 DomainParallel | [`g2-upstream-inflight-reference.md`](../reports/g2-upstream-inflight-reference.md)、[`STATUS.md`](STATUS.md) |
 
 ## 2. Ops 与后端模块
@@ -46,6 +47,7 @@
 | `stress_to_cell_force` | 已验证窄 reference | FP32/64、完整/下三角投影、strided/empty、CPU 一二阶/compile/opcheck、HCU4 一阶/stream；UBF-009 公式修正 | Warp/NVIDIA、HCU 二阶/compile、生产 HIP/Triton 未验收；无晶胞更新 | [`g2-torch-cell-stress-force.md`](../reports/g2-torch-cell-stress-force.md) |
 | NPT/NPH、BFGS eigensolver | 计划/未接入 | 当前没有可发布的 DCU ops capability | 独立 contract/CPU oracle；基础转换不代表这些算法可用 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)、[`adr/0008-ase-compatible-bfgs.md`](../adr/0008-ase-compatible-bfgs.md) |
 | `cell_tools` | 已验证窄 reference | ops-owned align/pack/unpack/extend；CPU FP32/64 与 HCU4 六组 primitive 对照；异构/zero atoms/empty | 无优化步；Warp/梯度/compile/生产性能未验收；append/interleaved 索引不能混用 | [`g2-cell-tools-m2.md`](../reports/g2-cell-tools-m2.md) |
+| `fire2` variable_cell / `fire_cell` | 已验证窄 reference | 六项和全矩阵两种原生语义；CPU39项独立oracle，HCU4 FP32/64四功率分支与解析势 | forward-only；实际Warp、目标模型HCU、生产HIP/Triton、DD/compile未验收 | [`g2-variable-cell-fire-m3.md`](../reports/g2-variable-cell-fire-m3.md) |
 
 ## 3. 总体应用能力
 
@@ -59,8 +61,9 @@
 | 固定晶胞 NHC reference NVT | 可以，窄范围 | 短异构 MACE、scalar refill/FusedStage reference、最小积分器续算 | 长真实势 NVT、vector arrivals、完整 checkpoint、分布式、生产性能 | NVTNoseHoover、Torch neighbor/model |
 | 双阶段 MACE 弛豫：FIRE2 + BFGS | 当前不能完整完成 | FIRE2 固定晶胞 reference 已可用 | BFGS 尚未实现；无压 BFGS 与变胞/压力阶段尚未形成完整链路 | FIRE2 已完成，BFGS 排队 |
 | 周期 MACE 应力与晶胞力计算 | 可以，窄 reference | 在给定晶胞上计算 stress 与 cell-force；真实 checkpoint CPU/HCU4 parity、FP64 有限差分 | 完整模型族、真实 MLIP stress 训练、自动晶胞优化 | MACE strain/stress、Torch neighbor/geometry、stress conversion |
-| MPA-0 Li/Na 晶体单点 | 可以，CPU 小样本 | 三个真实 CIF 的能量/力/应力、Batch 对照和 FP64 数值导数 | MPA-0 HCU、FIRE/FIRE2 弛豫与全目录处理未验证 | 现有 MACEWrapper、Torch neighbor、stress conversion；M1 报告 |
-| 变胞/加压弛豫 | 当前不能承诺 | 基础 stress→cell-force 已验证，可作为后续耦合算法的输入 | 晶胞更新、variable-cell FIRE2、NPT/NPH 尚未移植 | 当前计划第 1 项 |
+| MPA-0 Li/Na 晶体单点 | 可以，CPU 小样本 | 三个真实 CIF 的 E/F/stress、Batch 对照和 FP64 数值导数 | 目标模型 HCU、全目录处理未验证 | 现有 MACEWrapper、Torch neighbor、stress conversion；M1 报告 |
+| MPA-0 原生变胞 FIRE/FIRE2 | 可做 CPU 小样本短步验证 | 三个真实CIF异构Batch，两种精度/优化器各3步，更新后E/F/stress重算一致 | 完整弛豫应用、联合收敛/退出补位、目标HCU、全目录成功率 | M3 reference；M4/M5待确认 |
+| 有限外压/NPT/NPH | 当前不能承诺 | stress和晶胞基础可供后续算法使用 | 压力接口及barostat/integrator未移植；M3不是加压应用 | 独立后续队列 |
 | 单大体系多卡、DomainParallel、生产训练 | 当前不能承诺 | 可保留上游接口作为后续适配目标 | ownership、halo/迁移、完整分布式训练与生产后端未完成 | DomainParallel/分布式任务暂停 |
 
 ## 4. 如何使用这张表

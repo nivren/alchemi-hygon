@@ -114,6 +114,9 @@ dt/alpha/计数和临时缓冲。最终在输出坐标与晶胞上重算模型�
    已完成窄 primitive 验证，详见 [工具契约](TORCH_CELL_TOOLS_CONTRACT.md) 与
    [M2 报告](../reports/g2-cell-tools-m2.md)；应用优化器和目标模型旋转验证不由此替代。
 3. M3：先 FIRE2 后 fork FIRE，分别验收单步、功率分支、耦合运动、位移限制和公共接线。
+   已完成上述窄 reference、Hook 对齐协变、CPU MPA-0 三步与合成 HCU4 对照；
+   [更新契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md) / [M3 报告](../reports/g2-variable-cell-fire-m3.md)。
+   不代替后续真实收敛、退出补位及目标模型 HCU 验收。
 4. M4：邻居生命周期、联合收敛、退出/补位、薄应用入口与结果导出。
 5. M5：真实小样本 HCU4，单体系→异构小 Batch→扩大 batch；FP64 再 FP32。
 

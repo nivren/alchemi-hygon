@@ -106,7 +106,26 @@
   CPU/HCU 最大绝对差 FP64 `8.88e-16`、FP32 `2.98e-8`；没有模型/优化步。
 - UBF-010 更正左手晶胞 transform 和非连续 bridge 写回；Warp kernel 未实际执行。
   extend_batch_idx 的 append 布局与 batched pack 的 interleaved 布局分别保留，不能混用。
-- FIRE/FIRE2 联合更新、AlignCellHook 变胞生命周期接线、MPA-0 HCU 弛豫仍待后续阶段。
+- M2 本身未包含 FIRE/FIRE2 更新；M3 接线和证据另列如下，目标 MPA-0 HCU 留待 M5。
+
+## MPA-0 弛豫里程碑3（2026-10-04）
+
+- 分支 `codex/feat-variable-cell-fire`，起点 `d5b5f3c`，实现/测试/契约 `29a70f3`；未合并/推送。
+  [契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md) / [报告](../reports/g2-variable-cell-fire-m3.md)。
+- 原生六项 FIRE2 与指定 fork 修复后的完整3×3 FIRE reference 已接公共优化器；
+  optimizer/stress/align selection 冻结，`None/warp` 保留；没有 ASE filter 新参数化。
+  `AlignCellHook` 保护周期/active 子集和 cached F/v/stress 坐标系一致性，作为预处理。
+- CPU 独立 NumPy 单步39项，公共接线18项；最终基础门392 passed、3 skipped、退出0。
+  三个 skip 是原有 Warp NHC 对照；compileall、定向 Ruff 和 diff-check 通过。
+  两种公共优化器解析矩阵势160步能量降至初值的千分之一以下，纯仿射分数坐标守恒。
+- HCU4 FP32/64 合成异构 `[2,3]`：16组单步 + 4组公共解析势25步通过；单步最大
+  CPU/HCU 差 FP64 `4.44e-16`、FP32 `1.46e-11`。不是目标模型 HCU 证据。
+- MPA-0 三个真实 CIF `[4,10,4]` CPU FP32/64、两优化器各3步通过；r/H 都更新，最终
+  独立重算 E/F/stress 一致，FIRE2 人工旋转后对齐协变通过。未判定完整弛豫收敛。
+- UBF-011/012/013 摘取 fork 行晶格/完整晶胞 FIRE/联合控制修复；UBF-014 包含 fork
+  掩码保护和本地 cached 字段旋转修正；源码与 [缺陷记录](UPSTREAM_BUGFIXES.md) 区分归因。
+- 未验收 Warp/NVIDIA、MPA-0 HCU、变胞退出/补位/联合收敛、skin 缓存、checkpoint、
+  NPT/NPH、DomainParallel、compile/优化轨迹梯度和生产 HIP/Triton。
 
 ## 运行时排障记录
 
@@ -235,12 +254,11 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 固定晶胞 NHC reference 已在本地 `develop`；stress/cell-force 基础已完成上述窄范围，
 实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
-通用晶胞工具里程碑2已完成窄 CPU/HCU4 验证。当前等待里程碑3确认；后续队列：
+通用晶胞工具 M2、原生变胞优化器 M3 已完成上述窄验证。当前等待里程碑4确认；后续队列：
 
-1. MPA-0 M3：先原生六项晶胞 FIRE2，再指定 fork 修复后的完整晶胞 FIRE。
-2. MPA-0 M4：变胞邻居、力/应力联合收敛、退出/补位及薄应用入口。
-3. MPA-0 M5：真实目标结构 HCU4 分级验收，随后再安排全目录长作业。
-4. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. MPA-0 M4：变胞邻居、力/应力联合收敛、退出/补位及薄应用入口。
+2. MPA-0 M5：真实目标结构 HCU4 分级验收，随后再安排全目录长作业。
+3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

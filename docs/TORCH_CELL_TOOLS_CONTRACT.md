@@ -47,6 +47,11 @@ CPU 验收 FP32/64：非正交左右手晶胞对 ASE lower standard_form/metric/
 资源允许时 HCU4 限时执行同一测试和 CPU parity（FP64 2e-12、FP32 2e-5）。
 Warp/NVIDIA 实际运行若不可用单独列出；stub 仅验证 bridge 写回，不作为 Warp 数值证据。
 
+M2 primitive 证据保留不变。M3 的 AlignCellHook 后端接线、周期/active 子集和 cached
+F/v/stress 协变、MPA-0 CPU 旋转对照单列在
+[优化器契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md) 与 [M3 报告](../reports/g2-variable-cell-fire-m3.md)。
+Hook 是预处理，不准入任意运行中晶胞重参数化。
+
 UBF-010：原 Warp 负 determinant 分支把 H 取负后用于 transform，破坏分数坐标；
 应以原始 H 计算 transform。framework bridge 对 positions.contiguous() 缺少写回；
 修正非连续坐标丢失。来源、测试和验证边界见 UPSTREAM_BUGFIXES.md。

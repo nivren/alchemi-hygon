@@ -90,9 +90,15 @@ state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STA
 里程碑2已在 `codex/feat-cell-tools-reference`（起点 `f802d49`，实现 `036827e`）完成通用晶胞工具移植，
 CPU/HCU4 窄验证见 [M2 报告](../reports/g2-cell-tools-m2.md) 和
 [工具契约](TORCH_CELL_TOOLS_CONTRACT.md)。UBF-010 保护左右手分数坐标/strided 写回；
-Warp 数值未执行，未移植优化步或 AlignCellHook 生命周期。
-当前等待里程碑3确认。后续先 FIRE2 和指定 fork 修复后的 FIRE，
-最后应用编排与 HCU 验收；每个里程碑均先给目的与方案，用户确认后实施。
+M2 的 Warp 数值未执行，M2 本身未移植优化步。
+里程碑3已在 `codex/feat-variable-cell-fire`（起点 `d5b5f3c`，实现 `29a70f3`）接通原生六项 FIRE2、
+指定 fork 修复后的完整矩阵 FIRE 和 AlignCellHook 预处理。ops 单步39项、公共同步18项；
+HCU4 合成单步16组/公共解析势4组通过；MPA-0 CPU 三个 CIF、两精度/两优化器各3步通过。
+见 [M3 报告](../reports/g2-variable-cell-fire-m3.md) 和
+[契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md)。UBF-011–014 注释/归因已记录；
+实际 Warp、MPA-0 HCU 和真实完整收敛尚未验收，M3 分支未合并/推送。
+当前等待里程碑4确认：邻居变胞、联合收敛、退出/补位、薄应用入口与结果导出；
+M5 做真实目标 HCU 验收。每个里程碑均先给目的与方案，用户确认后实施。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
 继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。

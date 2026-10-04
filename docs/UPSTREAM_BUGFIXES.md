@@ -39,6 +39,10 @@ issue/PR、官方修复 SHA 和核验日期缺失时写明，不由本地测试�
 | [UBF-008](#ubf-008uniform-storage-多属性复制使用不同目标槽位) | 多属性 put 复用已变更的占用 mask | framework | 现有原因注释 | LP-004/070 | 已提交 `3f89f6b`；Torch 双属性回归 |
 | [UBF-009](#ubf-009行晶格的-stress-to-cell-force-乘法顺序错误) | 非正交行晶格的晶胞力公式错误 | ops/framework | `CELL-STRESS-ROW` | LP-072/073 | 实现提交 `a76107e`；CPU/HCU reference 通过，Warp 未执行 |
 | [UBF-010](#ubf-010晶胞对齐的左手坐标与非连续写回错误) | 左手 transform 改变分数坐标；非连续坐标未写回 | ops/framework | `UBF-010` | LP-074/075 | CPU/HCU4 reference 通过，bridge stub 通过，Warp 数值未执行 |
+| [UBF-011](#ubf-011fire2-仿射运动使用了列晶格公式) | 非正交行晶格的仿射运动不保持分数坐标 | ops | `UBF-011` | LP-076 | fork 修复移植；CPU/HCU4 reference 通过，Warp 未执行 |
+| [UBF-012](#ubf-012完整晶胞-fire-缺少应力驱动与联合控制) | 零初始化晶胞速度未受应力驱动；缺少九项联合控制 | framework | `UBF-012` | LP-078 | fork 修复移植；CPU/HCU4 解析势与 CPU MPA-0 短步通过 |
+| [UBF-013](#ubf-013fire-联合控制更新与混合存在竞态) | 参数写入与速度混合在同一并行 kernel 中竞态 | ops | `UBF-013` | LP-077 | fork 的分离 kernel 移植；reference 通过，Warp 未执行 |
+| [UBF-014](#ubf-014aligncellhook-未保护体系子集及坐标系一致性) | 忽略周期体系掩码；cached 力/速度/应力未旋转 | framework | `UBF-014` | LP-080 | 本地修正；CPU 公共 Hook/MPA-0 旋转协变通过 |
 
 NHC 条目的共同来源：
 
@@ -266,6 +270,57 @@ framework 使用 `positions.contiguous()` 临时副本却仅写回 cell，导致
 六组 CPU parity。详见 [M2 报告](../reports/g2-cell-tools-m2.md)。Warp 不可用，
 kernel 本身未执行，stub 不是 Warp 数值对照；未对 NVIDIA 当前分支或外部 PR 作声明。
 非法输入检查和 alias/梯度失败是 reference 契约加强，不当作上游已确认缺陷。
+
+## UBF-011：FIRE2 仿射运动使用了列晶格公式
+
+**来源**：锁定 ops `26dbceb` 的 `_fire2_coord_cell_*` 两个 kernel；指定 fork
+ops `c4c3bb5` 已修复。行晶格 `r=s@H` 要求 `r_new=r@H^-1@H_new`；原代码对
+列坐标使用 `H_new@H^-1`，非正交晶胞不能保持分数坐标。
+
+**修正**：原 Warp kernel 使用 `H_new.T@H^-T`；reference 使用增量
+`dr=r@H^-1@dH+dt*v`。分支、cell-force 原子数缩放、位移限制及 dt 缩放保持来源语义。
+CPU 独立 NumPy、旧公式反例与纯晶胞分数坐标守恒通过；HCU4 FP32/64 单步 parity
+通过。实际 Warp/NVIDIA 未运行；不宣称其余 NPT/NPH 仿射实现已修正。
+
+## UBF-012：完整晶胞 FIRE 缺少应力驱动与联合控制
+
+**来源**：锁定 framework `4dfe372` 的 `FIREVariableCell` 声明需要 stress，
+但晶胞速度零初始化后没有完整的应力 half-kick，原子 FIRE 控制也未包含晶胞。
+采用指定 fork framework `b12b54c` 的修复，而非新增 ASE filter 算法。
+
+**修正**：pre/post 各半步施加 `F_H`，晶胞优化质量为1；保留原子质量；所有原子
+和三行完整 Hdot/FH 参与同一次功率/控制/混合，位移限制同时考虑实际原子和 cell-row。
+默认原子 kick/mixing 仍走 Warp，reference 独立可用。CPU 全九项独立单步 oracle、
+解析势160步能量下降、CPU MPA-0 三步及 HCU4 解析势25步通过。没有实际 Warp 或
+目标模型 HCU、完整收敛与补位验证；保留 DD 元数据不代表 DD 已适配。
+
+## UBF-013：FIRE 联合控制更新与混合存在竞态
+
+**来源**：锁定 ops 的 batch_idx update-only kernel 一部分线程写 alpha/dt，
+其他线程同一 kernel 读这些控制值混合速度；没有跨线程同步保证读取新值。
+采用指定 fork ops `eadc3ee` 的先按体系更新参数、再按 DOF 混合的分离 launch。
+
+**修正范围**：`fire_update` 的 single/batch_idx 且不启用 downhill-check 路径，
+正是完整晶胞 FIRE 的联合控制入口。`fire_step`、PTR、downhill-check 路径保留，
+未据此宣称整个 Warp FIRE 已无竞态。Torch full-cell reference 同样先更新控制再混合。
+CPU/HCU reference 与阈值 oracle 通过；本机 Warp 不可用，kernel 并行运行未验证。
+
+## UBF-014：AlignCellHook 未保护体系子集及坐标系一致性
+
+**来源**：锁定 framework 的 `AlignCellHook`；指定 fork `b12b54c` 已修复周期/active
+子集写回，但尚未修复 cached F/v/sigma 的坐标系一致性。
+原 Hook 只以 periodic_mask 判断是否返回，随后对整个 Batch 对齐；且在模型已评估后
+只旋转 r/H，不旋转 cached F/v/sigma，可能用不同坐标系的力和应力推进第一步。
+
+**修正**：采用 fork 的周期/active 子集保护，只对需对齐的体系处理；本地补充同一正交/反射 T 对
+列向量 F/v 和 tensor stress 协变旋转。已对齐体系跳过；已有晶胞运动时需要再次
+对齐则明确报错，避免对六项状态作未经定义的动态重参数化。新增 keyword-only
+backend/冻结 selection 是平台适配，错误检查为合同加强，分别区别于 bug 修复。
+CPU Hook 子集/协变/重复调用和 MPA-0 FP32/64 旋转前后 E/F/stress 对照通过；
+不能扩展为任意运行中重对齐、full-cell FIRE 每步 Hook 或 Warp 数值已验证。
+
+以上 M3 证据汇总见 [报告](../reports/g2-variable-cell-fire-m3.md) 和
+[契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md)；来源 SHA 不变，未验证 NVIDIA 当前分支。
 
 ## 3. 上游没有的实现与本地扩展
 

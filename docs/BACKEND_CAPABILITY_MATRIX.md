@@ -8,7 +8,8 @@
 | `lj_energy_forces` | no-PBC/PBC full、no-PBC half、energy/force | 至二阶 | `torch_reference` | G1 CPU/HCU 窄 slice |
 | `velocity_verlet` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
-| `fire2` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
+| `fire2` | 固定晶胞 reference；M3 原生下三角六项变胞 | 固定晶胞一阶；变胞 forward-only | `torch_reference` | 固定晶胞历史证据；M3 HCU4 单步/解析势，目标 MPA-0 HCU 未运行 |
+| `fire_cell` | fork 完整3×3 FIRE pre/post、联合控制、共同位移限制 | forward-only | `torch_reference` | M3 HCU4 单步/解析势；CPU MPA-0 三步；见 [报告](../reports/g2-variable-cell-fire-m3.md) |
 | `nose_hoover` | 固定晶胞 NHC，C1–8、Yoshida3/5、FP32/64 | 原地 MD forward-only；functional v输入CPU一二阶已验证 | `torch_reference` | HCU4 12组CPU/HCU对照、短真实MACE；见NHC报告 |
 | `stress_to_cell_force` | row-cell `[B,3,3]`、FP32/64、完整/下三角投影、strided/empty | 一阶/二阶；CPU gradcheck/gradgradcheck；HCU 一阶 | `torch_reference` | HCU4 转换/stream、周期非正交真实 MACE；FP64 有限差分；见 [报告](../reports/g2-torch-cell-stress-force.md) |
 | `cell_tools` | align、六项 pack/unpack、mass 与 extend；FP32/64、单体系/异构/empty；append 与 interleaved 索引分别保留 | forward-only，requires_grad 拒绝 | `torch_reference`（既有选择规则） | HCU4 六组 primitive CPU parity；未含模型/优化步；见 [报告](../reports/g2-cell-tools-m2.md) |
@@ -32,9 +33,10 @@ entrypoint lazy load，不会用原始 backend 请求再次解析，也不维护
 FIRE 与 FIRE2 使用独立的 operation/implementation ID：
 `torch_reference.fire-v1` 和 `torch_reference.fire2-v1`。
 
-变胞 FIRE/FIRE2 默认继续冻结为 legacy Warp；显式请求当前 Torch reference 会因
-缺少 `variable_cell` capability 显式失败。该轮只验证 CPU selection propagation，未新增
-HCU、Triton 或 HIP 生产实现证据。
+M1 当时未登记变胞 capability；M3 已新增 `torch_reference.fire2-cell-v1` 和
+`torch_reference.fire-cell-v1`，梯度0，分别为六项与完整矩阵原生优化步；默认 None/warp
+仍保留。两种优化器冻结 stress selection，FIRE2 同时冻结 cell_tools selection。
+M3 单步/解析势 HCU 与 MPA-0 CPU 三步证据单列，不代表目标模型 HCU 或生产实现。
 
 ## 数据层默认
 
@@ -63,5 +65,6 @@ NHC dispatcher 的 Warp 导入已下沉到 legacy 函数，reference 公共导�
 MPA-0 M1 使用现有 torch_reference neighbor/geometry 与 stress conversion。
 三个真实 CIF 的 CPU FP32/64 energy/forces/stress、FP64 Batch/ASE 与有限差分已验证，
 见 [报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。这不新增 ops capability：
-`variable_cell` 仍未登记，MPA-0 HCU 和两种变胞优化器尚未验收。
+M1 只提供单点基线；M3 变胞 optimizer capability 与 CPU MPA-0 三步已单列，
+MPA-0 HCU/完整收敛和批量应用仍待 M4/M5。
 单一精度作业须显式配置默认 dtype、模型权重和输入一致；禁止静默转换输出掩盖提升。

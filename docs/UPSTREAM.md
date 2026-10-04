@@ -117,6 +117,11 @@ Tier 1 状态检查点已提交为 `9fb9d1f`。
 | LP-073 | `packages/framework/nvalchemi/dynamics/_ops/npt_nph.py`；新增 `_ops/stress.py` | 保留原 import 路径和 legacy torch.ops 名称，新增 keyword-only backend/selection，隔离 barostat/Warp 导入；说明参考 fork framework `4bf8bc8084a2` | reference 独立执行转换；NPT/NPH 只改依赖导入，不改积分算法 | 公式/说明更正对应 UBF-009；reference/executor/autograd/依赖隔离为平台适配 | `test/compatibility/test_cell_stress_force_reference.py`；见 `reports/g2-torch-cell-stress-force.md` |
 | LP-074 | `packages/ops/nvalchemiops/dynamics/utils/cell_filter.py` align kernel/文案 | UBF-010：左手输入以原始 H 求 transform；lower 文案参考 fork `eadc3ee` | 保持分数坐标；默认 Warp 路径选择不变，受 bug 影响的坐标结果改变 | transform 修复为上游候选，文案沿用指定 fork；实际 Warp 数值未执行 | `test/torch/test_torch_cell_tools.py`、`probes/cell_tools_reference.py`；M2 报告 |
 | LP-075 | `packages/framework/nvalchemi/dynamics/_ops/cell_align.py` | keyword-only backend/selection、lazy Warp；UBF-010 写回非连续 positions；lower 文案 | 保留原入口/位置参数/None 返回；generic executor 绑定 ops-owned reference；默认 legacy 保留 | bridge 写回为上游候选；reference/executor/依赖隔离为平台适配 | `test/compatibility/test_cell_tools_reference.py`；bridge stub 不作为 Warp parity；M2 报告 |
+| LP-076 | ops `dynamics/utils/cell_filter.py` `_fire2_coord_cell_*` | UBF-011：采用 fork c4c3bb5 行晶格仿射公式 | 原默认 Warp 选择不变，非正交晶胞轨迹会修正 | fork bug 修复移植；非 NPT/NPH 移植 | NumPy/分数坐标反例、HCU4 reference；Warp 未运行；M3 报告 |
+| LP-077 | ops `dynamics/optimizers/fire.py` `fire_update` | UBF-013：采用 fork eadc3ee 分离按体系控制和速度混合 launch | 只修 single/batch_idx 无 downhill 路径；PTR/downhill/fire_step 保留 | fork 竞态修复移植，未整体替换现有 FIRE | joint control oracle；实际 Warp 未运行；M3 报告 |
+| LP-078 | framework `dynamics/optimizers/fire.py` `FIREVariableCell` | UBF-012：fork b12b54c 完整应力驱动、3N+9 联合控制/位移限制；新增私有 `_ops/fire_cell.py` 桥接 | API/参数保留，None/warp 原子 kernel 默认选择保留，缺失晶胞运动补齐；冻结 stress/fire_cell selection | fork bug 修复加平台 executor 适配，不是 ASE filters | CPU 单步/公共160步、CPU MPA-0三步、HCU4解析势；M3 报告 |
+| LP-079 | framework `dynamics/optimizers/fire2.py`、`_ops/fire.py`、`_dynamics_reference/fire.py`；ops catalog | 六项变胞 reference executor 接线，optimizer/stress/cell_tools 单次选择；优化步梯度0 | fixed-cell/默认 Warp 保留；reference variable_cell 准入，requires_grad 显式拒绝 | 平台移植，未新增科学参数化；旧私有 import 兼容转发 | CPU ABI/第二 executor/错误/无 Warp、HCU4 parity；M3 报告 |
+| LP-080 | framework `dynamics/hooks/cell_align.py` | UBF-014：fork b12b54c 周期/active 子集保护，加本地缓存 F/v/stress 同帧；已对齐跳过、已有晶胞运动再对齐报错；keyword-only backend | 保留 frequency/原调用、默认 Warp 选择；只作预处理，不承诺运行中重对齐 | fork 掩码修复加 local 同帧 bug 修复/后端适配，fork 未修缓存旋转 | 子集协变与 MPA-0 旋转 E/F/stress，冻结 selection；M3 报告 |
 
 本表中未带 `packages/` 前缀的 `test/...` 路径是相应 package 内的相对路径；新增跨包回归的当前实际目录为
 `packages/framework/test/compatibility/`。历史条目的“工作树待提交”只描述当时快照，不表示当前 Git 状态。
@@ -134,10 +139,10 @@ NVIDIA 基线 SHA 不变；本次只读核查用户指定 fork 的 develop 与�
 
 | 仓库 | 固定参考提交 | 本工程采用范围与后续安排 |
 |---|---|---|
-| fork ops | [c4c3bb56b6c6](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a) | stress 公式/说明已随 UBF-009 提交；晶胞耦合部分待 M2/M3 |
+| fork ops | [c4c3bb56b6c6](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a) | stress 随 UBF-009、FIRE2 行晶格耦合运动随 M3 UBF-011 摘取 |
 | fork framework | [4bf8bc8084a2](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/4bf8bc8084a2f588c332e0bf090978ba4ba76c4b) | 转换说明已采用；未整体同步 framework |
-| fork framework develop | [b12b54c48fc8](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/b12b54c48fc8001adb84654c3b42f2bef21db710) | 补齐应力驱动全矩阵 FIRE、联合控制和位移限制；本地尚未移植，待 M3 |
-| fork ops develop | [eadc3eeebaec](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/eadc3eeebaeceb832f7341eb59303dc588f857bd) | 每体系先更新 FIRE 控制再混合速度；本地待按实际差异复核/移植，不能直接覆盖已有 Torch reference |
+| fork framework develop | [b12b54c48fc8](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/b12b54c48fc8001adb84654c3b42f2bef21db710) | 应力驱动全矩阵 FIRE、联合控制和位移限制已在 M3 按函数摘取，UBF-012 |
+| fork ops develop | [eadc3eeebaec](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/eadc3eeebaeceb832f7341eb59303dc588f857bd) | single/batch_idx 无 downhill FIRE 控制/混合分离已摘取，UBF-013；其他路径不作扩大声明 |
 
 fork 还包含更新的数据 schema、训练、编译和0.5.0-rc依赖改动，均不由此任务整体引入。
 迁移按函数、测试和默认行为摘取相关语义；实际修正另加源码标记、UBF 和 LP 记录。
