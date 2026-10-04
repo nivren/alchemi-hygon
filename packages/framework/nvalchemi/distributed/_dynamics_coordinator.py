@@ -482,11 +482,26 @@ def _make_global_nhc_chain_update(strategy: ParallelizationStrategy):
         dt_chain,
         batch_idx,
         compute_ke=True,
+        nloops=1,
+        *,
+        backend=None,
+        selection=None,
     ):
+        # Fixed-cell Torch NHC is a single-device capability in this port.
+        # Keep the upstream DD adapter ABI, but fail before issuing a collective.
+        if (selection is not None and selection.family != "warp") or backend not in (
+            None,
+            "warp",
+        ):
+            from nvalchemiops.backend import BackendUnavailableError
+
+            raise BackendUnavailableError(
+                "DomainParallel NHC is not verified for this backend"
+            )
         M = temperature.shape[0]
         local_2ke = torch.zeros(M, dtype=velocities.dtype, device=velocities.device)
         local_2ke.index_add_(
-            0, batch_idx.long(), masses * (velocities * velocities).sum(-1)
+            0, batch_idx.long(), masses.reshape(-1) * (velocities * velocities).sum(-1)
         )
         strategy.reduce_system(local_2ke, Reduce.SUM)
         ke2.copy_(local_2ke)
@@ -505,6 +520,9 @@ def _make_global_nhc_chain_update(strategy: ParallelizationStrategy):
             dt_chain,
             batch_idx,
             compute_ke=False,
+            nloops=nloops,
+            backend=backend,
+            selection=selection,
         )
 
     return _global_nhc_chain_update

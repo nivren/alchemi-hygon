@@ -1,6 +1,6 @@
 # 项目背景、兼容性契约与当前交接
 
-更新时间：2026-09-20。本文件只保留稳定架构、接口约束和当前交接；按日期追加的完整历史
+更新时间：2026-10-04。本文件只保留稳定架构、接口约束和当前交接；按日期追加的完整历史
 保存在 [`docs/history/PROJECT_HANDOFF.md`](history/PROJECT_HANDOFF.md)。当前支持范围以
 [`STATUS.md`](STATUS.md)、能力矩阵和真实报告为准。
 
@@ -18,7 +18,8 @@
 - `probes/` 是设备、模型、梯度和性能验证入口，不是第三份生产实现。
 - `reports/` 保存脱敏证据摘要；原始输出在被忽略的 `artifacts/`。
 - 修改导入的上游源码时，在 [`UPSTREAM.md`](UPSTREAM.md) 登记补丁、动机、默认路径影响、
-  upstream candidate 和回归指针。
+  upstream candidate 和回归指针。缺陷原因与历史实现补齐见
+  [`UPSTREAM_BUGFIXES.md`](UPSTREAM_BUGFIXES.md)。
 
 ## 3. 后端语义
 
@@ -71,8 +72,13 @@ compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。
 `TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
 state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。
-当前建议顺序是固定晶胞 NHC、FIRE2 stress→cell-force/variable-cell、固定晶胞
-ASE-compatible BFGS。未确认 owner 前不自动创建新分支。
+固定晶胞 NHC Torch reference 已完成窄范围，实现提交 `b4050ec`；
+由 `codex/feat-fixed-cell-nhc` 随本轮交付到本地 `develop`，未推送；
+保留异构 Batch、Hooks、FusedStage、scalar refill、最小 continuation；CPU/HCU 证据和
+四项上游逻辑修正见 [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md)。
+不承诺 vector arrivals、完整 workflow checkpoint、Warp/NVIDIA、DomainParallel 或生产后端。
+后续建议顺序是 FIRE2 stress→cell-force/variable-cell、固定晶胞 ASE-compatible BFGS。
+未确认 owner 前不自动创建下一任务分支。
 
 继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。
 

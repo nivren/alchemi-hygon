@@ -1,11 +1,11 @@
 # 当前并行开发计划
 
-更新时间：2026-09-20。本文只维护当前可启动的任务、边界和验收方式；此前的完整阶段日志与
+更新时间：2026-10-04。本文只维护当前可启动的任务、边界和验收方式；此前的完整阶段日志与
 Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_DEVELOPMENT_PLAN.md)。
 
 ## 1. 当前基线
 
-- 工作基线：`develop`，最近已推送的文档重构基线为 `97325a4`。
+- 本轮 NHC 起点 `7a90fcf`，开发分支 `codex/feat-fixed-cell-nhc`；实现提交 `b4050ec`，随本轮交付到本地 `develop`，未推送。
 - `TORCH-NEIGHBOR-PBC-CELL` 阶段一 Torch reference 与阶段二 HIP 窄 capability 已收口。
 - `TORCH-NVT-LANGEVIN` 固定晶胞 BAOAB 窄 reference slice 已收口，不再作为当前任务。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
@@ -15,12 +15,18 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 1 | 固定晶胞 NHC reference | 建立 Nose-Hoover chain 的 Torch/CPU 正确性基线与公共接口 | NPT/NPH、变胞和生产后端 |
-| 2 | `TORCH-CELL-STRESS-FORCE` + coupled FIRE2 | 明确 stress 到 cell-force 的单位、shape、梯度和 FIRE2 变胞语义 | 完整 ASE 变胞兼容、后端优化 |
-| 3 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
+| 1 | `TORCH-CELL-STRESS-FORCE` + coupled FIRE2 | 明确 stress 到 cell-force 的单位、shape、梯度和 FIRE2 变胞语义 | 完整 ASE 变胞兼容、后端优化 |
+| 2 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
+
+### NHC 已完成窄 reference
+
+`TORCH-NVT-NHC` 保留公共接口、Batch/Hook/FusedStage 与 scalar refill，CPU 谐势
+统计、continuation、HCU4 FP32/64 parity 和短真实 MACE 已验证；四项修正有源码注释。
+证据与边界见 [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md)。
+Warp/NVIDIA、vector arrivals、完整 checkpoint、DomainParallel 和生产后端未验收。
 
 ### 已完成但不在当前队列：`TORCH-NVT-LANGEVIN`
 

@@ -12,7 +12,7 @@ flowchart LR
     subgraph F[packages/framework\nnvalchemi]
         API[公共 API\nAtomicData / Batch\nModels / Dynamics / Hooks]
         WF[Workflow / BaseDynamics\nFusedStage / inflight / state]
-        FR[Framework reference\n_dynamics_reference\nVV / FIRE / FIRE2 / kinetics / periodic]
+        FR[Framework reference\n_dynamics_reference\nVV / FIRE / FIRE2 / Langevin / NHC / kinetics / periodic]
         FD[Framework dispatchers\ndynamics/_ops\nmodels / hooks / neighbors]
         RES[framework _backend.py\nresolve_compute_backend]
     end
@@ -179,7 +179,9 @@ flowchart TD
 - neighbors：dense periodic/no-PBC full-list；Torch `cell_list` 是显式 strategy；HIP
   `cell_list` 已有 periodic/fixed-cell/Batch/full/MATRIX 的显式窄 capability；
 - LJ：energy/force 以及有限的二阶路径；
-- fixed-cell dynamics：VV、FIRE、FIRE2、kinetics；
+- fixed-cell dynamics：VV、FIRE、FIRE2、kinetics；固定晶胞 Langevin BAOAB 与 NHC
+  Torch reference 窄范围已完成，NHC 的 Batch/Hook/FusedStage、scalar refill、最小续算及
+  CPU/HCU 证据见 [NHC 报告](../reports/g2-torch-nvt-nhc.md)；
 - periodic：位置 wrap；
 - observer：segmented reduce、Logging/energy-drift 窄 slice；
 - Batch、异构体系、Hook lifecycle、部分 state/inflight 行为。
@@ -190,7 +192,8 @@ flowchart TD
 ### 当前仍在边界外的内容
 
 - PlatformFingerprint、BackendProfile、Frozen BackendPlan（M2）；
-- 完整上游周期 cell-list capability、NVTLangevin、NVT Nose-Hoover、NPT/NPH；
+- 完整上游周期 cell-list capability；Langevin/NHC 的完整 workflow checkpoint、
+  完整上游行为套件和分布式；NPT/NPH、变胞 dynamics；
 - 生产 Triton/HIP neighbor/LJ/MLIP kernel；当前 HIP 邻居窄 capability 不等于生产后端；
 - 完整 checkpoint/restart、长轨迹性能门槛、单体系多卡域分解。
 

@@ -304,7 +304,7 @@ def _nhc_chain_propagate_kernel(
 
     Algorithm (for each system):
 
-    1. Half-step position update: :math:`\eta_k \mathrel{+}= 0.5 \cdot dt \cdot \dot{\eta}_k`
+    1. Half-step chain position update: :math:`\eta_k \mathrel{+}= 0.25 \cdot dt \cdot \dot{\eta}_k`
     2. Backward sweep: Update :math:`\dot{\eta}` from chain end to start with friction
     3. Compute velocity scale factor: :math:`\exp(-0.5 \cdot dt \cdot \dot{\eta}_0)`
     4. Forward sweep: Update :math:`\dot{\eta}` from start to chain end with new forces
@@ -359,7 +359,9 @@ def _nhc_chain_propagate_kernel(
 
     # ========== Step 1: Half-step position update ==========
     for k in range(chain_length):
-        eta_local[k] = eta_local[k] + half_dt * eta_dot_local[k]
+        # Upstream fix NHC-ETA: a chain call advances the thermostat
+        # by dt/2; each symmetric eta drift must therefore use dt/4.
+        eta_local[k] = eta_local[k] + quarter_dt * eta_dot_local[k]
 
     # ========== Step 2: Backward sweep (chain_length-1 down to 0) ==========
 
@@ -442,7 +444,9 @@ def _nhc_chain_propagate_kernel(
 
     # ========== Step 5: Second half-step position update ==========
     for k in range(chain_length):
-        eta_local[k] = eta_local[k] + half_dt * eta_dot_local[k]
+        # Upstream fix NHC-ETA: a chain call advances the thermostat
+        # by dt/2; each symmetric eta drift must therefore use dt/4.
+        eta_local[k] = eta_local[k] + quarter_dt * eta_dot_local[k]
 
     # ========== Write back chain state ==========
     for k in range(chain_length):
@@ -512,7 +516,9 @@ def _nhc_chain_propagate_single_kernel(
 
     # ========== Step 1: Half-step position update ==========
     for k in range(chain_length):
-        eta_local[k] = eta_local[k] + half_dt * eta_dot_local[k]
+        # Upstream fix NHC-ETA: a chain call advances the thermostat
+        # by dt/2; each symmetric eta drift must therefore use dt/4.
+        eta_local[k] = eta_local[k] + quarter_dt * eta_dot_local[k]
 
     # ========== Step 2: Backward sweep ==========
     if chain_length > 1:
@@ -580,7 +586,9 @@ def _nhc_chain_propagate_single_kernel(
 
     # ========== Step 5: Second half-step position update ==========
     for k in range(chain_length):
-        eta_local[k] = eta_local[k] + half_dt * eta_dot_local[k]
+        # Upstream fix NHC-ETA: a chain call advances the thermostat
+        # by dt/2; each symmetric eta drift must therefore use dt/4.
+        eta_local[k] = eta_local[k] + quarter_dt * eta_dot_local[k]
 
     for k in range(chain_length):
         eta[k] = eta_local[k]

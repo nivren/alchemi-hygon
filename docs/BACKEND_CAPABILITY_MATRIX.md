@@ -1,6 +1,6 @@
 # 后端能力矩阵
 
-更新时间：2026-09-20。此表是 registry 当前的真实登记，不替代 `FEATURE_COMPATIBILITY.yaml` 的完整特性契约。
+更新时间：2026-10-04。此表是 registry 当前的真实登记，不替代 `FEATURE_COMPATIBILITY.yaml` 的完整特性契约。
 
 | operation | Torch reference 已登记宽度 | 梯度 | `auto` 当前选择 | HCU 证据 |
 | --- | --- | --- | --- | --- |
@@ -9,6 +9,7 @@
 | `velocity_verlet` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `fire2` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
+| `nose_hoover` | 固定晶胞 NHC，C1–8、Yoshida3/5、FP32/64 | 原地 MD forward-only；functional v输入CPU一二阶已验证 | `torch_reference` | HCU4 12组CPU/HCU对照、短真实MACE；见NHC报告 |
 | `kinetics` / `segmented_reduce` | 按 graph 归约 | 一阶 / forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `periodic_wrap` | 原地周期坐标包裹 | forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 
@@ -42,7 +43,11 @@ HCU、Triton 或 HIP 生产实现证据。
 以下模块可以顶层导入 Warp，但只能通过明确的 Warp/NVIDIA 功能路径到达：
 
 - `data/buffer_kernels.py`、`data/warp_storage_backend.py`
-- `dynamics/_ops/{cell_align,langevin,nose_hoover,npt_nph,thermostat_utils}.py`
+- `dynamics/_ops/{cell_align,langevin,npt_nph,thermostat_utils}.py`
 - `models/_ops/lj.py`、`models/_ops/electrostatics/ewald.py`
 
-reference 公共导入和已登记的 reference operation 不得导入上述模块。新的顶层 Warp 依赖必须先加入白名单并补导入边界测试，或下沉至显式路径。
+reference 公共导入和已登记的 reference operation 不得触发上述模块的顶层 Warp 依赖。新的顶层 Warp 依赖必须先加入白名单并补导入边界测试，或下沉至显式路径。
+
+NHC dispatcher 的 Warp 导入已下沉到 legacy 函数，reference 公共导入不加载 Warp；
+[本次报告](../reports/g2-torch-nvt-nhc.md)区分 CPU chain ABI 的 eager compile/opcheck
+与未验证的完整 workflow/HCU compile、DomainParallel。

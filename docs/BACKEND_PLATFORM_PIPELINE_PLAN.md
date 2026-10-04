@@ -208,13 +208,16 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
    HCU 0 上通过；因此 B1 当前窄 slice 可登记为 HCU verified。该结果不扩大 capability 宽度，
    也不构成性能或完整生产后端结论。B1 之后的 `TORCH-NVT-LANGEVIN` 窄 reference 和
    `TORCH-NEIGHBOR-PBC-CELL` 阶段一/二已经分别收口；当前剩余任务按
-   `docs/PARALLEL_DEVELOPMENT_PLAN.md` 的立即启动表执行，`TORCH-NVT-NHC` 进入当前队列。
+   `docs/PARALLEL_DEVELOPMENT_PLAN.md` 的当前队列执行。`TORCH-NVT-NHC` 固定晶胞
+   reference 已完成窄范围，实现提交 `b4050ec`，随本轮交付到本地 `develop`；
+   CPU/HCU 证据与边界见 [NHC 报告](../reports/g2-torch-nvt-nhc.md)。
 
 ### T1：基础版后的首批并行任务
 
 按独立 operation 合入，而不是将它们做成一个大分支：
 
-1. `TORCH-NVT-NHC`：固定晶胞 Nose-Hoover chain reference；
+1. `TORCH-NVT-NHC`：固定晶胞 Nose-Hoover chain reference 已完成窄范围，随本轮本地合并交付；
+   不再作为未实现任务排队，后续范围以报告和 STATUS 为准；
 2. `TORCH-FIRE2-VARIABLE-CELL` 与 `TORCH-CELL-STRESS-FORCE`：按 stress→cell-force 与
    coupled step 契约推进；
 3. `TORCH-BFGS-ASE-COMPAT`：固定晶胞 ASE-compatible BFGS。

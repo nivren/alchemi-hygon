@@ -1546,7 +1546,7 @@
       "id": "dynamics.integrators",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "M1 固定晶胞 NVE 及 FIRE/FIRE2 的 VV 阶段在 framework 生命周期中冻结 selection；T1 固定晶胞 BAOAB Langevin 窄 reference、catalog、局部 dispatcher、短统计和最小 continuation state 已完成；Nose-Hoover/NPT 及完整 dynamics 仍未接线",
+      "implementation_scope": "M1 固定晶胞 NVE 及 FIRE/FIRE2 的 VV 阶段在 framework 生命周期中冻结 selection；T1 固定晶胞 BAOAB Langevin 窄 reference、catalog、局部 dispatcher、短统计和最小 continuation state 已完成；固定晶胞 NHC Torch reference 已接线，详见 TORCH-NVT-NHC；NPT/NPH、变胞及完整 dynamics 仍未完成",
       "scenario": "NVE/Langevin/Nose-Hoover/NPT 更新、随机数、温压单位、mask/原位更新",
       "source": {
         "repository": "ops",
@@ -1752,7 +1752,7 @@
         ]
       },
       "limitations": [
-        "已完成公共 NVE 的固定晶胞 reference 单步/短 run 接线，以及固定晶胞 BAOAB Langevin 的 Torch reference、公共 NVTLangevin 显式 backend 接线、短统计 oracle 和普通 Batch 最小 integrator continuation state；Nose-Hoover/NPT、完整多阶段状态和生产 dynamics 仍未完成",
+        "已完成公共 NVE 的固定晶胞 reference 单步/短 run 接线，以及固定晶胞 BAOAB Langevin 的 Torch reference、公共 NVTLangevin 显式 backend 接线、短统计 oracle 和普通 Batch 最小 integrator continuation state；固定晶胞 NHC reference 已另列 TORCH-NVT-NHC；NPT、完整多阶段状态和生产 dynamics 仍未完成",
         "Langevin 窄 slice 已覆盖 forward-only 固定晶胞 reference、float32/64、异构普通 Batch、空输入/错误、短谐势统计和最小 state_dict/load_state_dict 续跑；通用 checkpoint、atom_ptr/_out、inflight、分布式 ownership、完整上游行为/统计套件、跨设备逐位随机一致性和 torch.compile 仍未验证",
         "上游 Warp-backed dynamics API 的默认路径保留但未在 HCU 验证；上游 dynamics 行为套件仍需按 reference backend 解除运行阻断",
         "kinetic energy custom op 可通过严格 torch.compile；FIRE2 和 temperature reference 在 fullgraph=True 下仍有 graph break/数据依赖分支，默认 fullgraph=False 仅保证可运行，不保证完整编译优化"
@@ -3619,6 +3619,75 @@
       "limitations": ["Torch reference explicitly rejects virial/stress", "no DCU numerical or HCU performance evidence"],
       "roadmap": ["G1 scope: keep explicit failure", "G2: implement cell-strain/virial/stress reference and FP64 oracle", "G3: Triton/HIP and distributed stress ownership"],
       "release_gate": "G2"
+    },
+    {
+      "id": "TORCH-NVT-NHC",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "固定晶胞 NHC NVT、异构 Batch、阶段迁移、scalar refill 与积分器续算",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemi/dynamics/integrators/nvt_nose_hoover.py",
+          "nvalchemi/dynamics/_ops/nose_hoover.py",
+          "nvalchemiops/dynamics/integrators/nose_hoover.py"
+        ],
+        "symbols": [
+          "NVTNoseHoover",
+          "nhc_compute_masses",
+          "nhc_thermostat_chain_update",
+          "nhc_velocity_half_step",
+          "nhc_position_update"
+        ]
+      },
+      "contract": {
+        "api": "NVTNoseHoover(..., backend=None); explicit torch_reference; state_dict/load_state_dict integrator continuation",
+        "data": "positions/v/F [N,3]; masses [N]/[N,1]; dt/kT/tau/ndof [M]; eta/eta_dot/Q [M,C], C1..8; idx int32/int64; FP32/64 same dtype/device; fixed cell; fs/K public, internal time/kT eV ops",
+        "details": "Q0=3*N*kT*tau^2; Qother=kT*tau^2; Yoshida3/5; mutates v,eta,eta_dot,ke2,total/step scale,dt_chain; reject alias/invalid/unsupported; empty primitive no-op; current stream; scatter not bitwise deterministic; no CPU/dtype fallback; scalar refill real arrival counts; private inactive chain preserved"
+      },
+      "dependencies": [
+        "torch",
+        "BaseDynamics",
+        "Batch",
+        "model wrapper",
+        "generic executor catalog"
+      ],
+      "backends": {
+        "upstream": "Warp (lazy)",
+        "target": [
+          "torch_reference"
+        ],
+        "implementation_id": "torch_reference.nose_hoover-v1"
+      },
+      "gradient_level": "MD forward-only; functional v CPU gradcheck/gradgradcheck only",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [
+          "test/dynamics/test_nose_hoover.py"
+        ],
+        "dcu_tests": [
+          "packages/ops/test/torch/test_torch_nhc.py",
+          "packages/framework/test/compatibility/test_dynamics_reference_nhc.py",
+          "packages/framework/test/compatibility/test_dynamics_reference_nhc_physics.py",
+          "probes/nhc_reference.py"
+        ],
+        "evidence": [
+          "reports/g2-torch-nvt-nhc.md",
+          "docs/TORCH_NVT_NHC_CONTRACT.md"
+        ],
+        "environments": [
+          "project .venv / DTK26.04 / torch2.9.0 HIP6.3.26093 / HCU4 BW1000 64G"
+        ]
+      },
+      "limitations": [
+        "Warp/NVIDIA execution unavailable: 3 CPU parity tests skip without Warp",
+        "Vector arrivals mapping, full workflow checkpoint, atom_ptr/_out and full upstream suite unverified",
+        "DomainParallel/NPT/NPH/variable-cell/HIP/Triton dynamics unsupported",
+        "Short HCU MACE only; no long real-potential statistical or performance claim; HCU gradients/compile and Inductor unverified"
+      ],
+      "release_gate": "G2_fixed_cell_reference_only"
     }
   ]
 }
