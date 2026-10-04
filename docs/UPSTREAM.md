@@ -124,3 +124,20 @@ Tier 1 状态检查点已提交为 `9fb9d1f`。
 测试指针。同步上游前先逐条重新审阅这些记录；不得直接在 `external/` 修改来绕过
 清单。当前工作树尚未提交的代码、测试和报告仍以真实 Git diff 为准，不能把本表
 当成已提交状态的替代品。
+
+## MPA-0 弛豫的 fork 参考锁定（2026-10-04）
+
+NVIDIA 基线 SHA 不变；本次只读核查用户指定 fork 的 develop 与相关提交。
+下表是修复参考，不是本工程已移植或 NVIDIA 官方已修复的声明。
+
+| 仓库 | 固定参考提交 | 本工程采用范围与后续安排 |
+|---|---|---|
+| fork ops | [c4c3bb56b6c6](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a) | stress 公式/说明已随 UBF-009 提交；晶胞耦合部分待 M2/M3 |
+| fork framework | [4bf8bc8084a2](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/4bf8bc8084a2f588c332e0bf090978ba4ba76c4b) | 转换说明已采用；未整体同步 framework |
+| fork framework develop | [b12b54c48fc8](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/b12b54c48fc8001adb84654c3b42f2bef21db710) | 补齐应力驱动全矩阵 FIRE、联合控制和位移限制；本地尚未移植，待 M3 |
+| fork ops develop | [eadc3eeebaec](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/eadc3eeebaeceb832f7341eb59303dc588f857bd) | 每体系先更新 FIRE 控制再混合速度；本地待按实际差异复核/移植，不能直接覆盖已有 Torch reference |
+
+fork 还包含更新的数据 schema、训练、编译和0.5.0-rc依赖改动，均不由此任务整体引入。
+迁移按函数、测试和默认行为摘取相关语义；实际修正另加源码标记、UBF 和 LP 记录。
+M1 新 probe/契约没有修改上游产品运行时源码，CPU 模型/数值证据见
+[报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。

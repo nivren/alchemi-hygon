@@ -56,3 +56,11 @@ NHC dispatcher 的 Warp 导入已下沉到 legacy 函数，reference 公共导�
 `npt_nph.py` 保留旧 stress import 路径，barostat/Warp 依赖已下沉到调用内；基础 reference
 转换由 `_ops/stress.py` 接线。该导入隔离不构成 NPT/NPH 或变胞 FIRE/FIRE2 后端支持。
 转换的 CPU compile/opcheck 已验证，HCU 二阶/compile 与 legacy Warp 数值未验证。
+
+## MPA-0 CPU 单点基线
+
+MPA-0 M1 使用现有 torch_reference neighbor/geometry 与 stress conversion。
+三个真实 CIF 的 CPU FP32/64 energy/forces/stress、FP64 Batch/ASE 与有限差分已验证，
+见 [报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。这不新增 ops capability：
+`variable_cell` 仍未登记，MPA-0 HCU 和两种变胞优化器尚未验收。
+单一精度作业须显式配置默认 dtype、模型权重和输入一致；禁止静默转换输出掩盖提升。

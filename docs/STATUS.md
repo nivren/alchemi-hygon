@@ -7,7 +7,8 @@
 
 - 当前交付基线：本地 `develop`；NHC 开发分支 `codex/feat-fixed-cell-nhc`，起点 `7a90fcf`。
 - NHC 实现与测试提交：`b4050ec`；相关文档随本轮本地合并交付。未推送、未核验远端同步状态。
-- Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`，文档独立收口；未合并、未推送。
+- Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`、文档 `35ea133`；未合并、未推送。
+- MPA-0 弛豫里程碑1：`codex/test-mace-mpa0-baseline`，从 `35ea133` 起步；CPU 探针提交 `61484db`，基线完成；未合并、未推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -22,6 +23,7 @@
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
 | fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、变胞 FIRE/FIRE2、生产后端未完成 |
 | stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 和变胞 FIRE/FIRE2 未验证 |
+| MACE-MPA-0 单点 | 已验证 CPU 小样本 | 三个真实 CIF `[4,10,4]`、FP32/64 energy/force/stress；FP64 Batch/逐体系/ASE 对照和力/应力/晶胞力有限差分 | MPA-0 HCU、FIRE/FIRE2 弛豫、变胞生命周期和全目录未验证；单一精度须匹配进程默认 dtype |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml) 为准；本表不把窄 slice 扩大为完整
@@ -79,6 +81,18 @@
   CPU/HCU probe 均退出0；FP64 MACE stress 有限差分最大绝对误差约 `1.93e-10 eV/Å³`。
 - 真实 MACE FP32 仅 forward/parity；FP64 作能量有限差分 oracle，未训练真实 MACE。
   变胞 FIRE/FIRE2、晶胞对齐/打包/更新、NPT/NPH 和 production backend 不在本轮范围。
+
+## MPA-0 弛豫里程碑1（2026-10-04）
+
+- [契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md) 与
+  [CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)：模型/fork SHA 固定，NVIDIA 锁定不变。
+- 基础 CPU 门再次为297 passed、3 skipped；应力管线另为12 passed、1 skipped。
+  本阶段未修改产品运行时源码，新增 CPU probe，不移植晶胞/优化器。
+- 真实 Li2MgGe/LiSnCl3/NaLiTl2 Batch 的610条周期边无跨体系边；CPU FP64 数值导数
+  最大误差：force `3.67e-10 eV/Å`、stress `1.56e-10 eV/Å³`、cell-force `6.55e-10 eV/Å`。
+- 初次 FP32 energy dtype 检查失败：ASE calculator 修改默认 dtype，MPA-0 ZBL 路径
+  受该默认值影响。probe 显式配置每个精度并恢复，不 cast 输出/改模型/放宽容差；重跑退出0。
+- HCU_MPA0=`not_run`；原 OFF23/HCU4 stress 证据不能代替目标模型 HCU 验证。
 
 ## 运行时排障记录
 
@@ -201,16 +215,19 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 
 ## 当前下一步
 
-具体 owner 和分支需用户确认后再启动。当前计划见
+每个里程碑先说明目的与方案，用户确认后启动。当前计划见
 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)：
 
 固定晶胞 NHC reference 已在本地 `develop`；stress/cell-force 基础已完成上述窄范围，
 实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
-用户已确认启动 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1：基础收口、来源/契约和 CPU 单点验证。
-后续每个里程碑需先说明目的与方案，用户确认后实施；后续待确认队列：
+MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
+当前等待里程碑2确认；后续队列：
 
-1. coupled FIRE2 variable-cell 与晶胞工具（独立任务，不能由基础转换完成推定已支持）；
-2. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. MPA-0 M2：通用晶胞工具 Torch reference（对齐、pack/unpack、扩展索引/指针）。
+2. MPA-0 M3：先原生六项晶胞 FIRE2，再指定 fork 修复后的完整晶胞 FIRE。
+3. MPA-0 M4：变胞邻居、力/应力联合收敛、退出/补位及薄应用入口。
+4. MPA-0 M5：真实目标结构 HCU4 分级验收，随后再安排全目录长作业。
+5. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

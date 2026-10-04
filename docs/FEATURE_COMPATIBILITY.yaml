@@ -536,7 +536,7 @@
       "id": "models.mace",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；G2 固定晶胞 MACE/FIRE2 batching、轨迹与短 inflight 已有 slice，训练混合二阶与完整模型加速仍未完成",
+      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；G2 固定晶胞 MACE/FIRE2 batching、轨迹与短 inflight 已有 slice；MPA-0 M1 三个真实 CIF CPU FP32/64 单点与 FP64 力/应力/晶胞力有限差分通过，目标 HCU/弛豫未运行；训练混合二阶与完整模型加速仍未完成",
       "scenario": "真实 MACE/e3nn 能量、负梯度力、力损失到参数的混合二阶路径",
       "source": {
         "repository": "framework",
@@ -590,6 +590,9 @@
       },
       "gradient_level": "first_and_mixed_second",
       "verification": {
+        "cpu_status": "verified_mpa0_single_point_only",
+        "cpu_tests": ["probes/mace_mpa0_cpu_baseline.py"],
+        "cpu_evidence": ["reports/g2-mace-mpa0-m1-cpu-baseline.md"],
         "dcu_status": "partial",
         "upstream_tests": [
           "test/models/test_mace.py"
@@ -615,7 +618,8 @@
           "reports/g2-mace-fire2-heterogeneous-trajectory.md",
           "reports/g2-mace-fire2-baseline-comparison.md",
           "reports/g2-mace-fire2-inflight-reference.md",
-          "reports/g2-mace-profile-reference.md"
+          "reports/g2-mace-profile-reference.md",
+          "reports/g2-mace-mpa0-m1-cpu-baseline.md"
         ],
         "environments": [
           "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
@@ -626,6 +630,7 @@
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "项目环境已安装 MACE/e3nn/ASE 最小组合，但未安装 PhysicsNeMo/cuEquivariance",
+        "MPA-0 仅 CPU 单点小样本已验证；MPA-0 HCU、FIRE/FIRE2 与变胞生命周期未验证。MACE 0.3.15 ZBL 依赖进程默认 dtype，单一精度作业显式匹配默认 dtype/权重/输入；atomic_energies 与同进程混合 dtype 并发未验收",
         "探索环境和项目 .venv 的 H₂O wrapper CPU/HCU、单个 perf_46 和两个 perf_46 的 HCU batching 已验证；向量化 reference 仍不是生产 cell-list/Triton/HIP 性能后端",
         "已验证固定晶胞非 PBC 的短 reference dynamics 组合、周期 32×92/异构 [46,92] 的短 reference 组合，以及 HCU 上异构 [46,92] 与两个单体系的 FIRE2 收敛对照；DataSink/inflight 目前只覆盖短轨迹和短补位，不代表长 occupancy 或重启。A4 已有等长规模短 profile，但混合规模、长轨迹、skin rebuild 分项和完整性能结论仍未完成；CPU 完整收敛受当前 reference 性能限制，变胞 stress、checkpoint/restart、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
       ],
@@ -1763,7 +1768,7 @@
       "id": "dynamics.fire",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "M1 将 FIRE 与 FIRE2 登记为独立 operation/implementation ID；固定晶胞 reference selection 由 framework 冻结，变胞 Torch reference 因缺少 variable_cell capability 明确失败",
+      "implementation_scope": "M1 将 FIRE 与 FIRE2 登记为独立 operation/implementation ID；固定晶胞 reference selection 由 framework 冻结，变胞 Torch reference 因缺少 variable_cell capability 明确失败；MPA-0 后续变胞移植契约见 docs/TORCH_MACE_MPA0_RELAXATION_CONTRACT.md：原生六项 FIRE2、指定 fork 修复后的完整晶胞 FIRE，当前仅完成来源审查与计划",
       "scenario": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
       "source": {
         "repository": "ops",

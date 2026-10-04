@@ -9,9 +9,10 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 - `TORCH-NEIGHBOR-PBC-CELL` 阶段一 Torch reference 与阶段二 HIP 窄 capability 已收口。
 - `TORCH-NVT-LANGEVIN` 固定晶胞 BAOAB 窄 reference slice 已收口，不再作为当前任务。
 - `TORCH-CELL-STRESS-FORCE` 基础 slice 位于 `codex/feat-cell-stress-force`，起点
-  `e6dd99c`，实现与测试提交 `a76107e`；未合并/推送。该 slice 排除晶胞及 FIRE/FIRE2。
-- MPA-0 + 原生 FIRE/FIRE2 的里程碑1已获用户确认：基础收口、来源/契约和 CPU 单点验证。
-  后续每个里程碑先说明目的与方案，用户确认后实施。
+  `e6dd99c`，实现与测试提交 `a76107e`、文档 `35ea133`；未合并/推送。该 slice 排除晶胞及 FIRE/FIRE2。
+- MPA-0 + 原生 FIRE/FIRE2 的里程碑1已完成：`codex/test-mace-mpa0-baseline`，起点 `35ea133`。
+  [契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)、[CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。
+  当前等待里程碑2确认；后续每个里程碑先说明目的与方案，用户确认后实施。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
 - 当前任务应从 `develop` 创建短期个人分支，完成一个可独立验证的 slice 后再合并。
 
@@ -19,8 +20,11 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 1 | coupled FIRE2 variable-cell 与晶胞工具（待确认） | 使用已完成的基础转换，单独验收晶胞状态、坐标映射和耦合优化语义 | 完整 ASE 变胞兼容、NPT/NPH、后端优化 |
-| 2 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
+| 1 | MPA-0 M2：晶胞工具（待确认） | align_cell、pack/unpack、扩展索引/指针，CPU/HCU 独立验收 | 优化器、ASE filters、NPT/NPH |
+| 2 | MPA-0 M3：变胞 FIRE2/FIRE | 先原生六项 FIRE2，再指定 fork 已修复的完整晶胞 FIRE | 新参数化、生产 HIP/Triton、DomainParallel |
+| 3 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、输入/结果编排 | 通用完整 checkpoint、全目录长作业 |
+| 4 | MPA-0 M5：目标 HCU 验收 | 单体系→异构小 Batch→扩大批量；FP64 再 FP32 | 全目录成功率、生产性能保证 |
+| 5 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
