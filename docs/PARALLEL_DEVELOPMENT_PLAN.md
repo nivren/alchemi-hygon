@@ -12,7 +12,9 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
   `e6dd99c`，实现与测试提交 `a76107e`、文档 `35ea133`；未合并/推送。该 slice 排除晶胞及 FIRE/FIRE2。
 - MPA-0 + 原生 FIRE/FIRE2 的里程碑1已完成：`codex/test-mace-mpa0-baseline`，起点 `35ea133`。
   [契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)、[CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。
-  当前等待里程碑2确认；后续每个里程碑先说明目的与方案，用户确认后实施。
+  里程碑2已在 `codex/feat-cell-tools-reference` 完成晶胞工具 CPU/HCU4 窄验证，
+  [M2 报告](../reports/g2-cell-tools-m2.md)；当前等待里程碑3确认。
+  后续每个里程碑先说明目的与方案，用户确认后实施。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
 - 当前任务应从 `develop` 创建短期个人分支，完成一个可独立验证的 slice 后再合并。
 
@@ -20,7 +22,7 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 1 | MPA-0 M2：晶胞工具（待确认） | align_cell、pack/unpack、扩展索引/指针，CPU/HCU 独立验收 | 优化器、ASE filters、NPT/NPH |
+| 完成 | MPA-0 M2：晶胞工具 | align_cell、pack/unpack、扩展索引/指针；CPU/HCU4 primitive 通过 | 未含优化器、ASE filters、NPT/NPH |
 | 2 | MPA-0 M3：变胞 FIRE2/FIRE | 先原生六项 FIRE2，再指定 fork 已修复的完整晶胞 FIRE | 新参数化、生产 HIP/Triton、DomainParallel |
 | 3 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、输入/结果编排 | 通用完整 checkpoint、全目录长作业 |
 | 4 | MPA-0 M5：目标 HCU 验收 | 单体系→异构小 Batch→扩大批量；FP64 再 FP32 | 全目录成功率、生产性能保证 |

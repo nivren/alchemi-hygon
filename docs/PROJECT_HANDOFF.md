@@ -86,8 +86,12 @@ state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STA
 用户已确认下一目标为 MPA-0 + 原生 FIRE/FIRE2 弛豫，里程碑1在
 `codex/test-mace-mpa0-baseline`（起点 `35ea133`）完成基础收口、来源/契约和 CPU 单点验证。
 证据见 [CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md) 与
-[应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)。MPA-0 HCU/弛豫未运行，晶胞与优化器未移植。
-当前等待里程碑2确认。后续先晶胞工具，再 FIRE2 和指定 fork 修复后的 FIRE，
+[应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)。MPA-0 HCU/弛豫未运行。
+里程碑2已在 `codex/feat-cell-tools-reference`（起点 `f802d49`，实现 `036827e`）完成通用晶胞工具移植，
+CPU/HCU4 窄验证见 [M2 报告](../reports/g2-cell-tools-m2.md) 和
+[工具契约](TORCH_CELL_TOOLS_CONTRACT.md)。UBF-010 保护左右手分数坐标/strided 写回；
+Warp 数值未执行，未移植优化步或 AlignCellHook 生命周期。
+当前等待里程碑3确认。后续先 FIRE2 和指定 fork 修复后的 FIRE，
 最后应用编排与 HCU 验收；每个里程碑均先给目的与方案，用户确认后实施。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 

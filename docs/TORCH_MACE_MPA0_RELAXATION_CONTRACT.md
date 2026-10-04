@@ -111,6 +111,8 @@ dt/alpha/计数和临时缓冲。最终在输出坐标与晶胞上重算模型�
    原子位移、六种对称应变和两项固定分数坐标 cell 扰动分别检查，差分期间邻居集合不变。
    FP32 单独做有限前向与 Batch 对照，不用 FP32 相减的总能量作导数 oracle。
 2. M2：通用晶胞工具 Torch reference，解析/round-trip/异构 Batch CPU 与限时 HCU gate。
+   已完成窄 primitive 验证，详见 [工具契约](TORCH_CELL_TOOLS_CONTRACT.md) 与
+   [M2 报告](../reports/g2-cell-tools-m2.md)；应用优化器和目标模型旋转验证不由此替代。
 3. M3：先 FIRE2 后 fork FIRE，分别验收单步、功率分支、耦合运动、位移限制和公共接线。
 4. M4：邻居生命周期、联合收敛、退出/补位、薄应用入口与结果导出。
 5. M5：真实小样本 HCU4，单体系→异构小 Batch→扩大 batch；FP64 再 FP32。

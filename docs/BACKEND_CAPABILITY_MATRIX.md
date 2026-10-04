@@ -11,6 +11,7 @@
 | `fire2` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `nose_hoover` | 固定晶胞 NHC，C1–8、Yoshida3/5、FP32/64 | 原地 MD forward-only；functional v输入CPU一二阶已验证 | `torch_reference` | HCU4 12组CPU/HCU对照、短真实MACE；见NHC报告 |
 | `stress_to_cell_force` | row-cell `[B,3,3]`、FP32/64、完整/下三角投影、strided/empty | 一阶/二阶；CPU gradcheck/gradgradcheck；HCU 一阶 | `torch_reference` | HCU4 转换/stream、周期非正交真实 MACE；FP64 有限差分；见 [报告](../reports/g2-torch-cell-stress-force.md) |
+| `cell_tools` | align、六项 pack/unpack、mass 与 extend；FP32/64、单体系/异构/empty；append 与 interleaved 索引分别保留 | forward-only，requires_grad 拒绝 | `torch_reference`（既有选择规则） | HCU4 六组 primitive CPU parity；未含模型/优化步；见 [报告](../reports/g2-cell-tools-m2.md) |
 | `kinetics` / `segmented_reduce` | 按 graph 归约 | 一阶 / forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `periodic_wrap` | 原地周期坐标包裹 | forward | `torch_reference` | G2 CPU/HCU 窄 slice |
 

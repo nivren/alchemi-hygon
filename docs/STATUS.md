@@ -9,6 +9,7 @@
 - NHC 实现与测试提交：`b4050ec`；相关文档随本轮本地合并交付。未推送、未核验远端同步状态。
 - Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`、文档 `35ea133`；未合并、未推送。
 - MPA-0 弛豫里程碑1：`codex/test-mace-mpa0-baseline`，从 `35ea133` 起步；CPU 探针提交 `61484db`，基线完成；未合并、未推送。
+- MPA-0 里程碑2：`codex/feat-cell-tools-reference`，起点 `f802d49`，实现/测试 `036827e`；通用晶胞工具 CPU/HCU4 窄验证完成；未合并、未推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -93,6 +94,19 @@
 - 初次 FP32 energy dtype 检查失败：ASE calculator 修改默认 dtype，MPA-0 ZBL 路径
   受该默认值影响。probe 显式配置每个精度并恢复，不 cast 输出/改模型/放宽容差；重跑退出0。
 - HCU_MPA0=`not_run`；原 OFF23/HCU4 stress 证据不能代替目标模型 HCU 验证。
+
+## MPA-0 弛豫里程碑2（2026-10-04）
+
+- [晶胞工具契约](TORCH_CELL_TOOLS_CONTRACT.md) / [报告](../reports/g2-cell-tools-m2.md)：
+  九个原生工具移植为 ops-owned `cell_tools` reference，公共 align 解析/传递 selection，
+  None/warp 保留，Torch 路径无 Warp 导入；不准入变胞优化器 capability。
+- CPU 基础门335 passed、3 skipped（Warp）；晶胞工具28项、公共接线10项。
+  首轮整体240秒超时，最后检查补跑通过；600秒时限完整重跑退出0。
+- HCU4 FP64/32 六组 `[2,0,3]`、单体系零原子、空 Batch 精确 pack round-trip；
+  CPU/HCU 最大绝对差 FP64 `8.88e-16`、FP32 `2.98e-8`；没有模型/优化步。
+- UBF-010 更正左手晶胞 transform 和非连续 bridge 写回；Warp kernel 未实际执行。
+  extend_batch_idx 的 append 布局与 batched pack 的 interleaved 布局分别保留，不能混用。
+- FIRE/FIRE2 联合更新、AlignCellHook 变胞生命周期接线、MPA-0 HCU 弛豫仍待后续阶段。
 
 ## 运行时排障记录
 
@@ -221,13 +235,12 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 固定晶胞 NHC reference 已在本地 `develop`；stress/cell-force 基础已完成上述窄范围，
 实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
-当前等待里程碑2确认；后续队列：
+通用晶胞工具里程碑2已完成窄 CPU/HCU4 验证。当前等待里程碑3确认；后续队列：
 
-1. MPA-0 M2：通用晶胞工具 Torch reference（对齐、pack/unpack、扩展索引/指针）。
-2. MPA-0 M3：先原生六项晶胞 FIRE2，再指定 fork 修复后的完整晶胞 FIRE。
-3. MPA-0 M4：变胞邻居、力/应力联合收敛、退出/补位及薄应用入口。
-4. MPA-0 M5：真实目标结构 HCU4 分级验收，随后再安排全目录长作业。
-5. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. MPA-0 M3：先原生六项晶胞 FIRE2，再指定 fork 修复后的完整晶胞 FIRE。
+2. MPA-0 M4：变胞邻居、力/应力联合收敛、退出/补位及薄应用入口。
+3. MPA-0 M5：真实目标结构 HCU4 分级验收，随后再安排全目录长作业。
+4. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

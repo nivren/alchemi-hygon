@@ -38,6 +38,7 @@ issue/PR、官方修复 SHA 和核验日期缺失时写明，不由本地测试�
 | [UBF-007](#ubf-007mace-本地-checkpoint-被交给下载器) | 声明支持本地路径却按 URL 处理 | framework | 现有原因注释 | LP-005/069 | 已提交 `3f5b544`；历史回归和模型执行证据 |
 | [UBF-008](#ubf-008uniform-storage-多属性复制使用不同目标槽位) | 多属性 put 复用已变更的占用 mask | framework | 现有原因注释 | LP-004/070 | 已提交 `3f89f6b`；Torch 双属性回归 |
 | [UBF-009](#ubf-009行晶格的-stress-to-cell-force-乘法顺序错误) | 非正交行晶格的晶胞力公式错误 | ops/framework | `CELL-STRESS-ROW` | LP-072/073 | 实现提交 `a76107e`；CPU/HCU reference 通过，Warp 未执行 |
+| [UBF-010](#ubf-010晶胞对齐的左手坐标与非连续写回错误) | 左手 transform 改变分数坐标；非连续坐标未写回 | ops/framework | `UBF-010` | LP-074/075 | CPU/HCU4 reference 通过，bridge stub 通过，Warp 数值未执行 |
 
 NHC 条目的共同来源：
 
@@ -245,6 +246,26 @@ CPU 一二阶/有限差分、公共接线、小模型 stress loss 参数反向�
 HCU4 窄 smoke 见 [报告](../reports/g2-torch-cell-stress-force.md)。Warp 缺失，legacy
 kernel 未执行；不能把 Torch 通过当作 Warp/NVIDIA parity。本轮未向 NVIDIA 提交
 issue/PR，未核验其当前分支。补丁索引 LP-072/073。
+
+## UBF-010：晶胞对齐的左手坐标与非连续写回错误
+
+**来源**：锁定 ops `26dbceb` 的 `_align_cell_kernel` 与锁定 framework `4dfe372`
+的 `_align_cell_op`。指定 fork ops `eadc3ee` 已修订 lower-triangular 文案，但仍存在
+负 determinant 分支的 H 取负；未将本次修正误记为 fork 已修复。
+
+**问题与依据**：原 kernel 以取负后的 H 计算 T，而原子坐标未取负，因此左手输入
+从 `r=s@H` 变为 `s'=-s`。解析 CPU 测试复现分数坐标翻转，与正确变换独立对照。
+framework 使用 `positions.contiguous()` 临时副本却仅写回 cell，导致 strided 原子
+未旋转；bridge stub 的回归验证真实 custom-op 调用的 buffer 写回路径。
+
+**修正**：保持正对角下三角 L，以原始 H 计算 `T=inverse(L)@H`，原子行向量
+`r'=r@T.T`；左手输入是反射，保持分数坐标和周期距离。bridge 同时写回 positions
+和 cell。源码均加 UBF-010 注释。文案采用 fork 下三角修订，不更改布局/默认后端。
+
+**证据与边界**：CPU FP32/64 ASE 标准晶胞、metric/周期距离、旧公式复现；HCU4
+六组 CPU parity。详见 [M2 报告](../reports/g2-cell-tools-m2.md)。Warp 不可用，
+kernel 本身未执行，stub 不是 Warp 数值对照；未对 NVIDIA 当前分支或外部 PR 作声明。
+非法输入检查和 alias/梯度失败是 reference 契约加强，不当作上游已确认缺陷。
 
 ## 3. 上游没有的实现与本地扩展
 

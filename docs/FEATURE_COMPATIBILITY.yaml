@@ -3766,6 +3766,48 @@
         "No ill-conditioned matrix accuracy or performance claim; formula correction can change legacy variable-cell forces/trajectories"
       ],
       "release_gate": "G2_stress_cell_force_reference_only"
+    },
+    {
+      "id": "TORCH-CELL-TOOLS",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "原生晶胞对齐及六自由度 pack/unpack、索引工具；MPA-0 弛豫 M2 基础",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemi/dynamics/_ops/cell_align.py", "nvalchemiops/dynamics/utils/cell_filter.py"],
+        "symbols": ["align_cell", "extend_batch_idx", "extend_atom_ptr", "pack_positions_with_cell", "unpack_positions_with_cell", "pack_velocities_with_cell", "unpack_velocities_with_cell", "pack_forces_with_cell", "pack_masses_with_cell"],
+        "reference_fixes": ["fork ops eadc3ee lower-triangular documentation", "local UBF-010 left-handed transform and strided bridge writeback"]
+      },
+      "contract": {
+        "api": "Existing framework align_cell(..., *, backend=None, selection=None); ops-owned Torch executor follows nine original Warp ABIs with component-shaped tensors and caller-owned buffers",
+        "data": "atoms [N,3]; cell/transform [B,3,3]; masses [N]/[B]; FP32/64; int32/64 ptr/idx; same device/dtype; single N+2 or interleaved N+2B; explicit append-only extend_batch_idx layout differs",
+        "details": "Positive-diagonal lower L preserves row metric/fractional positions using T=L^-1 H, r'=r T^T; reflection for left-handed H. Six components [00,10,20]/[11,21,22], unpack upper zero. In-place preallocated outputs; no shared output storage, internal overlap unsupported; zero atoms/empty Batch supported; explicit invalid/grad/backend failures; current stream with validation host sync; no CPU or precision fallback. Full contract: docs/TORCH_CELL_TOOLS_CONTRACT.md."
+      },
+      "dependencies": ["torch", "generic executor registry", "optional lazy legacy Warp"],
+      "backends": {
+        "upstream": "Warp (lazy); UBF-010 corrected, numerical execution unverified",
+        "target": ["torch_reference"],
+        "implementation_id": "torch_reference.cell_tools-v1",
+        "executor_owner": "ops"
+      },
+      "gradient_level": "forward-only eager; requires_grad rejected; no variable_cell optimizer capability",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": ["packages/ops/test/dynamics/test_cell_utils.py", "packages/framework/test/dynamics/test_cell_align.py (legacy suites not executed)"],
+        "dcu_tests": ["packages/ops/test/torch/test_torch_cell_tools.py", "packages/framework/test/compatibility/test_cell_tools_reference.py", "probes/cell_tools_reference.py"],
+        "evidence": ["docs/TORCH_CELL_TOOLS_CONTRACT.md", "reports/g2-cell-tools-m2.md", "artifacts/cell-tools-m2/cpu.json", "artifacts/cell-tools-m2/hcu4.json"],
+        "environments": ["project .venv / torch2.9.0 / DTK26.04 / HIP6.3.26093 / HCU4 BW1000 64G"]
+      },
+      "limitations": [
+        "No affine optimizer updates, variable-cell FIRE/FIRE2, NPT/NPH or ASE filters; AlignCellHook lifecycle selection awaits M3",
+        "Legacy Warp numerical execution and full original suites unavailable; bridge stub only tests writeback",
+        "CPU/HCU analytic geometry and packing only; MPA-0 rotated model E/F/stress and relaxation remain unverified",
+        "No compile/autograd/production HIP-Triton/performance or ill-conditioned-cell accuracy claim",
+        "extend_batch_idx append layout must not be paired with interleaved batch pack"
+      ],
+      "release_gate": "G2_native_cell_primitives_reference_only"
     }
   ]
 }
