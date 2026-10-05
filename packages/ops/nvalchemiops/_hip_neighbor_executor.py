@@ -7,10 +7,11 @@ the small public-ABI adapter that allocates those buffers, derives current-cell
 metadata, and invokes the already validated staged pipeline.  It is selected
 only by the central registry; it does not implement backend policy itself.
 
-Point38 deliberately registers only periodic, full-list, dense matrix output.
-The adapter therefore does not claim support for half lists, COO output,
-target rows or skin/selective-rebuild state. Cell changes between calls are
-supported by a full rebuild: no geometry-dependent metadata or trusted build
+The native core builds periodic full-list MATRIX topology. COO output uses
+the shared device-side Torch packing adapter, without a native COO kernel.
+Half lists, target rows and skin/selective-rebuild state are not admitted.
+Cell changes between calls are supported by a full rebuild: no
+geometry-dependent metadata or trusted build
 plan survives a public call. This does not admit cell changes inside a reused
 low-level plan.
 """
@@ -36,7 +37,7 @@ from nvalchemiops.torch_reference import (
     _prepare_batch_ptr,
     _validate_positions,
 )
-from nvalchemiops.torch_reference_cell_list import _grid_spec
+from nvalchemiops.torch_reference_cell_list import _grid_spec, _result
 
 
 _MAX_NBINS = 8192
@@ -54,7 +55,6 @@ def _validate_request(
     cell: torch.Tensor | None,
     pbc: torch.Tensor | None,
     half_fill: bool,
-    return_neighbor_list: bool,
     target_indices: torch.Tensor | None,
     kwargs: dict[str, object],
 ) -> None:
@@ -69,8 +69,6 @@ def _validate_request(
         raise _unsupported("a periodic cell and pbc tensor are required")
     if half_fill:
         raise _unsupported("half-list requests are not admitted")
-    if return_neighbor_list:
-        raise _unsupported("COO/return_neighbor_list output is not admitted")
     if target_indices is not None:
         raise _unsupported("target-index queries are not admitted")
     if kwargs:
@@ -211,11 +209,12 @@ def neighbor_list(
     target_indices: torch.Tensor | None = None,
     **kwargs: object,
 ) -> tuple[torch.Tensor, ...]:
-    """Build full-list MATRIX topology from the current periodic Batch snapshot.
+    """Build full-list topology from the current periodic Batch snapshot.
 
     Each call reinitializes all cell-dependent metadata and CSR buffers, so
     callers may update positions and cells in-place between calls (skin=0).
     The trusted runtime plan is fixed only for this individual snapshot.
+    Optional COO output packs the native MATRIX with the shared Torch adapter.
     """
     _validate_request(
         positions,
@@ -223,10 +222,11 @@ def neighbor_list(
         cell,
         pbc,
         half_fill,
-        return_neighbor_list,
         target_indices,
         kwargs,
     )
+    if return_neighbor_list and (return_distances or return_vectors):
+        raise _unsupported("COO pair geometry is not admitted")
     assert cell is not None and pbc is not None
     positions_work = positions.contiguous()
     ptr = _prepare_batch_ptr(positions_work, batch_idx, batch_ptr)
@@ -258,12 +258,20 @@ def neighbor_list(
         shifts = torch.empty(
             (0, capacity, 3), dtype=torch.int32, device=positions_work.device
         )
-        output: list[torch.Tensor] = [matrix, counts, shifts]
-        if return_distances:
-            output.append(torch.empty((0, capacity), dtype=positions_work.dtype, device=positions_work.device))
-        if return_vectors:
-            output.append(torch.empty((0, capacity, 3), dtype=positions_work.dtype, device=positions_work.device))
-        return tuple(output)
+        return _result(
+            matrix,
+            counts,
+            shifts,
+            return_neighbor_list=return_neighbor_list,
+            distances=(
+                torch.empty((0, capacity), dtype=positions_work.dtype, device=positions_work.device)
+                if return_distances else None
+            ),
+            vectors=(
+                torch.empty((0, capacity, 3), dtype=positions_work.dtype, device=positions_work.device)
+                if return_vectors else None
+            ),
+        )
 
     batch_idx_work = torch.repeat_interleave(
         torch.arange(num_systems, device=positions_work.device, dtype=torch.int32),
@@ -371,12 +379,14 @@ def neighbor_list(
                 ) from exc
             capacity = min(capacity * 2, upper)
             continue
-        output = [public_matrix, public_counts, public_shifts]
-        if distances is not None:
-            output.append(distances)
-        if vectors is not None:
-            output.append(vectors)
-        return tuple(output)
+        return _result(
+            public_matrix,
+            public_counts,
+            public_shifts,
+            return_neighbor_list=return_neighbor_list,
+            distances=distances,
+            vectors=vectors,
+        )
 
 
 __all__ = ["neighbor_list"]

@@ -106,8 +106,8 @@ def test_compute_neighbors_rejects_unregistered_hip_pipeline():
 
 
 @pytest.mark.parametrize("format", (NeighborListFormat.COO,))
-def test_compute_neighbors_rejects_hip_non_matrix_periodic_output(format):
-    """HIP remains explicit periodic/full/MATRIX only."""
+def test_compute_neighbors_rejects_hip_coo_on_cpu(format):
+    """COO admission does not add an implicit HIP-to-CPU fallback."""
     batch = Batch.from_data_list(
         [
             AtomicData(

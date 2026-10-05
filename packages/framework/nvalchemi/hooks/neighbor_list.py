@@ -420,10 +420,12 @@ class NeighborListHook:
         capacity: int,
         fill_value: int,
     ) -> tuple[torch.Tensor, ...]:
-        """Pad a reference result to the staging capacity without changing counts."""
+        """Resize padding to staging capacity without discarding active neighbors."""
         matrix, counts, shifts = NeighborListHook._unpack_reference_result(
             result, pbc=pbc
         )
+        if bool(torch.any(counts > capacity)):
+            raise NeighborOverflowError("staging capacity is smaller than an active neighbor row")
         if matrix.shape[1] == capacity:
             return result
         padded = torch.full(
@@ -432,15 +434,16 @@ class NeighborListHook:
             dtype=matrix.dtype,
             device=matrix.device,
         )
-        if matrix.shape[1] > 0:
-            padded[:, : matrix.shape[1]].copy_(matrix)
+        copy_width = min(matrix.shape[1], capacity)
+        if copy_width > 0:
+            padded[:, :copy_width].copy_(matrix[:, :copy_width])
         if pbc is None:
             return padded, counts
         padded_shifts = torch.zeros(
             matrix.shape[0], capacity, 3, dtype=shifts.dtype, device=shifts.device
         )
-        if shifts.shape[1] > 0:
-            padded_shifts[:, : shifts.shape[1]].copy_(shifts)
+        if copy_width > 0:
+            padded_shifts[:, :copy_width].copy_(shifts[:, :copy_width])
         return padded, counts, padded_shifts
 
     def _reference_growth_capacity(self, actual: int, current: int) -> int:

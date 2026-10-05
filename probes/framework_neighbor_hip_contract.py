@@ -98,13 +98,10 @@ def _unsupported_requests(data: list[AtomicData]) -> dict[str, str]:
             backend="hip",
             method="cell_list",
         ),
-        "periodic_coo": lambda: compute_neighbors(
-            Batch.from_data_list(data[:1]),
-            cutoff=0.6,
-            format=NeighborListFormat.COO,
-            backend="hip",
-            method="cell_list",
-        ),
+        "periodic_skin": lambda: NeighborListHook(
+            NeighborConfig(cutoff=0.6, format=NeighborListFormat.MATRIX),
+            skin=0.5, backend="hip", method="cell_list",
+        )(HookContext(batch=periodic), None),
         "no_pbc": lambda: compute_neighbors(
             Batch.from_data_list(
                 [

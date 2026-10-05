@@ -177,3 +177,41 @@ def test_hip_cell_contraction_explicit_overflow_auto_growth_and_recovery(dtype):
     assert _edges(result) == _edges(_run(reference, contracted))
     recovered = _run(hip.neighbor_list, initial)
     assert _edges(recovered) == _edges(initial_result)
+
+
+@requires_hip
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("nondefault_stream", [False, True])
+def test_hip_dispatch_coo_matches_reference_snapshots_and_empty(dtype, nondefault_stream):
+    from nvalchemiops.dispatch import dispatch_neighbor_list
+
+    stream = torch.cuda.Stream() if nondefault_stream else torch.cuda.current_stream()
+    with torch.cuda.stream(stream):
+        for name in SNAPSHOTS + ("empty",):
+            inputs = _snapshot("initial" if name == "empty" else name, dtype, "cuda")
+            r, h, pbc, idx, ptr = inputs
+            if name == "empty":
+                r, idx, ptr = r[:0], idx[:0], torch.zeros_like(ptr)
+            before = tuple(v.clone() for v in (r, h, pbc, idx, ptr))
+            kwargs = dict(cell=h, pbc=pbc, batch_idx=idx, batch_ptr=ptr, return_neighbor_list=True)
+            result, selection = dispatch_neighbor_list(
+                r, 2.4, **kwargs, backend="hip", method="cell_list", return_backend=True,
+            )
+            expected = reference(r, 2.4, **kwargs)
+            edges, row_ptr, shifts = result
+            def signature(values):
+                return Counter(tuple(row) for row in torch.cat((values[0].T, values[2]), 1).cpu().tolist())
+            assert signature(result) == signature(expected), name
+            torch.testing.assert_close(row_ptr, expected[1])
+            assert row_ptr.dtype == torch.int64
+            assert edges.shape == (2, int(row_ptr[-1]))
+            assert shifts.shape == (edges.shape[1], 3)
+            assert edges.dtype == shifts.dtype == torch.int32
+            assert "coo" in selection.features and selection.family == "hip"
+            assert all(v.device == r.device for v in result)
+            for value, saved in zip((r, h, pbc, idx, ptr), before):
+                torch.testing.assert_close(value, saved, rtol=0, atol=0)
+            if name == "multi_image":
+                with pytest.raises(NeighborOverflowError, match="capacity overflow"):
+                    dispatch_neighbor_list(r, 2.4, **kwargs, max_neighbors=2, backend="hip")
+    stream.synchronize()

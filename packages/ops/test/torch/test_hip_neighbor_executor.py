@@ -79,7 +79,7 @@ def test_hip_stays_explicit_even_when_its_default_strategy_matches_auto():
         assert explicit.family == "hip"
 
 
-@pytest.mark.parametrize("feature", ("no_pbc", "half", "coo", "distances", "vectors"))
+@pytest.mark.parametrize("feature", ("no_pbc", "half", "distances", "vectors"))
 def test_hip_registry_rejects_unregistered_output_modes(feature: str):
     features = {"periodic", "full", "matrix"}
     if feature == "no_pbc":
@@ -96,3 +96,13 @@ def test_hip_registry_rejects_unregistered_output_modes(feature: str):
             features=features,
             strategy="cell_list",
         )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_hip_coo_is_registered_as_matrix_plus_torch_packing(dtype):
+    selection = resolve_backend(
+        "hip", operation="neighbor_list", device="cuda", dtype=dtype,
+        features={"periodic", "full", "coo", "variable_cell"}, strategy="cell_list",
+    )
+    assert selection.implementation_id == "hip.neighbor.cell_list-v1"
+    assert selection.family == "hip"
