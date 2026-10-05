@@ -47,14 +47,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import torch
+from nvalchemiops.backend import BackendSelection
 
+from nvalchemi._backend import resolve_compute_backend
 from nvalchemi.data import Batch
 from nvalchemi.dynamics._ops._bridge import _make_state_batch, _to_per_system
-from nvalchemi.dynamics._ops.fire import fire_step, fire_update
-from nvalchemi.dynamics._ops.velocity_verlet import vv_velocity_finalize
+from nvalchemi.dynamics._ops.fire import fire_step
 from nvalchemi.dynamics.base import BaseDynamics
-from nvalchemi._backend import resolve_compute_backend
-from nvalchemiops.backend import BackendSelection
 
 if TYPE_CHECKING:
     from nvalchemi.dynamics.base import ConvergenceHook
@@ -399,7 +398,6 @@ class FIREVariableCell(BaseDynamics):
         self.alpha_start = alpha_start
         self.f_alpha = f_alpha
         self.backend = backend
-        self._velocity_verlet_selection: BackendSelection | None = None
         self._fire_selection: BackendSelection | None = None
 
     def _init_state(self, batch: Batch) -> None:
@@ -440,24 +438,31 @@ class FIREVariableCell(BaseDynamics):
             },
             dev,
         )
-        self._velocity_verlet_selection = resolve_compute_backend(
-            self.backend,
-            operation="velocity_verlet",
-            device=batch.positions.device,
-            dtype=batch.positions.dtype,
-            gradient_order=1,
-            features={"variable_cell"},
-        )
         self._fire_selection = resolve_compute_backend(
             self.backend,
-            operation="fire",
+            operation="fire_cell",
             device=batch.positions.device,
             dtype=batch.positions.dtype,
-            gradient_order=1,
-            features={"variable_cell"},
+            gradient_order=0,
+            features={"variable_cell", "full_cell"},
+        )
+        self._stress_selection = resolve_compute_backend(
+            self._fire_selection.family,
+            operation="stress_to_cell_force",
+            device=dev,
+            dtype=dtype,
+            gradient_order=2,
+            features={"row_cell"},
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
+        # Vector arrivals have no source-to-parameter mapping in the pinned API.
+        for name in ("_dt_init", "_dt_max_init", "_dt_min_init"):
+            value = getattr(self, name)
+            if isinstance(value, torch.Tensor) and value.numel() != 1:
+                raise ValueError(
+                    "Variable-cell refill requires scalar constructor parameters"
+                )
         dev = template_batch.device
         dtype = template_batch.positions.dtype
         dt = _to_per_system(self._dt_init, n, dev, dtype)
@@ -503,44 +508,30 @@ class FIREVariableCell(BaseDynamics):
             Current batch; *positions*, *velocities*, and *cell*
             updated in-place.
         """
-        # Variable-cell dynamics remains on the Warp path until the stress and
-        # NPT/NPH reference operators are implemented.  Keep this import local
-        # so fixed-cell FIRE can be imported and used without Warp.
-        from nvalchemi.dynamics._ops.npt_nph import (
-            nph_velocity_half_step,
-            npt_cell_update,
-            npt_position_update,
-        )
+        from nvalchemi.dynamics._ops.fire_cell import fire_cell_pre
+        from nvalchemi.dynamics._ops.stress import stress_to_cell_force
 
-        cells_inv = torch.linalg.inv_ex(batch.cell)[0].contiguous()
-        volumes = torch.linalg.det(batch.cell).abs()
-        num_atoms = torch.bincount(batch.batch_idx, minlength=batch.num_graphs).to(
-            dtype=torch.int32, device=batch.device
+        # UBF-012 / fork b12b54c: the old NPH path never kicked the zero-
+        # initialized cell velocity; drive full H with the current stress.
+        cell_force = stress_to_cell_force(
+            batch.stress,
+            batch.cell,
+            torch.linalg.det(batch.cell).abs(),
+            keep_aligned=False,
+            selection=self._stress_selection,
         )
-        nph_velocity_half_step(
+        fire_cell_pre(
+            batch.positions.detach(),
             batch.velocities,
-            batch.atomic_masses,
             batch.forces,
+            batch.atomic_masses,
+            batch.cell.detach(),
             self._state.cell_velocity,
-            volumes,
-            num_atoms,
+            cell_force,
             self._state.dt,
             batch.batch_idx.int(),
-            cells_inv,
-        )
-        npt_position_update(
-            batch.positions,
-            batch.velocities,
-            batch.cell,
-            self._state.cell_velocity,
-            self._state.dt,
-            cells_inv,
-            batch.batch_idx.int(),
-        )
-        npt_cell_update(
-            batch.cell,
-            self._state.cell_velocity,
-            self._state.dt,
+            maxstep=self.maxstep,
+            selection=self._fire_selection,
         )
 
     def post_update(self, batch: Batch) -> None:
@@ -551,19 +542,23 @@ class FIREVariableCell(BaseDynamics):
         batch : Batch
             Current batch; *velocities* updated in-place.
         """
-        # Second velocity half-kick with new forces.
-        vv_velocity_finalize(
+        from nvalchemi.dynamics._ops.fire_cell import fire_cell_post
+        from nvalchemi.dynamics._ops.stress import stress_to_cell_force
+
+        cell_force = stress_to_cell_force(
+            batch.stress,
+            batch.cell,
+            torch.linalg.det(batch.cell).abs(),
+            keep_aligned=False,
+            selection=self._stress_selection,
+        )
+        fire_cell_post(
             batch.velocities,
             batch.forces,
             batch.atomic_masses,
-            self._state.dt,
+            self._state.cell_velocity,
+            cell_force,
             batch.batch_idx.int(),
-            selection=self._velocity_verlet_selection,
-        )
-        # FIRE velocity mixing on atomic DOFs.
-        fire_update(
-            batch.velocities,
-            batch.forces,
             self._state.alpha,
             self._state.dt,
             self._state.n_steps_positive,
@@ -577,6 +572,5 @@ class FIREVariableCell(BaseDynamics):
             vf=self._state.vf,
             vv=self._state.vv,
             ff=self._state.ff,
-            batch_idx=batch.batch_idx.int(),
             selection=self._fire_selection,
         )

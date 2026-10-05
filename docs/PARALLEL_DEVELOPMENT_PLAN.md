@@ -1,6 +1,6 @@
 # 当前并行开发计划
 
-更新时间：2026-10-04。本文只维护当前可启动的任务、边界和验收方式；此前的完整阶段日志与
+更新时间：2026-10-05。本文只维护当前可启动的任务、边界和验收方式；此前的完整阶段日志与
 Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_DEVELOPMENT_PLAN.md)。
 
 ## 1. 当前基线
@@ -8,6 +8,32 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 - 本轮 NHC 起点 `7a90fcf`，开发分支 `codex/feat-fixed-cell-nhc`；实现提交 `b4050ec`，随本轮交付到本地 `develop`，未推送。
 - `TORCH-NEIGHBOR-PBC-CELL` 阶段一 Torch reference 与阶段二 HIP 窄 capability 已收口。
 - `TORCH-NVT-LANGEVIN` 固定晶胞 BAOAB 窄 reference slice 已收口，不再作为当前任务。
+- `TORCH-CELL-STRESS-FORCE` 基础 slice 位于 `codex/feat-cell-stress-force`，起点
+  `e6dd99c`，实现与测试提交 `a76107e`、文档 `35ea133`；未合并/推送。该 slice 排除晶胞及 FIRE/FIRE2。
+- MPA-0 + 原生 FIRE/FIRE2 的里程碑1已完成：`codex/test-mace-mpa0-baseline`，起点 `35ea133`。
+  [契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)、[CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。
+  里程碑2已在 `codex/feat-cell-tools-reference` 完成晶胞工具 CPU/HCU4 窄验证，
+  [M2 报告](../reports/g2-cell-tools-m2.md)。里程碑3已在 `codex/feat-variable-cell-fire`
+  完成原生六项 FIRE2、fork 完整 FIRE、Hook 预处理和窄 CPU/HCU 验证（实现 `29a70f3`），
+  [M3 报告](../reports/g2-variable-cell-fire-m3.md)。里程碑4已在
+  `codex/feat-mpa0-relaxation-workflow`（实现 `7a8af50`）完成普通单优化器批量工作流、薄应用与窄
+  CPU/合成 HCU 验收，[M4 报告](../reports/g2-mpa0-relaxation-m4.md)。里程碑5已在
+  `codex/test-mpa0-hcu-validation` 完成真实 HCU4 窄验收，[M5 报告](../reports/g2-mpa0-relaxation-m5.md)；
+  用户确认更大 Batch 测量后，M5收口 `4656cce`；`codex/test-mpa0-batch-timing`
+  已完成一个64结构/2287原子的FP64原生FIRE Batch，应用101秒，62收敛/2预算退出，
+  [报告](../reports/g2-mpa0-single-batch-timing.md)，收口 `7410445`。只条件估算1600，未跑全量。
+  8000诊断分支 `codex/test-mpa0-batch8000-timing` 起点7410445：同一前缀231结构/7937原子，
+  初始模型求值在80%/95%/默认100%上限均OOM，无优化更新或弛豫输出。
+  [诊断报告](../reports/g2-mpa0-batch8000-timing.md)，收口 `eff753d`；分项观测仅改探针。
+  4000测量 `codex/test-mpa0-batch4000-timing` 起点eff753d，收口1dba058：114项/3959原子完整FP64 Batch，
+  111收敛/3预算退出，应用160.145秒，模型75.93%/Torch reference邻居19.34%/优化器2.81%。
+  [4000报告](../reports/g2-mpa0-batch4000-timing.md)；测量阶段无源码改动。
+  当前 `codex/fix-fire-zero-dt-min` 已提交零下限兼容修正 `0e354f4`（LOCAL-004），
+  CPU回归和HCU4 FP64短步通过，[报告](../reports/g2-fire-zero-dt-min.md)。
+  M1–M5收口审查已完成，[审查报告](../reports/g2-relaxation-port-closure-review.md)；应用脚本和应用专属测试已移至同级 `alchemi-app`，本次边界调整与审查文档仍待收口。
+  后续每个里程碑实施前先说明目的与方案，用户确认后实施；完成后先总结并给出
+  下一阶段方案，等待用户确认后再收口提交当前阶段、启动下一阶段（用户2026-10-05
+  明确的顺序）。不自动推送。M4 已有提交保留，此流程更新在 M5 启动前收口。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
 - 当前任务应从 `develop` 创建短期个人分支，完成一个可独立验证的 slice 后再合并。
 
@@ -15,11 +41,32 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 1 | `TORCH-CELL-STRESS-FORCE` + coupled FIRE2 | 明确 stress 到 cell-force 的单位、shape、梯度和 FIRE2 变胞语义 | 完整 ASE 变胞兼容、后端优化 |
-| 2 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
+| 完成 | MPA-0 M2：晶胞工具 | align_cell、pack/unpack、扩展索引/指针；CPU/HCU4 primitive 通过 | 未含优化器、ASE filters、NPT/NPH |
+| 完成 | MPA-0 M3：变胞 FIRE2/FIRE | 单步/公共解析势 CPU/HCU；MPA-0 CPU 三步与旋转协变 | 不代表目标 HCU、完整收敛/补位、新参数化、生产后端 |
+| 完成 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、薄 CIF/JSONL；CPU真实 FP64 收敛与 HCU合成工作流 | 通用完整 checkpoint、流式服务/向量 arrivals、全目录长作业；目标 HCU由M5补充 |
+| 完成 | MPA-0 M5：目标 HCU | 收口4656cce；两精度/两优化器单体系、3结构补位、8结构容量4；48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2预算退出、FIRE精度敏感；非完整HCU gate/全目录/生产性能 |
+| 完成 | FP64单个较大Batch | 收口7410445；64结构/2287原子、原生FIRE raw力判据；应用101秒，条件估算1600约41–50分钟 | 没有1600实测/16000原子/持续补位吞吐；与M5及H100判据不同 |
+| 完成 | 8000门槛与分项 | 收口eff753d；231结构/7937原子，默认上限初始e3nn前向OOM | 无完整模型求值/优化器更新/弛豫结果；分项不能作稳态或8000吞吐 |
+| 完成 | 4000门槛单Batch分项 | 收口1dba058；114结构/3959原子，111收敛/3预算，应用160秒；模型118.8/邻居30.3/优化器4.4秒，独立NumPy/文件核验 | 邻居为Torch reference；原生raw力判据不同于M5/H100，无持续补位/全量1600实测 |
+| 完成 | FIRE参数兼容修正 | LOCAL-004提交0e354f4恢复dt_min=0，CPU回归和HCU4 FP64 NumPy/解析势/三CIF十步通过 | 本地移植bug，非上游bug；不代表零下限完整Batch收敛/性能 |
+| 完成，文档待收口 | 弛豫移植收口审查 | M1–M5、运行入口、实际参数、HCU/CPU证据边界和未覆盖项已核对 | 功能分支仍未合并/推送；审查文档待确认后提交 |
+| 完成，文档待收口 | MPA-0 应用分离 | CIF 应用入口及专属测试移入同级独立工程 `alchemi-app`；保留 toolkit 通用 API、生命周期测试和迁移证据 | 应用参数/H100 停止度量在下游工程处理，不加入 toolkit 公共 API |
+| 完成 | MPA-0 应用分离 | CIF 应用入口及应用专属测试移入同级独立工程 `alchemi-app`；toolkit 保留原生 API、通用生命周期测试和迁移证据 | 应用参数/H100 停止度量属于下游应用，不加入 toolkit 公共 API；全目录作业另行安排 |
+| 后续队列 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
+
+MPA-0 应用的后续 CLI/停止度量/性能工作属于 `alchemi-app`，不列入 toolkit 上游移植队列。
+
+MPA-0 应用的后续 CLI/停止度量/性能工作属于 `alchemi-app`，不列入 toolkit 上游移植队列。
+
+### Stress/cell-force 已完成基础 reference
+
+转换支持 FP32/64、完整/下三角晶胞力、显式 reference 与单次 selection；已有 strain/stress
+工具和小模型 stress loss 混合二阶路径经 CPU 回归验证，真实周期非正交 MACE 经 CPU/HCU4
+forward/parity 与 FP64 有限差分验证。证据见 [报告](../reports/g2-torch-cell-stress-force.md)。
+该完成项不包含晶胞更新、变胞 FIRE/FIRE2 或完整 MLIP 训练，不自动启动下一项。
 
 ### NHC 已完成窄 reference
 
@@ -55,8 +102,8 @@ generic executor binding、公共 `NVTLangevin(backend="torch_reference")` 接�
 ## 4. 并行边界
 
 - NHC 主要修改 `packages/ops` 的 dynamics reference、测试和对应报告。
-- stress/FIRE2 主要修改 `packages/ops` 的 cell/stress、dynamics 和 framework wrapper，
-  需要同步单位与梯度契约。
+- stress 基础 reference 与后续 FIRE/FIRE2 晶胞耦合分开验收；后者主要修改
+  `packages/ops` 的 cell/dynamics 和 framework wrapper，需要单独的状态与数值契约。
 - BFGS 主要修改 dynamics optimizer 与固定晶胞测试；不要顺带引入变胞状态。
 - 共享文件 `docs/STATUS.md`、`docs/PROJECT_HANDOFF.md`、`docs/FEATURE_COMPATIBILITY.yaml`
   和能力矩阵由集成者在 slice 完成后统一更新，避免多个分支同时重写当前状态。

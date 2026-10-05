@@ -1999,6 +1999,70 @@ def fire_step(
             )
 
 
+@wp.kernel
+def _fire_update_parameters_kernel(
+    alpha: wp.array(dtype=Any),
+    dt: wp.array(dtype=Any),
+    alpha_start: wp.array(dtype=Any),
+    f_alpha: wp.array(dtype=Any),
+    dt_min: wp.array(dtype=Any),
+    dt_max: wp.array(dtype=Any),
+    n_steps_positive: wp.array(dtype=wp.int32),
+    n_min: wp.array(dtype=wp.int32),
+    f_dec: wp.array(dtype=Any),
+    f_inc: wp.array(dtype=Any),
+    vf: wp.array(dtype=Any),
+):
+    # UBF-013 / fork eadc3ee: update controls once per system before mixing.
+    sys = wp.tid()
+    if vf[sys] > type(dt[sys])(0.0):
+        n_steps_positive[sys] = n_steps_positive[sys] + 1
+        if n_steps_positive[sys] >= n_min[sys]:
+            dt[sys] = wp.min(dt[sys] * f_inc[sys], dt_max[sys])
+            alpha[sys] = alpha[sys] * f_alpha[sys]
+    else:
+        n_steps_positive[sys] = 0
+        dt[sys] = wp.max(dt[sys] * f_dec[sys], dt_min[sys])
+        alpha[sys] = alpha_start[sys]
+
+
+@wp.kernel
+def _fire_mix_velocities_kernel(
+    velocities: wp.array(dtype=Any),
+    forces: wp.array(dtype=Any),
+    batch_idx: wp.array(dtype=wp.int32),
+    alpha: wp.array(dtype=Any),
+    vf: wp.array(dtype=Any),
+    vv: wp.array(dtype=Any),
+    ff: wp.array(dtype=Any),
+):
+    i = wp.tid()
+    sys = batch_idx[i]
+    if vf[sys] > type(alpha[sys])(0.0):
+        velocities[i] = fire_velocity_mixing(
+            velocities[i], forces[i], alpha[sys], vv[sys], ff[sys]
+        )
+    else:
+        velocities[i] = type(velocities[i])()
+
+
+_fire_joint_parameters_overloads = {}
+_fire_joint_mix_overloads = {}
+for _joint_vec, _joint_scalar in ((wp.vec3f, wp.float32), (wp.vec3d, wp.float64)):
+    _fire_joint_parameters_overloads[_joint_vec] = wp.overload(
+        _fire_update_parameters_kernel,
+        [wp.array(dtype=_joint_scalar)] * 6
+        + [wp.array(dtype=wp.int32)] * 2
+        + [wp.array(dtype=_joint_scalar)] * 3,
+    )
+    _fire_joint_mix_overloads[_joint_vec] = wp.overload(
+        _fire_mix_velocities_kernel,
+        [wp.array(dtype=_joint_vec)] * 2
+        + [wp.array(dtype=wp.int32)]
+        + [wp.array(dtype=_joint_scalar)] * 4,
+    )
+
+
 def fire_update(
     # Core arrays (required)
     velocities: wp.array,
@@ -2162,6 +2226,34 @@ def fire_update(
         return
 
     vec_dtype = velocities.dtype
+
+    # UBF-013: the original RLE update-only kernel read alpha/dt while another
+    # thread wrote them. Adopt fork's separate control/mix launches for the
+    # single/batch_idx, no-downhill path used by full-cell FIRE. PTR/downhill
+    # and fire_step kernels retain their existing paths and validation scope.
+    if exec_mode is not ExecutionMode.ATOM_PTR and not downhill_enabled:
+        if vf is None or vv is None or ff is None:
+            raise ValueError("vf, vv, ff accumulators required for batch_idx/single mode")
+        if batch_idx is None:
+            batch_idx = wp.zeros(num_atoms, dtype=wp.int32, device=device)
+        if compute_reductions:
+            fire_compute_vf_vv_ff(velocities, forces, vf, vv, ff, batch_idx, device)
+        wp.launch(
+            _fire_joint_parameters_overloads[vec_dtype],
+            dim=dt.shape[0],
+            inputs=[
+                alpha, dt, alpha_start, f_alpha, dt_min, dt_max,
+                n_steps_positive, n_min, f_dec, f_inc, vf,
+            ],
+            device=device,
+        )
+        wp.launch(
+            _fire_joint_mix_overloads[vec_dtype],
+            dim=num_atoms,
+            inputs=[velocities, forces, batch_idx, alpha, vf, vv, ff],
+            device=device,
+        )
+        return
 
     # Dispatch to appropriate kernel
     if exec_mode is ExecutionMode.ATOM_PTR:

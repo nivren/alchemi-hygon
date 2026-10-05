@@ -536,7 +536,7 @@
       "id": "models.mace",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；G2 固定晶胞 MACE/FIRE2 batching、轨迹与短 inflight 已有 slice，训练混合二阶与完整模型加速仍未完成",
+      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；G2 固定晶胞 MACE/FIRE2 batching、轨迹与短 inflight 已有 slice；MPA-0 M1 CPU 单点/数值导数、M4 CPU变胞工作流、M5真实HCU4两精度单体系/异构补位/8结构容量4和48份导出CPU-HCU核验通过；训练混合二阶与完整模型加速仍未完成",
       "scenario": "真实 MACE/e3nn 能量、负梯度力、力损失到参数的混合二阶路径",
       "source": {
         "repository": "framework",
@@ -590,6 +590,10 @@
       },
       "gradient_level": "first_and_mixed_second",
       "verification": {
+        "cpu_status": "verified_mpa0_single_point_and_narrow_fp64_workflow",
+        "hcu_mpa0_status": "verified_small_sample_single_point_and_native_relaxation_workflow",
+        "cpu_tests": ["probes/mace_mpa0_cpu_baseline.py"],
+        "cpu_evidence": ["reports/g2-mace-mpa0-m1-cpu-baseline.md"],
         "dcu_status": "partial",
         "upstream_tests": [
           "test/models/test_mace.py"
@@ -603,7 +607,8 @@
           "probes/mace_fire2_heterogeneous_trajectory.py",
           "probes/mace_fire2_baseline_comparison.py",
           "probes/mace_fire2_inflight_reference.py",
-          "probes/mace_wrapper_stages.py"
+          "probes/mace_wrapper_stages.py",
+          "probes/mace_mpa0_hcu_validation.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
@@ -615,19 +620,23 @@
           "reports/g2-mace-fire2-heterogeneous-trajectory.md",
           "reports/g2-mace-fire2-baseline-comparison.md",
           "reports/g2-mace-fire2-inflight-reference.md",
-          "reports/g2-mace-profile-reference.md"
+          "reports/g2-mace-profile-reference.md",
+          "reports/g2-mace-mpa0-m1-cpu-baseline.md",
+          "reports/g2-mpa0-relaxation-m5.md"
         ],
         "environments": [
           "exploration env /home/wangleping/codes/nvalchemi-toolkit/.venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
-          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)"
+          "project .venv + DTK 26.04 + BW200 (HIP_VISIBLE_DEVICES=0)",
+          "M5 project .venv + DTK26.04 + Torch2.9.0/HIP6.3.26093 + BW1000/gfx936 HCU4"
         ]
       },
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "项目环境已安装 MACE/e3nn/ASE 最小组合，但未安装 PhysicsNeMo/cuEquivariance",
+        "MPA-0 CPU与M5真实HCU4两精度窄单点/弛豫已有小样本；8结构FIRE全部收敛、FIRE2 Li(CN)2在500步应力未达标。Li(CN)2 FIRE两精度最终E/V不同，精度互换/重复稳定性及全目录未验收。MACE 0.3.15 ZBL依赖默认dtype，作业显式匹配默认dtype/权重/输入；atomic_energies与同进程混合dtype并发未验收",
         "探索环境和项目 .venv 的 H₂O wrapper CPU/HCU、单个 perf_46 和两个 perf_46 的 HCU batching 已验证；向量化 reference 仍不是生产 cell-list/Triton/HIP 性能后端",
-        "已验证固定晶胞非 PBC 的短 reference dynamics 组合、周期 32×92/异构 [46,92] 的短 reference 组合，以及 HCU 上异构 [46,92] 与两个单体系的 FIRE2 收敛对照；DataSink/inflight 目前只覆盖短轨迹和短补位，不代表长 occupancy 或重启。A4 已有等长规模短 profile，但混合规模、长轨迹、skin rebuild 分项和完整性能结论仍未完成；CPU 完整收敛受当前 reference 性能限制，变胞 stress、checkpoint/restart、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
+        "已验证固定晶胞非 PBC 的短 reference dynamics 组合、周期 32×92/异构 [46,92] 的短 reference 组合，以及 HCU 上异构 [46,92] 与两个单体系的 FIRE2 收敛对照；DataSink/inflight 只覆盖短轨迹和短补位，不代表长 occupancy 或重启。A4 等长规模短profile、M4 CPU变胞、M5目标MPA-0 HCU4两精度小样本联合收敛/补位已验收；长轨迹、完整性能、checkpoint/restart、训练wrapper混合二阶、cuEquivariance和多卡域分解仍未验证"
       ],
       "release_gate": "G2"
     },
@@ -1762,8 +1771,8 @@
     {
       "id": "dynamics.fire",
       "category": "B",
-      "status": "planned",
-      "implementation_scope": "M1 将 FIRE 与 FIRE2 登记为独立 operation/implementation ID；固定晶胞 reference selection 由 framework 冻结，变胞 Torch reference 因缺少 variable_cell capability 明确失败",
+      "status": "implemented",
+      "implementation_scope": "固定晶胞 FIRE/FIRE2 reference 保留；M3 原生六项 FIRE2和指定fork完整矩阵 FIRE；各自控制和步序不统一，optimizer/stress/align selection 冻结。变胞契约单列TORCH-VARIABLE-CELL-FIRE；M4 CPU/合成HCU生命周期、M5目标MPA-0真实HCU4两精度小样本收敛/预算/退出补位已验收",
       "scenario": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
       "source": {
         "repository": "ops",
@@ -1867,7 +1876,8 @@
           "test/dynamics/test_ops.py::TestFireOps",
           "test/dynamics/test_ops.py::TestFire2Ops",
           "test/dynamics/test_ops.py::TestIntegrators.test_fire_step",
-          "probes/dynamics_reference_compile.py"
+          "probes/dynamics_reference_compile.py",
+          "probes/mace_mpa0_hcu_validation.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
@@ -1882,14 +1892,16 @@
           "reports/g2-mace-fire2-baseline-comparison.md",
           "reports/g2-upstream-dynamics-reference.md",
           "reports/g2-dynamics-reference-compile.md",
-          "reports/g2-backend-registry-m1-dispatch-propagation.md"
+          "reports/g2-backend-registry-m1-dispatch-propagation.md",
+          "reports/g2-mpa0-relaxation-m5.md"
         ],
         "environments": [
-          "project .venv + DTK 26.04 + BW200/gfx936"
+          "project .venv + DTK 26.04 + BW200/gfx936",
+          "M5 project .venv + Torch2.9.0/HIP6.3.26093/DTK26.04 + HCU4 BW1000/gfx936 real MPA-0"
         ]
       },
         "limitations": [
-          "已完成公共固定晶胞 FIRE/FIRE2 的 reference 接线，并在一个 Batch 中完成 32×92 周期 MACE 固定晶胞弛豫；异构 [46,92] 的 3 步 HostMemory 轨迹、短 inflight 补位和 HCU mixed/single 收敛对照已验证；CPU 完整收敛仍受 reference 性能限制，变胞 FIRE2、stress、长轨迹 occupancy 和完整上游行为套件尚未接线",
+          "公共固定晶胞 FIRE/FIRE2、32×92周期MACE固定晶胞弛豫和异构短inflight证据保留；M3变胞单步/解析势、M4生命周期、M5真实MPA-0 HCU4两精度/两优化器单体系与异构补位小样本已验收；FIRE2 Li(CN)2步数预算、FIRE精度敏感性、长轨迹和完整上游/HCU行为套件未收口",
         "上游 Warp-backed FIRE/FIRE2 默认路径保留但未在 HCU 验证；本次 32×92 结果只覆盖 Torch reference 单卡和固定晶胞",
         "FIRE2 reference 在 torch.compile(fullgraph=True) 下因输入校验和动态分支暂不通过；fullgraph=False 可运行但会产生 graph breaks，未承诺完整编译优化"
       ],
@@ -3688,6 +3700,268 @@
         "Short HCU MACE only; no long real-potential statistical or performance claim; HCU gradients/compile and Inductor unverified"
       ],
       "release_gate": "G2_fixed_cell_reference_only"
+    },
+    {
+      "id": "TORCH-CELL-STRESS-FORCE",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "给定晶胞上的 stress/cell-force 基础计算、周期 MACE 应力评估与小模型 stress loss 参数梯度",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": [
+          "nvalchemi/models/_utils.py",
+          "nvalchemi/dynamics/_ops/npt_nph.py",
+          "nvalchemiops/dynamics/utils/cell_filter.py"
+        ],
+        "symbols": [
+          "prepare_strain",
+          "apply_strain",
+          "autograd_stresses",
+          "stress_to_cell_force"
+        ],
+        "reference_fixes": [
+          "ops fork c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a",
+          "framework fork 4bf8bc8084a2f588c332e0bf090978ba4ba76c4b"
+        ]
+      },
+      "contract": {
+        "api": "stress_to_cell_force(stress, cell, volume, keep_aligned=True, *, backend=None, selection=None); preserve npt_nph import and legacy torch.ops name",
+        "data": "stress/cell [B,3,3], volume [B]; FP32/64 same dtype/device; strided allowed; fresh contiguous output, no mutation/alias; B=0 differentiable; finite stress/invertible H/positive supplied V",
+        "details": "Row lattice r=s@H; tensile-positive sigma=-W/V=dE/depsilon/V; F_H=-V H^-T sigma in eV/Angstrom. keep_aligned projects lower triangle. Volume independent in autograd. Reject invalid/unsupported input/backend; current stream with validation host synchronization; no bitwise cross-device guarantee, no CPU/dtype fallback. See docs/TORCH_CELL_STRESS_FORCE_CONTRACT.md and UBF-009."
+      },
+      "dependencies": [
+        "torch",
+        "framework strain/autograd stress tools",
+        "generic ops executor catalog",
+        "optional model wrapper and Torch neighbor/geometry"
+      ],
+      "backends": {
+        "upstream": "Warp (lazy); corrected formula, execution unverified",
+        "target": [
+          "torch_reference"
+        ],
+        "implementation_id": "torch_reference.stress_to_cell_force-v1",
+        "executor_owner": "ops"
+      },
+      "gradient_level": "conversion stress/cell/volume first+second; CPU gradcheck/gradgradcheck; HCU first parity; CPU toy-model mixed-second stress loss to parameter",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [
+          "packages/framework/test/models/test_pipeline.py"
+        ],
+        "dcu_tests": [
+          "packages/ops/test/torch/test_torch_stress.py",
+          "packages/framework/test/compatibility/test_cell_stress_force_reference.py",
+          "probes/cell_stress_force_reference.py"
+        ],
+        "evidence": [
+          "reports/g2-torch-cell-stress-force.md",
+          "docs/TORCH_CELL_STRESS_FORCE_CONTRACT.md",
+          "docs/UPSTREAM_BUGFIXES.md#UBF-009"
+        ],
+        "environments": [
+          "project .venv / DTK26.04 / torch2.9.0 HIP6.3.26093 / HCU4 BW1000 64G gfx936"
+        ]
+      },
+      "limitations": [
+        "No cell alignment/packing/affine update, variable-cell FIRE/FIRE2, NPT/NPH, ASE filter or DomainParallel port in this slice",
+        "Real periodic MACE FP32 forward/CPU-HCU parity only; finite differences use FP64 with unchanged neighbor/image topology",
+        "Real MACE/MLIP stress training and other model families unverified; toy CPU parameter-gradient test is not full training evidence",
+        "HCU second derivatives/compile/opcheck, legacy Warp/NVIDIA execution and production HIP/Triton unverified",
+        "No ill-conditioned matrix accuracy or performance claim; formula correction can change legacy variable-cell forces/trajectories"
+      ],
+      "release_gate": "G2_stress_cell_force_reference_only"
+    },
+    {
+      "id": "TORCH-CELL-TOOLS",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "原生晶胞对齐及六自由度 pack/unpack、索引工具；MPA-0 弛豫 M2 基础",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemi/dynamics/_ops/cell_align.py", "nvalchemiops/dynamics/utils/cell_filter.py"],
+        "symbols": ["align_cell", "extend_batch_idx", "extend_atom_ptr", "pack_positions_with_cell", "unpack_positions_with_cell", "pack_velocities_with_cell", "unpack_velocities_with_cell", "pack_forces_with_cell", "pack_masses_with_cell"],
+        "reference_fixes": ["fork ops eadc3ee lower-triangular documentation", "local UBF-010 left-handed transform and strided bridge writeback"]
+      },
+      "contract": {
+        "api": "Existing framework align_cell(..., *, backend=None, selection=None); ops-owned Torch executor follows nine original Warp ABIs with component-shaped tensors and caller-owned buffers",
+        "data": "atoms [N,3]; cell/transform [B,3,3]; masses [N]/[B]; FP32/64; int32/64 ptr/idx; same device/dtype; single N+2 or interleaved N+2B; explicit append-only extend_batch_idx layout differs",
+        "details": "Positive-diagonal lower L preserves row metric/fractional positions using T=L^-1 H, r'=r T^T; reflection for left-handed H. Six components [00,10,20]/[11,21,22], unpack upper zero. In-place preallocated outputs; no shared output storage, internal overlap unsupported; zero atoms/empty Batch supported; explicit invalid/grad/backend failures; current stream with validation host sync; no CPU or precision fallback. Full contract: docs/TORCH_CELL_TOOLS_CONTRACT.md."
+      },
+      "dependencies": ["torch", "generic executor registry", "optional lazy legacy Warp"],
+      "backends": {
+        "upstream": "Warp (lazy); UBF-010 corrected, numerical execution unverified",
+        "target": ["torch_reference"],
+        "implementation_id": "torch_reference.cell_tools-v1",
+        "executor_owner": "ops"
+      },
+      "gradient_level": "forward-only eager; requires_grad rejected; no variable_cell optimizer capability",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": ["packages/ops/test/dynamics/test_cell_utils.py", "packages/framework/test/dynamics/test_cell_align.py (legacy suites not executed)"],
+        "dcu_tests": ["packages/ops/test/torch/test_torch_cell_tools.py", "packages/framework/test/compatibility/test_cell_tools_reference.py", "probes/cell_tools_reference.py"],
+        "evidence": ["docs/TORCH_CELL_TOOLS_CONTRACT.md", "reports/g2-cell-tools-m2.md", "artifacts/cell-tools-m2/cpu.json", "artifacts/cell-tools-m2/hcu4.json"],
+        "environments": ["project .venv / torch2.9.0 / DTK26.04 / HIP6.3.26093 / HCU4 BW1000 64G"]
+      },
+      "limitations": [
+        "This M2 primitive slice does not include optimizer updates; M3 variable-cell optimizers and AlignCellHook preprocessing are separately recorded in TORCH-VARIABLE-CELL-FIRE; NPT/NPH/ASE filters remain excluded",
+        "Legacy Warp numerical execution and full original suites unavailable; bridge stub only tests writeback",
+        "M2 evidence is analytic geometry/packing only; M3 adds separate CPU MPA-0 rotation covariance and three-step wiring, without target HCU or full relaxation evidence",
+        "No compile/autograd/production HIP-Triton/performance or ill-conditioned-cell accuracy claim",
+        "extend_batch_idx append layout must not be paired with interleaved batch pack"
+      ],
+      "release_gate": "G2_native_cell_primitives_reference_only"
+    },
+    {
+      "id": "TORCH-VARIABLE-CELL-FIRE",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "M3 原生 FIRE2 六项及 fork 完整3×3 FIRE；周期晶体原子/晶胞联合更新",
+      "source": {
+        "repository": "framework + ops",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "ops_commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemi/dynamics/optimizers/fire.py", "nvalchemi/dynamics/optimizers/fire2.py", "nvalchemi/dynamics/hooks/cell_align.py", "nvalchemiops/torch/fire2.py", "nvalchemiops/dynamics/utils/cell_filter.py", "nvalchemiops/dynamics/optimizers/fire.py"],
+        "symbols": ["FIREVariableCell", "FIRE2VariableCell", "AlignCellHook", "fire2_step_coord_cell", "fire_update"],
+        "reference_fixes": ["fork framework b12b54c", "fork ops c4c3bb5/eadc3ee", "UBF-011/012/013", "UBF-014 fork periodic-active subset plus local cached frame covariance"]
+      },
+      "contract": {
+        "api": "Existing public optimizer signatures/defaults; AlignCellHook adds keyword-only backend. Two-stage fire_cell bridge is private backend wiring, not a new scientific filter API",
+        "data": "FP32/64, atoms [N,3], row-cell/state [B,3,3], per-system controls; sorted int32/64 indices. FIRE2 interleaved 3N+6 and count-scaled cell force; FIRE interleaved 3N+9, atomic masses, unit cell optimization mass",
+        "details": "In-place eager mutation, independent output storage, strided nonoverlapping state; current stream with validation sync. FIRE2 new-alpha/old-dt mixing, uphill -.5 motion/reset, atom Cartesian cap also scales dt. FIRE pre/post half-kicks, joint control-before-mixing, atom/cell-row cap scales drift only; actual dt>0 and dt_min>=0, including zero floor max(dt*f_dec,0), negative minima rejected before mutation (LOCAL-004/LP-084 local validation correction). Row affine map r H^-1 dH. FIRE2 requires aligned lower cell; Hook preprocessing preserves periodic/active subsets and cached F/v/stress frame, rejects reorientation after cell motion. Full contract: docs/TORCH_VARIABLE_CELL_FIRE_CONTRACT.md"
+      },
+      "dependencies": ["torch", "stress_to_cell_force", "cell_tools", "generic executor", "optional lazy legacy Warp"],
+      "backends": {
+        "upstream": "None/warp preserved; fork repairs applied; actual Warp execution unverified",
+        "target": ["torch_reference"],
+        "implementation_ids": ["torch_reference.fire2-cell-v1", "torch_reference.fire-cell-v1"],
+        "executor_owner": "ops",
+        "executor": "nvalchemiops.cell_fire_reference"
+      },
+      "gradient_level": "forward-only eager gradient_order=0; requires_grad rejected by update executor; existing stress conversion gradients preserved, no differentiable optimization trajectory claim",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": ["Original Warp numerical suites not executed; existing fixed-cell reference API regressions retained"],
+        "dcu_tests": ["packages/ops/test/torch/test_variable_cell_fire.py", "packages/framework/test/compatibility/test_variable_cell_fire_reference.py", "probes/variable_cell_fire_reference.py", "probes/mace_mpa0_variable_cell_short.py"],
+        "evidence": ["docs/TORCH_VARIABLE_CELL_FIRE_CONTRACT.md", "reports/g2-variable-cell-fire-m3.md", "artifacts/variable-cell-fire-m3/hcu4.json", "artifacts/variable-cell-fire-m3/mpa0-cpu-short.json", "reports/g2-fire-zero-dt-min.md", "artifacts/fire-zero-dt-min/cpu-gate.log", "artifacts/fire-zero-dt-min/hcu.json"],
+        "environments": ["project .venv / torch2.9.0 / DTK26.04 / HIP6.3.26093 / HCU4 BW1000 64G gfx936"]
+      },
+      "limitations": [
+        "CPU independent NumPy and public analytic convergence; HCU16 single-step/4 public25-step cases; not full materials convergence",
+        "LOCAL-004 zero-floor boundary: CPU gate 434 passed/3 existing Warp skips, focused ops46/framework19; HCU4 FP64 four NumPy power cases, three invalid-control cases before mutation, CPU/HCU analytic25-step parity and three original CIFs/124 atoms MPA-0 ten steps. No new full zero-floor Batch convergence or full HCU gate; defaults/formulas/API unchanged",
+        "M3 MPA-0 evidence was CPU three CIFs/two precisions/two optimizers for three steps and initial alignment covariance; real HCU evidence separately added by M5",
+        "M4 lifecycle and M5 real MPA-0 HCU4 two-dtype native optimizer convergence/budget/refill/export acceptance are narrow single-optimizer workflow evidence; see TORCH-MACE-MPA0-WORKFLOW, not a full HCU gate or precision-interchangeability guarantee",
+        "No actual Warp/NVIDIA fixtures, compile/autograd trajectory/checkpoint/DomainParallel/NPT-NPH/ASE filters or production HIP-Triton/performance claim",
+        "FIRE2 all-N=0 no advance; zero-atom member in nonempty optimizer Batch explicitly rejected; empty packing support does not imply optimizer support",
+        "Full FIRE needs no AlignCellHook; Hook is preprocessing, not support for repeated full-cell reorientation during motion"
+      ],
+      "release_gate": "G2_M3_variable_cell_update_reference_only"
+    },
+    {
+      "id": "TORCH-MACE-MPA0-WORKFLOW",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "M4/M5 MACE-MPA-0 + native FIRE/FIRE2 zero-pressure CIF batch relaxation, joint convergence and scalar inflight refill; targeted real HCU4 acceptance",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/dynamics/base.py",
+          "nvalchemi/dynamics/sampler.py",
+          "nvalchemi/dynamics/sinks.py",
+          "nvalchemi/hooks/neighbor_list.py",
+          "nvalchemi/dynamics/optimizers/fire.py",
+          "nvalchemi/dynamics/optimizers/fire2.py",
+          "nvalchemi/models/mace.py"
+        ],
+        "symbols": [
+          "BaseDynamics",
+          "FusedStage",
+          "ConvergenceHook",
+          "SizeAwareSampler",
+          "HostMemory",
+          "NeighborListHook",
+          "FIREVariableCell",
+          "FIRE2VariableCell",
+          "MACEWrapper"
+        ],
+        "reference_fixes": [
+          "fork framework b12b54c private-state protection and admission force priming",
+          "UBF-015/016; local old-schema hook-boundary adaptation; LP-081/082",
+          "LP-083 downstream application harness lives in sibling alchemi-app; not an upstream algorithm or framework API"
+        ]
+      },
+      "contract": {
+        "api": "Existing framework APIs retained; downstream alchemi-app composes the native single-optimizer FusedStage/sampler/hooks/sinks; scalar refill only, ordinary vector Batch retained",
+        "data": "FP32/64 device-local eager Torch; periodic row-cell [B,3,3], ragged atoms [N,3]; units eV/Angstrom/eV-per-Angstrom3, tensile-positive stress; distinct source_index/admission-order system_id; private controls/cell velocity preserved for survivors and reset for arrivals",
+        "details": "Full periodic list/images/current H, skin=0 rebuild and skin>0 H-change invalidation; force maximum norm AND absolute stress maximum; graduated geometry/EFS/private state frozen before observers; changed-composition Fused refill computes fresh EFS through existing compute hooks without advancing step_count. CIF readback final topology/model checks use exported coordinate frame. Explicit convergence, step/wall budget, invalid input, compute error, not-started and final-check-failed statuses; no occupancy selection, silent dtype/device fallback or new cell filter API. See docs/TORCH_MACE_MPA0_RELAXATION_CONTRACT.md"
+      },
+      "dependencies": [
+        "torch",
+        "mace-torch==0.3.15",
+        "e3nn==0.4.4",
+        "ASE CIF I/O",
+        "existing cell/stress/optimizer reference operations"
+      ],
+      "backends": {
+        "upstream": "default None/warp retained, numerical execution not verified",
+        "target": [
+          "torch_reference"
+        ],
+        "model": "ordinary e3nn eager, cueq/compile_model disabled; locked MPA-0 SHA256"
+      },
+      "gradient_level": "forward-only optimization lifecycle, existing model autograd for E/F/stress; no differentiable optimization trajectory or training/compile claim",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [
+          "Original tests preserved; numerical Warp/NVIDIA suites not run"
+        ],
+        "dcu_tests": [
+          "packages/framework/test/compatibility/test_variable_cell_workflow.py",
+          "downstream alchemi-app/tests/test_relaxation_entry.py (application-level integration tests)",
+          "probes/variable_cell_workflow_reference.py",
+          "probes/mace_mpa0_export_verify.py",
+          "probes/mace_mpa0_hcu_validation.py",
+          "probes/mace_mpa0_batch_timing.py"
+        ],
+        "evidence": [
+          "reports/g2-mpa0-relaxation-m4.md",
+          "artifacts/m4-workflow/cpu-gate-final.log",
+          "artifacts/m4-workflow/hcu4-synthetic.log",
+          "artifacts/m4-workflow/export-verify-final.log",
+          "reports/g2-mpa0-relaxation-m5.md",
+          "artifacts/m5-mpa0-hcu/cpu-gate.log",
+          "artifacts/m5-mpa0-hcu/summary.json",
+          "reports/g2-mpa0-single-batch-timing.md",
+          "artifacts/mpa0-batch-timing/fp64-native-batch64/timing.json",
+          "artifacts/mpa0-batch-timing/fp64-native-batch64/verification.json",
+          "reports/g2-mpa0-batch8000-timing.md",
+          "artifacts/mpa0-batch8000-timing/verification.json",
+          "reports/g2-mpa0-batch4000-timing.md",
+          "artifacts/mpa0-batch4000-timing/fp64-native-batch4000/timing.json",
+          "artifacts/mpa0-batch4000-timing/fp64-native-batch4000/verification.json"
+        ],
+        "environments": [
+          "project .venv / Torch2.9.0 / DTK26.04 / HIP6.3.26093; CPU model, HCU4 BW1000 gfx936 synthetic workflow and M5 real locked MPA-0 FP32/64 eager acceptance"
+        ]
+      },
+      "limitations": [
+        "CPU gate 426 passed/3 existing Warp skips; M4 HCU synthetic four groups and M5 HCU real two parity/twelve relaxation groups, not a full HCU gate",
+        "M5 FP32/64 single and three-CIF capacity-two native FIRE/FIRE2 converged; eight-CIF capacity-four FIRE 8/8 and FIRE2 7/8 each dtype, Li(CN)2 stress failed after 500 steps. 48 exports independently re-evaluated CPU/HCU: 46 converged, two max_steps; input atom counts only 4-16",
+        "Li(CN)2 FIRE FP64/FP32 reached thresholds with different final E/V and 88/364 steps; same-geometry E/F/stress parity is not trajectory/precision interchangeability, repeated-run stability or minimum classification evidence",
+        "Additional FP64 native FIRE timing probe: one 64-CIF/2287-atom Batch, 62 native raw-force converged and two 500-update exits, application 101.046 s. Native raw atomic/cell max-row norm <=0.05 differs from M5 dual thresholds and supplied H100 UnitCellFilter criterion; NumPy force/IDs/hashes/CIF geometry verified, no independent final model rerun. No sustained refill arrivals, 16000-atom or 1600-structure execution; 1600 timing is conditional extrapolation. Measured dt_min=0.002 after initial local rejection of zero; LOCAL-004 subsequently restores zero-floor compatibility with separate CPU/HCU4 FP64 short-step evidence, without rerunning historical full Batches",
+        "8000-atom-capacity probe attempted 231-CIF/7937-atom prefix in FP64/e3nn: initial TensorProduct forward OOM at allocator fractions 0.8, 0.95 and default 1.0, zero completed model evaluations/optimizer updates/relaxation outputs. Peak allocated at default limit 59.115 GiB. Probe-only synchronized component timing is available, but this failed attempt has no complete model/optimizer timing or throughput; no allocator-strategy changes or universal capacity bound established",
+        "4000-capacity FP64/e3nn native FIRE probe completed one 114-CIF/3959-atom Batch: 111 raw-force converged, three 500-update exits, no OOM, application 160.145 s, peak allocated 41.131 GiB. Synchronized loop model E/F/stress 75.93%, explicit torch_reference COO neighbor 19.34%, masked optimizer 2.81%; not HIP neighbor, pure-kernel or sustained full-occupancy performance. CPU/HCU NumPy oracle and final IDs/hashes/CIF geometry/raw force/timing checks passed; no independent final model rerun or full product gate; 1600 estimate conditional only",
+        "Ordinary single-optimizer FusedStage only; no arbitrary mixed variable-cell optimizer stages or vector arrival parameter mapping",
+        "The downstream alchemi-app currently defaults to dual force/stress convergence and does not expose all native FIRE/FIRE2 controls, native generalized-force/overflow configuration, or refill frequency; it does not explicitly freeze checkpoint weights. The 4000 timing harness used a separate raw-force criterion, overflow threshold, refill_frequency=20, and frozen weights. These are application-repository concerns, not toolkit API gaps. See reports/g2-relaxation-port-closure-review.md",
+        "HostMemory/preloaded input cost grows with input count; wall budget checked between steps, final verification can exceed budget; no streaming/restart service or full-directory throughput guarantee",
+        "No ASE filters, NPT/NPH, DomainParallel, full checkpoint, production HIP/Triton optimization, full compile or training validation"
+      ],
+      "release_gate": "G2_M5_workflow_CPU_gate_and_HCU_real_small_sample_only"
     }
   ]
 }

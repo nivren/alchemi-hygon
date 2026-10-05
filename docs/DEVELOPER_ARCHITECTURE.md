@@ -7,7 +7,7 @@
 
 ```mermaid
 flowchart LR
-    U[开发者脚本 / 示例]
+    U[开发者脚本 / 通用示例]
 
     subgraph F[packages/framework\nnvalchemi]
         API[公共 API\nAtomicData / Batch\nModels / Dynamics / Hooks]
@@ -139,6 +139,10 @@ flowchart TD
     D -->|legacy closure| L
     C -->|未知或不满足| ERR
 ```
+
+本仓库的示例用于展示和验证通用 framework API。面向特定模型/材料数据集的完整 CLI、输入
+输出策略和作业预算属于下游应用工程；不要把这些应用职责加入 `packages/framework` 公共 API。
+应用可依赖本仓库的 framework/ops，并独立维护自己的集成测试和结果格式。
 
 当前选择语义：
 

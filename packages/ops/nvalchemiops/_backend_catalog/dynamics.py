@@ -1,11 +1,45 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Metadata for fixed-cell Torch-reference dynamics operations."""
+"""Metadata for Torch-reference dynamics and stress conversion operations."""
 
 from nvalchemiops._backend_types import Implementation
 
 IMPLEMENTATIONS: tuple[Implementation, ...] = (
+    Implementation(
+        implementation_id="torch_reference.cell_tools-v1",
+        operation="cell_tools",
+        family="torch_reference",
+        executor="nvalchemiops.cell_reference",
+        entrypoints=(
+            "align_cell",
+            "extend_batch_idx",
+            "extend_atom_ptr",
+            "pack_positions_with_cell",
+            "unpack_positions_with_cell",
+            "pack_velocities_with_cell",
+            "unpack_velocities_with_cell",
+            "pack_forces_with_cell",
+            "pack_masses_with_cell",
+        ),
+        executor_owner="ops",
+        features=frozenset({"row_cell", "six_cell_dofs"}),
+        max_gradient_order=0,
+        evidence="docs/TORCH_CELL_TOOLS_CONTRACT.md",
+        default_strategy=True,
+    ),
+    Implementation(
+        implementation_id="torch_reference.stress_to_cell_force-v1",
+        operation="stress_to_cell_force",
+        family="torch_reference",
+        executor="nvalchemiops.stress_reference",
+        entrypoints=("stress_to_cell_force",),
+        executor_owner="ops",
+        features=frozenset({"row_cell"}),
+        max_gradient_order=2,
+        evidence="docs/TORCH_CELL_STRESS_FORCE_CONTRACT.md",
+        default_strategy=True,
+    ),
     Implementation(
         implementation_id="torch_reference.velocity_verlet-v1",
         operation="velocity_verlet",
@@ -52,6 +86,30 @@ IMPLEMENTATIONS: tuple[Implementation, ...] = (
         features=frozenset({"per_graph"}),
         max_gradient_order=1,
         evidence="G2 kinetic-energy/temperature reference contracts",
+        default_strategy=True,
+    ),
+    Implementation(
+        implementation_id="torch_reference.fire2-cell-v1",
+        operation="fire2",
+        family="torch_reference",
+        executor="nvalchemiops.cell_fire_reference",
+        entrypoints=("fire2_step_coord_cell",),
+        executor_owner="ops",
+        features=frozenset({"variable_cell", "six_cell_dofs"}),
+        max_gradient_order=0,
+        evidence="docs/TORCH_VARIABLE_CELL_FIRE_CONTRACT.md",
+        default_strategy=True,
+    ),
+    Implementation(
+        implementation_id="torch_reference.fire-cell-v1",
+        operation="fire_cell",
+        family="torch_reference",
+        executor="nvalchemiops.cell_fire_reference",
+        entrypoints=("fire_cell_pre", "fire_cell_post"),
+        executor_owner="ops",
+        features=frozenset({"variable_cell", "full_cell"}),
+        max_gradient_order=0,
+        evidence="docs/TORCH_VARIABLE_CELL_FIRE_CONTRACT.md",
         default_strategy=True,
     ),
     Implementation(

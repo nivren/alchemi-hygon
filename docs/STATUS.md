@@ -1,12 +1,21 @@
 # 当前开发状态
 
-更新时间：2026-10-04。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
+更新时间：2026-10-05。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
 [`docs/history/STATUS.md`](history/STATUS.md)。
 
 ## 当前基线
 
 - 当前交付基线：本地 `develop`；NHC 开发分支 `codex/feat-fixed-cell-nhc`，起点 `7a90fcf`。
 - NHC 实现与测试提交：`b4050ec`；相关文档随本轮本地合并交付。未推送、未核验远端同步状态。
+- Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`、文档 `35ea133`；未合并、未推送。
+- MPA-0 弛豫里程碑1：`codex/test-mace-mpa0-baseline`，从 `35ea133` 起步；CPU 探针提交 `61484db`，基线完成；未合并、未推送。
+- MPA-0 里程碑2：`codex/feat-cell-tools-reference`，起点 `f802d49`，实现/测试 `036827e`；通用晶胞工具 CPU/HCU4 窄验证完成；未合并、未推送。
+- MPA-0 里程碑4：`codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；批量应用生命周期和窄 CPU/合成 HCU 验收完成；未合并、未推送。
+- MPA-0 里程碑5：`codex/test-mpa0-hcu-validation`，起点 `fa74ca1`，收口提交 `4656cce`；真实目标 HCU4 小样本验收完成；未合并、未推送。
+- 单Batch测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`，收口 `7410445`；FP64原生FIRE单个64结构/2287原子Batch完成；未合并、未推送。
+- 8000门槛诊断：`codex/test-mpa0-batch8000-timing`，起点 `7410445`，收口 `eff753d`；初始模型求值OOM；未合并、未推送。
+- 4000门槛测量：`codex/test-mpa0-batch4000-timing`，起点 `eff753d`，收口 `1dba058`；114结构/3959原子的完整FP64 Batch与分项测量完成；未合并或推送。
+- 当前交付审查：`codex/fix-fire-zero-dt-min`，LOCAL-004 已收口提交 `0e354f4`；M1–M5 审查及应用分离见[报告](../reports/g2-relaxation-port-closure-review.md)。应用源文件已移到独立工程 `alchemi-app`；本仓库边界/交接文档改动待收口，功能分支仍未合并/推送到 `develop`。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -19,7 +28,10 @@
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
-| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、变胞 stress/FIRE2、生产后端未完成 |
+| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、生产后端未完成；变胞证据另列 |
+| stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 基础转换本身不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 未验证；变胞应用另列 |
+| MACE-MPA-0 单点 | 已验证窄 CPU/HCU4 | M1 CPU Batch/ASE及 FP64数值导数；M5 FP32/64 同几何 CPU/HCU完整 E/F/stress与邻居，48份导出核验 | 全目录/完整模型族未验证；单一精度须匹配默认 dtype；单点一致不代表弛豫轨迹等价 |
+| MPA-0 原生变胞批量弛豫集成 | 已验证窄 CPU/HCU4 下游工作流 | toolkit 原生优化器与生命周期 API 由 `alchemi-app` 应用组合；两精度/两优化器单体系、补位和8结构验收；48份输出独立 CPU/HCU核验 | Li(CN)2 FIRE精度敏感、FIRE2应力未收敛；全目录/完整HCU gate、checkpoint/流式服务、混合变胞阶段、生产性能未验收 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml) 为准；本表不把窄 slice 扩大为完整
@@ -59,6 +71,195 @@
 - CPU FP64 谐势：dt减半，扩展能量峰峰误差降至约1/4；不是长 MACE NVT 统计或性能承诺。
 - vector 参数支持普通 Batch，但 refill 需 scalar 参数；完整 workflow checkpoint、
   DomainParallel、Warp/NVIDIA、HCU compile/autograd 和生产后端未验收。
+
+## Stress/cell-force 基础 reference（2026-10-04）
+
+- 契约与证据：[TORCH_CELL_STRESS_FORCE_CONTRACT.md](TORCH_CELL_STRESS_FORCE_CONTRACT.md)、
+  [g2-torch-cell-stress-force.md](../reports/g2-torch-cell-stress-force.md)。
+- 保留旧四位置参数、`npt_nph` import 和 legacy `torch.ops`；新增 keyword-only
+  backend/selection，reference 由 ops executor 执行，无 Warp/barostat 导入。
+- 参考指定 fork 修正行晶格公式 `F_H=-V H^-T sigma`；源码标记 `CELL-STRESS-ROW`，
+  [UBF-009](UPSTREAM_BUGFIXES.md#ubf-009行晶格的-stress-to-cell-force-乘法顺序错误) 记录来源、数值影响与 Warp 未执行边界。
+- 新增 ops 15 项与 framework 11 项 focused 回归；现有 stress 工具选择集
+  `12 passed, 1 skipped`，跳过项需要 CUDA；小模型实际 stress loss 反向到参数通过。
+- 完整 CPU gate 退出0，分进程为 `82 passed, 3 skipped`、`1 passed`、`168 passed`、
+  `22 passed`、`24 passed`，合计 `297 passed, 3 skipped`；compileall/diff检查通过。
+  初次180秒限时在已有 Inductor 测试处结束；单编译线程复核后重跑整套通过，未改测试/容差。
+- HCU4/BW1000/gfx936 FP32/64 转换、一阶反向、非默认 stream 及真实周期 MACE parity 通过，
+  CPU/HCU probe 均退出0；FP64 MACE stress 有限差分最大绝对误差约 `1.93e-10 eV/Å³`。
+- 真实 MACE FP32 仅 forward/parity；FP64 作能量有限差分 oracle，未训练真实 MACE。
+  变胞 FIRE/FIRE2、晶胞对齐/打包/更新、NPT/NPH 和 production backend 不在本轮范围。
+
+## MPA-0 弛豫里程碑1（2026-10-04）
+
+- [契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md) 与
+  [CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)：模型/fork SHA 固定，NVIDIA 锁定不变。
+- 基础 CPU 门再次为297 passed、3 skipped；应力管线另为12 passed、1 skipped。
+  本阶段未修改产品运行时源码，新增 CPU probe，不移植晶胞/优化器。
+- 真实 Li2MgGe/LiSnCl3/NaLiTl2 Batch 的610条周期边无跨体系边；CPU FP64 数值导数
+  最大误差：force `3.67e-10 eV/Å`、stress `1.56e-10 eV/Å³`、cell-force `6.55e-10 eV/Å`。
+- 初次 FP32 energy dtype 检查失败：ASE calculator 修改默认 dtype，MPA-0 ZBL 路径
+  受该默认值影响。probe 显式配置每个精度并恢复，不 cast 输出/改模型/放宽容差；重跑退出0。
+- M1 时点 HCU_MPA0=`not_run`；目标模型 HCU 证据由下文 M5 补充，OFF23 不代替 MPA-0。
+
+## MPA-0 弛豫里程碑2（2026-10-04）
+
+- [晶胞工具契约](TORCH_CELL_TOOLS_CONTRACT.md) / [报告](../reports/g2-cell-tools-m2.md)：
+  九个原生工具移植为 ops-owned `cell_tools` reference，公共 align 解析/传递 selection，
+  None/warp 保留，Torch 路径无 Warp 导入；不准入变胞优化器 capability。
+- CPU 基础门335 passed、3 skipped（Warp）；晶胞工具28项、公共接线10项。
+  首轮整体240秒超时，最后检查补跑通过；600秒时限完整重跑退出0。
+- HCU4 FP64/32 六组 `[2,0,3]`、单体系零原子、空 Batch 精确 pack round-trip；
+  CPU/HCU 最大绝对差 FP64 `8.88e-16`、FP32 `2.98e-8`；没有模型/优化步。
+- UBF-010 更正左手晶胞 transform 和非连续 bridge 写回；Warp kernel 未实际执行。
+  extend_batch_idx 的 append 布局与 batched pack 的 interleaved 布局分别保留，不能混用。
+- M2 本身未包含 FIRE/FIRE2 更新；M3 接线和证据另列如下，目标 MPA-0 HCU 由 M5 另验收。
+
+## MPA-0 弛豫里程碑3（2026-10-04）
+
+- 分支 `codex/feat-variable-cell-fire`，起点 `d5b5f3c`，实现/测试/契约 `29a70f3`；未合并/推送。
+  [契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md) / [报告](../reports/g2-variable-cell-fire-m3.md)。
+- 原生六项 FIRE2 与指定 fork 修复后的完整3×3 FIRE reference 已接公共优化器；
+  optimizer/stress/align selection 冻结，`None/warp` 保留；没有 ASE filter 新参数化。
+  `AlignCellHook` 保护周期/active 子集和 cached F/v/stress 坐标系一致性，作为预处理。
+- CPU 独立 NumPy 单步39项，公共接线18项；最终基础门392 passed、3 skipped、退出0。
+  三个 skip 是原有 Warp NHC 对照；compileall、定向 Ruff 和 diff-check 通过。
+  两种公共优化器解析矩阵势160步能量降至初值的千分之一以下，纯仿射分数坐标守恒。
+- HCU4 FP32/64 合成异构 `[2,3]`：16组单步 + 4组公共解析势25步通过；单步最大
+  CPU/HCU 差 FP64 `4.44e-16`、FP32 `1.46e-11`。不是目标模型 HCU 证据。
+- MPA-0 三个真实 CIF `[4,10,4]` CPU FP32/64、两优化器各3步通过；r/H 都更新，最终
+  独立重算 E/F/stress 一致，FIRE2 人工旋转后对齐协变通过。未判定完整弛豫收敛。
+- UBF-011/012/013 摘取 fork 行晶格/完整晶胞 FIRE/联合控制修复；UBF-014 包含 fork
+  掩码保护和本地 cached 字段旋转修正；源码与 [缺陷记录](UPSTREAM_BUGFIXES.md) 区分归因。
+- M3 时点未验收 Warp/NVIDIA、MPA-0 HCU、变胞退出/补位/联合收敛、skin 缓存、checkpoint、
+  NPT/NPH、DomainParallel、compile/优化轨迹梯度和生产 HIP/Triton。
+
+## MPA-0 弛豫里程碑4（2026-10-05）
+
+- 分支 `codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；
+  [应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md) / [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。
+- 复用原生 FusedStage/SizeAwareSampler/HostMemory/ConvergenceHook，完成退出/私有
+  状态保护及补位 E/F/stress priming；UBF-015/016、LP-081/082 区分 fork 摘取与本地补充。
+  M4 时的薄 CIF/JSONL 入口为本地 LP-083，现已移至独立下游工程 `alchemi-app`；没有新 filter/优化算法。
+- 新增33项生命周期/应用回归，加原退出输出回归纳入 CPU gate；最终 CPU 门
+  426 passed、3 skipped，compileall/Ruff/diff-check 通过。不是完整 HCU gate。
+- HCU4 合成 FP64/FP32、两种优化器各4个异构体系，收敛/补位/ID/邻居/退出状态
+  与 CPU 对照四组通过；FIRE2 181、FIRE 84 个 fused 步。M4 时点 HCU_MPA0=`not_run`，M5 另补充。
+- 真实 CPU FP64 `[4,4,10]`、最大活跃2体系：FIRE 三个样本31/35/80步收敛；FIRE2
+  NaLiTl2 53步收敛，另两项到达120秒墙钟预算。阈值0.01 eV/Å 与0.1 GPa。
+  FP32 两种优化器三样本各2步 budget 路径通过，不能算 FP32 完整收敛。
+- 实际导出 CIF 独立重读/model核验14份；NaLiTl2 两种优化器另用最终入口完整重跑。
+  退出原因区分收敛/步数/墙钟/非法输入/计算异常/未开始/最终核验失败。
+- scalar refill；普通向量 Batch 保留，向量 arrivals 来源映射明确拒绝。预读输入及
+  HostMemory 占用随输入数增长，步间墙钟检查后还需完成最终导出核验。
+  M4 时点 Warp/NVIDIA、目标 HCU、compile/训练梯度、checkpoint、混合变胞算法阶段、DD、
+  NPT/NPH、生产后端与全目录均未验收。
+
+## MPA-0 弛豫里程碑5（2026-10-05）
+
+- 分支 `codex/test-mpa0-hcu-validation`，起点 `fa74ca1`；
+  [M5 报告](../reports/g2-mpa0-relaxation-m5.md)。只新增验证探针与契约/证据，
+  framework/ops/应用源码不变，无新增科学算法或上游 bug 修复。
+- HCU4 BW1000 64G/gfx936，Torch2.9.0/HIP6.3.26093/DTK26.04；作业前后资源检查空闲。
+  FP64 再 FP32，两种原生变胞优化器；目标锁定 MPA-0，eager Torch reference。
+- CPU gate 426 passed/3既有 Warp skips；另33项工作流/应用 focused 回归通过。
+  HCU 为真实单点两组、弛豫十二组定向验收，不是完整 HCU gate。
+- 两精度单体系都收敛（FIRE31、FIRE2 53步）；3结构异构容量2的四组都收敛，
+  实际补位后 source/ID唯一；FIRE31/35/80步，FIRE2 53/77/153步。
+- 从用户目录选8个不同真实 CIF，4–16原子、共59原子、最大活跃4/max_atoms64；
+  两精度 FIRE各8项收敛，FIRE2各7项收敛，Li(CN)2各500步预算退出（应力0.282/0.265 GPa）。
+  力<=0.01 eV/Å 与绝对应力<=0.1 GPa 双阈值不变，budget不计为成功。
+- 共48份输出（8种输入多配置重复），46份收敛/2份 max_steps；逐份 CPU/HCU 独立模型
+  重算完整E/F/stress/邻居和导出哈希。最大差 FP64 E2.85e-14/F2.96e-14/stress3.22e-15，
+  FP32 E1.53e-5/F1.93e-5/stress1.36e-6，单位依次eV/eV·Å⁻¹/eV·Å⁻³，均通过原定容差。
+- 8结构应用及导出约26–42秒（含验证Hook，启动/独立核验另计），峰值 allocated
+  FP64约626 MiB/FP32约347 MiB；不是整卡占用或生产吞吐。
+- Li(CN)2 FIRE FP64/FP32均双阈值收敛，但88/364步、能量-72.656861/-74.576416 eV、
+  体积133.015271/124.967972 Å³；没有判定原因或极小值性质，精度互换和重复稳定性未验收。
+  当前范围仍为单优化器 scalar refill/单卡 eager；全目录、NVIDIA、训练/compile、
+  checkpoint/DD/NPT-NPH/ASE filters/生产后端不在验收内。用户确认后续测量后，M5以 `4656cce` 收口提交。
+
+## MPA-0 单个较大 Batch 耗时测量（2026-10-05）
+
+- [报告](../reports/g2-mpa0-single-batch-timing.md)、`probes/mace_mpa0_batch_timing.py`；
+  只新增隔离探针及证据，framework/ops/产品应用源码不变。只测FP64原生完整矩阵FIRE。
+- 当前目录21755候选按文件名排序，Random(24)抽1600后只执行前64项；2287原子、
+  每项3–132原子，HCU4容量2304/64结构、refill20、ordinary e3nn/Torch reference。
+  初批全部装入，没有新到达结构；未测持续补位吞吐、16000原子容量或全部1600。
+- 停止判据为原子物理力与原生`stress_to_cell_force`全部行范数最大值<=.05 eV/Å，
+  无独立应力阈值；不同于M5双阈值及H100参考形变/cell_factor=N的UnitCellFilter判据。
+  62项收敛、2项500步预算退出，0溢出/计算错误；实际更新总5191，中位数37.5步。
+- 应用101.046秒（准备2.557+优化98.272+导出.218）；启动19.809、oracle3.564，
+  探针总124.420秒。峰值allocated/reserved为23.486/35.096 GiB；进程allocator限80%。
+  作业后无KFD PID；没有OOM不代表16000原子可运行。
+- CPU/HCU各3个NumPy原生力案例通过；CPU核验64项ID/哈希/FP64原始数组/预算分类/
+  CIF几何，最终原生力重算最大差3.47e-17 eV/Å；没有64份独立模型重算或完整HCU gate。
+- 同等规模25批条件估算：共享启动约41–42分钟，每批进程重启约50分钟；不是全部收敛
+  耗时或统计区间。H100输入、CuEq、容量和判据不同，不能作同工作量平台性能比较。
+- 初轮dt_min=0被本地参数校验拒绝且未完成一个完整优化步，不计时外推；
+  最终明确采用现有默认.002；本测量未修改算子。后续 LOCAL-004 已独立修正零下限，
+  见下节，历史测量仍采用.002参数。
+
+## MPA-0 8000原子门槛与分项计时诊断（2026-10-05）
+
+- 用户追加授权8000门槛、仍只跑一批、估计模型与优化器等分项。
+  [报告](../reports/g2-mpa0-batch8000-timing.md)；复用相同抽样前缀231结构/7937原子，
+  每项3–176原子；下一项80原子会超容量，未纳入。FP64/e3nn/原生FIRE参数与上一测量相同。
+- 在探针给邻居、compute、masked pre/post update、停止观测器加互不嵌套的同步墙钟，
+  其余工作流记录残差。framework/ops/产品应用不变，没有新filter/算法/上游bug修复。
+- HCU4同批初始求值80%、95%、默认100%allocator上限三次均在e3nn张量积前向OOM；
+  模型求值及优化更新完成数0，没有弛豫输出。最后一次allocated峰值59.115 GiB、
+  reserved62.604 GiB，额外3.95 GiB分配失败；没有改变allocator策略或测出理论最小内存。
+- 默认上限：输入/模型准备4.986秒、初始冷邻居2.007秒、容量检查.000322秒、
+  失败前部分模型.694秒、循环其余1.107秒，探针总31.939秒。
+  未执行优化器，不能给完整E/F/stress求值/稳态分项占比、完整Batch耗时或8000容量1600项估算。
+- 运行时确认e3nn TensorProduct/FullyConnectedTensorProduct与MACE SymmetricContraction，
+  无CuEq/HCU等变加速库；OOM位置不是完整循环性能剖析或未来算子库收益证明。
+- CPU oracle及计时返回/异常/Hook语义检查通过，Ruff/格式/编译/diff检查；
+  HCU三次各CPU/HCU NumPy oracle通过，事后全部231输入哈希、容量、失败分类/分项总和核验。
+  无完整产品gate、成功弛豫或完整模型parity新增证据；原2304容量结果保留。作业后设备空闲。
+
+## MPA-0 4000原子门槛单Batch完整分项（2026-10-05）
+
+- [报告](../reports/g2-mpa0-batch4000-timing.md)。复用既有探针，无源码/算法/上游bug修复。
+  同一Random(24)前缀114结构/3959原子，每项3–176原子，下一项44原子超4000未纳入。
+  FP64、e3nn、原生完整9项FIRE、raw力.05阈值、500实际更新预算、refill20不变。
+- 邻居显式`torch_reference`，6Å/每次重建/COO/512上限检查；当前优化HIP邻居仅覆盖
+  固定晶胞/MATRIX等窄条件，变胞/COO未纳入该路径支持范围。30.261秒属于Torch reference邻居。
+- HCU4一次作业完成、allocator80%，111收敛/3 max_steps，无OOM/力溢出/计算错误。
+  实际更新8679、中位数36步、P95为302.25；518次模型求值/500 fused步，不把reprime算作更新。
+- 应用160.145秒=准备3.287+循环156.489+导出.369；启动19.261/oracle3.267另计，
+  探针182.673秒。峰值allocated41.131/reserved49.938 GiB；只证明当前样本可容纳。
+- 循环同步分项：模型118.819秒（75.93%）、邻居及容量检查30.261（19.34%）、
+  原生优化器pre/post共4.404（2.81%）、停止观测器.730（.47%）、工作流残差2.276（1.45%）。
+  模型含力/应力autograd，优化器含mask/私有状态保护；同步观测不是纯kernel或满载稳态时间。
+- CPU/HCU各3个NumPy oracle通过；114项ID/抽样/哈希/lossless FP64状态/预算/CIF几何/
+  计时分项核验通过，最终原生力差2.78e-17 eV/Å。无独立114项模型重算/完整CPU-HCU gate。
+  作业后设备空闲、无KFD PID；没有新到达结构、持续refill吞吐或全目录成功率证据。
+- 同等分布/参数按14.035批条件外推约37.8分钟，按15个完整批次安排约40.4分钟；
+  不是1600实测、全部收敛耗时或统计区间，H100输入/CuEq/容量/判据仍不同。
+
+## FIRE 零下限兼容修正（2026-10-05）
+
+- [报告](../reports/g2-fire-zero-dt-min.md)。LOCAL-004 / LP-084：本地完整矩阵 FIRE
+  reference 的 `dt_min<=0` 改为 `<0`，恢复锁定 NVIDIA/fork 已有的零下限语义。
+  实际 `dt>0`、非法参数报错前状态保持、默认参数/API/公式/后端选择不变。
+- 修复前四项零下限回归均复现拒绝；修复后 ops46/公共19项通过，完整 CPU gate
+  **434 passed, 3 skipped**，compileall、Ruff、diff检查通过。
+- HCU4仅测FP64：四类功率单步对NumPy误差0；三种非法边界无状态改写；
+  公共解析势25步 CPU/HCU对照位置误差1.11e-16 Å；原抽样前三CIF/124原子
+  MPA-0 + FIRE零下限十步正常，r/H/E/F/stress为有限设备内FP64且体积为正。
+  不宣称十步达到收敛；作业后无KFD PID，不代表完整HCU gate。
+- LOCAL-004已收口提交 `0e354f4`；历史4000原子完整Batch仍使用.002，未复测零下限完整Batch或性能。
+
+## 应用工程分离（2026-10-05）
+
+- MPA-0 CIF 弛豫入口和专属测试已迁至同级 `/home/wangleping/codes/alchemi-app`；本仓库继续维护
+  toolkit 移植、上游兼容性及集成验证证据，不再承载材料/模型专用应用入口。
+- 分离后验证：toolkit CPU gate **425 passed, 3 skipped, 1 deselected**；独立应用入口回归
+  **9 passed**，CLI `--help` 和项目 TOML 检查通过。两处 `git diff --check` 通过；此项只移动
+  应用代码并调整追踪文档，未改 framework/ops 算法，因此没有重跑 HCU。
+- 两个仓库的分离变更和文档尚未提交；现有 HCU 证据仍仅适用于各报告列明的窄验证范围。
 
 ## 运行时排障记录
 
@@ -181,13 +382,21 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 
 ## 当前下一步
 
-具体 owner 和分支需用户确认后再启动。当前计划见
+每个里程碑先说明目的与方案，用户确认后启动。当前计划见
 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)：
 
-固定晶胞 NHC reference 已完成上述窄范围，并随本轮交付到本地 `develop`。后续队列：
+固定晶胞 NHC reference 已在本地 `develop`；stress/cell-force 基础已完成上述窄范围，
+实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
+MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
+通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
+M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
+8000门槛诊断已收口 `eff753d`；4000门槛完整Batch及分项已收口 `1dba058`。
+零下限兼容修正已提交 `0e354f4`；本次收口审查文档尚未提交，功能分支仍未合并/推送。
+后续建议队列：
 
-1. `TORCH-CELL-STRESS-FORCE` 与 coupled FIRE2 variable-cell；
-2. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. 已完成 MPA-0 弛豫移植收口审查，见[报告](../reports/g2-relaxation-port-closure-review.md)。应用入口与专属测试现已移至独立下游工程 `alchemi-app`；toolkit 继续维护上游移植和兼容性跟踪。
+2. 若要对齐 H100 运行控制或停止度量，在 `alchemi-app` 单独规划；H100 `UnitCellFilter(cell_factor=N)` 广义力判据与4000探针 native raw-force 判据不同。全目录长作业仍需单独确认。
+3. 固定晶胞 ASE 3.29-compatible BFGS、NPT/NPH、DomainParallel 与生产性能仍是独立后续范围。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

@@ -1,6 +1,6 @@
 # 上游缺陷、实现补齐与逻辑修正记录
 
-更新日期：2026-10-04。
+更新日期：2026-10-05。
 
 本文件记录移植中发现的上游计算逻辑、状态管理和接口行为缺陷，以及本项目如何修正。
 每项记录须能回答：原来哪里错、为什么判定有问题、修改了什么、如何验证、同步上游时如何处理。
@@ -37,6 +37,14 @@ issue/PR、官方修复 SHA 和核验日期缺失时写明，不由本地测试�
 | [UBF-006](#ubf-006hostmemory-快照与活跃数据共享存储) | CPU 轨迹帧被后续更新改写 | framework | 现有原因注释 | LP-008 | 已提交 `b5fd0ae`；历史 CPU/HCU 验证 |
 | [UBF-007](#ubf-007mace-本地-checkpoint-被交给下载器) | 声明支持本地路径却按 URL 处理 | framework | 现有原因注释 | LP-005/069 | 已提交 `3f5b544`；历史回归和模型执行证据 |
 | [UBF-008](#ubf-008uniform-storage-多属性复制使用不同目标槽位) | 多属性 put 复用已变更的占用 mask | framework | 现有原因注释 | LP-004/070 | 已提交 `3f89f6b`；Torch 双属性回归 |
+| [UBF-009](#ubf-009行晶格的-stress-to-cell-force-乘法顺序错误) | 非正交行晶格的晶胞力公式错误 | ops/framework | `CELL-STRESS-ROW` | LP-072/073 | 实现提交 `a76107e`；CPU/HCU reference 通过，Warp 未执行 |
+| [UBF-010](#ubf-010晶胞对齐的左手坐标与非连续写回错误) | 左手 transform 改变分数坐标；非连续坐标未写回 | ops/framework | `UBF-010` | LP-074/075 | CPU/HCU4 reference 通过，bridge stub 通过，Warp 数值未执行 |
+| [UBF-011](#ubf-011fire2-仿射运动使用了列晶格公式) | 非正交行晶格的仿射运动不保持分数坐标 | ops | `UBF-011` | LP-076 | fork 修复移植；CPU/HCU4 reference 通过，Warp 未执行 |
+| [UBF-012](#ubf-012完整晶胞-fire-缺少应力驱动与联合控制) | 零初始化晶胞速度未受应力驱动；缺少九项联合控制 | framework | `UBF-012` | LP-078 | fork 修复移植；CPU/HCU4 解析势与 CPU MPA-0 短步通过 |
+| [UBF-013](#ubf-013fire-联合控制更新与混合存在竞态) | 参数写入与速度混合在同一并行 kernel 中竞态 | ops | `UBF-013` | LP-077 | fork 的分离 kernel 移植；reference 通过，Warp 未执行 |
+| [UBF-014](#ubf-014aligncellhook-未保护体系子集及坐标系一致性) | 忽略周期体系掩码；cached 力/速度/应力未旋转 | framework | `UBF-014` | LP-080 | 本地修正；CPU 公共 Hook/MPA-0 旋转协变通过 |
+| [UBF-015](#ubf-015变胞退出及掩码更新遗漏私有优化器状态) | 晶胞速度、dt/alpha/计数仍更新，Hooks 可看到未恢复的退出数据 | framework | `UBF-015` | LP-081 | fork 状态保护摘取及本地 Hook 边界修正；M4 CPU/HCU 合成工作流 |
+| [UBF-016](#ubf-016补位后首步使用未初始化的力和应力) | FusedStage 只 prime 首批，补位首步使用零占位输出 | framework | `UBF-016` | LP-082 | 参考 fork admission priming，窄适配旧版 refill；M4 CPU/HCU 合成及 CPU MPA-0 |
 
 NHC 条目的共同来源：
 
@@ -155,6 +163,8 @@ step 恢复已退出体系的 positions/velocities/cell，却留下临时坐标�
 `test_inactive_dynamics_outputs.py::test_step_preserves_outputs_for_graduated_graph`；
 历史行为验证见 [g2-upstream-dynamics-reference.md](../reports/g2-upstream-dynamics-reference.md)。
 新增字段包含 stress，但专用测试直接断言的是 positions/forces/energy，不能扩大为 stress 数值验收。
+M4 的 `test_hooks_observe_frozen_inactive_geometry_outputs_and_private_state` 追加了变胞
+stress/cell 与 observer 边界的 CPU 验证；合成 HCU 证据独立见 M4 报告。
 
 **上游状态**：适合作为 mixed-status 一致性候选；本次未提交或核验官方 issue/PR。
 
@@ -217,6 +227,149 @@ copied_mask 重放同一复制集合。该逻辑位于共同 LevelStorage 层，
 
 **上游状态**：uniform 多属性映射修复为上游候选；Warp 执行证据与 Torch 对照须分别核验。
 
+## UBF-009：行晶格的 stress-to-cell-force 乘法顺序错误
+
+**来源**：锁定 ops `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1` 的
+`dynamics/utils/cell_filter.py` stress kernel/接口，以及锁定 framework
+`4dfe3723def34df3fadb245981081ccf8c94c257` 的 `dynamics/_ops/npt_nph.py` 转换说明。
+
+**问题与依据**：原 kernel 使用 `-V sigma H^-T`；行晶格 `r=s@H`、
+`H'=H@(I+epsilon)` 要求固定分数坐标的负能量梯度为 `-V H^-T sigma`。
+独立非正交周期谐键 FP64 有限差分复现旧公式偏差。部分说明的 compression-positive/
+upper-triangular 与公共拉伸为正、实际下三角投影不一致。
+
+**修正与影响**：Torch reference 和本地 legacy Warp kernel 均更正公式；转换说明同步
+更正，源码标记 `CELL-STRESS-ROW / UBF-009`。保留原位置参数、keep_aligned 默认值和
+None/warp 默认选择；legacy 变胞晶胞力/轨迹可能变化。未移植 fork 的晶胞更新、
+FIRE/FIRE2、归一化、仿射映射或 DomainParallel 修复。reference 后端、fake/autograd
+和依赖隔离是平台适配，与这个上游缺陷分开归因。
+
+**参考修复**：用户指定 fork
+[ops c4c3bb56b6c6](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a)
+及 [framework 4bf8bc8084a2](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/4bf8bc8084a2f588c332e0bf090978ba4ba76c4b)。
+不更改上游锁定，不整体同步 develop；fork 已修正不代表 NVIDIA 官方修复状态。
+
+**本地状态**：`codex/feat-cell-stress-force` 实现与测试提交 `a76107e`，未合并、未推送。
+CPU 一二阶/有限差分、公共接线、小模型 stress loss 参数反向、真实周期 MACE 和
+HCU4 窄 smoke 见 [报告](../reports/g2-torch-cell-stress-force.md)。Warp 缺失，legacy
+kernel 未执行；不能把 Torch 通过当作 Warp/NVIDIA parity。本轮未向 NVIDIA 提交
+issue/PR，未核验其当前分支。补丁索引 LP-072/073。
+
+## UBF-010：晶胞对齐的左手坐标与非连续写回错误
+
+**来源**：锁定 ops `26dbceb` 的 `_align_cell_kernel` 与锁定 framework `4dfe372`
+的 `_align_cell_op`。指定 fork ops `eadc3ee` 已修订 lower-triangular 文案，但仍存在
+负 determinant 分支的 H 取负；未将本次修正误记为 fork 已修复。
+
+**问题与依据**：原 kernel 以取负后的 H 计算 T，而原子坐标未取负，因此左手输入
+从 `r=s@H` 变为 `s'=-s`。解析 CPU 测试复现分数坐标翻转，与正确变换独立对照。
+framework 使用 `positions.contiguous()` 临时副本却仅写回 cell，导致 strided 原子
+未旋转；bridge stub 的回归验证真实 custom-op 调用的 buffer 写回路径。
+
+**修正**：保持正对角下三角 L，以原始 H 计算 `T=inverse(L)@H`，原子行向量
+`r'=r@T.T`；左手输入是反射，保持分数坐标和周期距离。bridge 同时写回 positions
+和 cell。源码均加 UBF-010 注释。文案采用 fork 下三角修订，不更改布局/默认后端。
+
+**证据与边界**：CPU FP32/64 ASE 标准晶胞、metric/周期距离、旧公式复现；HCU4
+六组 CPU parity。详见 [M2 报告](../reports/g2-cell-tools-m2.md)。Warp 不可用，
+kernel 本身未执行，stub 不是 Warp 数值对照；未对 NVIDIA 当前分支或外部 PR 作声明。
+非法输入检查和 alias/梯度失败是 reference 契约加强，不当作上游已确认缺陷。
+
+## UBF-011：FIRE2 仿射运动使用了列晶格公式
+
+**来源**：锁定 ops `26dbceb` 的 `_fire2_coord_cell_*` 两个 kernel；指定 fork
+ops `c4c3bb5` 已修复。行晶格 `r=s@H` 要求 `r_new=r@H^-1@H_new`；原代码对
+列坐标使用 `H_new@H^-1`，非正交晶胞不能保持分数坐标。
+
+**修正**：原 Warp kernel 使用 `H_new.T@H^-T`；reference 使用增量
+`dr=r@H^-1@dH+dt*v`。分支、cell-force 原子数缩放、位移限制及 dt 缩放保持来源语义。
+CPU 独立 NumPy、旧公式反例与纯晶胞分数坐标守恒通过；HCU4 FP32/64 单步 parity
+通过。实际 Warp/NVIDIA 未运行；不宣称其余 NPT/NPH 仿射实现已修正。
+
+## UBF-012：完整晶胞 FIRE 缺少应力驱动与联合控制
+
+**来源**：锁定 framework `4dfe372` 的 `FIREVariableCell` 声明需要 stress，
+但晶胞速度零初始化后没有完整的应力 half-kick，原子 FIRE 控制也未包含晶胞。
+采用指定 fork framework `b12b54c` 的修复，而非新增 ASE filter 算法。
+
+**修正**：pre/post 各半步施加 `F_H`，晶胞优化质量为1；保留原子质量；所有原子
+和三行完整 Hdot/FH 参与同一次功率/控制/混合，位移限制同时考虑实际原子和 cell-row。
+默认原子 kick/mixing 仍走 Warp，reference 独立可用。CPU 全九项独立单步 oracle、
+解析势160步能量下降、CPU MPA-0 三步及 HCU4 解析势25步通过。没有实际 Warp 或
+目标模型 HCU、完整收敛与补位验证；保留 DD 元数据不代表 DD 已适配。
+
+## UBF-013：FIRE 联合控制更新与混合存在竞态
+
+**来源**：锁定 ops 的 batch_idx update-only kernel 一部分线程写 alpha/dt，
+其他线程同一 kernel 读这些控制值混合速度；没有跨线程同步保证读取新值。
+采用指定 fork ops `eadc3ee` 的先按体系更新参数、再按 DOF 混合的分离 launch。
+
+**修正范围**：`fire_update` 的 single/batch_idx 且不启用 downhill-check 路径，
+正是完整晶胞 FIRE 的联合控制入口。`fire_step`、PTR、downhill-check 路径保留，
+未据此宣称整个 Warp FIRE 已无竞态。Torch full-cell reference 同样先更新控制再混合。
+CPU/HCU reference 与阈值 oracle 通过；本机 Warp 不可用，kernel 并行运行未验证。
+
+## UBF-014：AlignCellHook 未保护体系子集及坐标系一致性
+
+**来源**：锁定 framework 的 `AlignCellHook`；指定 fork `b12b54c` 已修复周期/active
+子集写回，但尚未修复 cached F/v/sigma 的坐标系一致性。
+原 Hook 只以 periodic_mask 判断是否返回，随后对整个 Batch 对齐；且在模型已评估后
+只旋转 r/H，不旋转 cached F/v/sigma，可能用不同坐标系的力和应力推进第一步。
+
+**修正**：采用 fork 的周期/active 子集保护，只对需对齐的体系处理；本地补充同一正交/反射 T 对
+列向量 F/v 和 tensor stress 协变旋转。已对齐体系跳过；已有晶胞运动时需要再次
+对齐则明确报错，避免对六项状态作未经定义的动态重参数化。新增 keyword-only
+backend/冻结 selection 是平台适配，错误检查为合同加强，分别区别于 bug 修复。
+CPU Hook 子集/协变/重复调用和 MPA-0 FP32/64 旋转前后 E/F/stress 对照通过；
+不能扩展为任意运行中重对齐、full-cell FIRE 每步 Hook 或 Warp 数值已验证。
+
+以上 M3 证据汇总见 [报告](../reports/g2-variable-cell-fire-m3.md) 和
+[契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md)；来源 SHA 不变，未验证 NVIDIA 当前分支。
+
+## UBF-015：变胞退出及掩码更新遗漏私有优化器状态
+
+**来源**：锁定 framework `4dfe372` 的 BaseDynamics 四种掩码入口仅保存 Batch
+中的坐标/速度等字段，没有恢复优化器 `_state`。FIRE/FIRE2 的 cell velocity、
+dt/alpha/功率计数和归约缓冲继续推进；早前 UBF-003 只在 NHC 类中保护私有链。
+`step()` 在 AFTER_PRE_UPDATE/AFTER_COMPUTE/AFTER_POST_UPDATE 后才恢复 Batch，
+observer 可能看到退出体系的临时坐标及不对应的输出。
+
+**修正与归因**：从用户 fork framework `b12b54c` 的 `_save_state_fields` /
+`_restore_unmasked_state` 摘取系统状态保护；用于全部四种入口。本地将 Batch 恢复
+提早到 observer Hooks 前，FusedStage 的共享 compute 也保护已退出输出。
+字段掩码按锁定 Batch 的 atoms/system storage level 选择，不靠 N 与 B 的大小猜测。
+这是通用状态缺陷修正，没有新增科学功能；源自 fork 的部分与本地补充不混写。
+
+**验证**：M4 两优化器四入口、非零晶胞运动后的冻结、Hook 观察、N=B 单原子体系、
+survivor/fresh-state 回归及 HCU4 FP32/64 合成退出/补位。已有 NHC gate 保留。
+不代表 Warp、compile、任意混合变胞多阶段或 DomainParallel 已验证。
+
+**上游状态**：本轮未提交官方 issue/PR，未核验官方当前分支；不能宣称官方已修复。
+
+## UBF-016：补位后首步使用未初始化的力和应力
+
+**来源**：锁定 framework `4dfe372` 的 FusedStage.run 在首批数据上 compute，
+但 refill 后直接进入下一次 pre_update。新体系携带的 forces/stress 是零占位，
+首步 kick、功率分支和晶胞运动因而与正常初始化不一致。
+
+**修正与归因**：用户 fork `b12b54c` 的 BaseDynamics.refill_check 清除
+`_forces_primed`，FusedStage.step 通过 `_prime_forces` 重新初始化模型输出。
+本地只在 FusedStage.refill_check 改变组成后调用已有 BEFORE_COMPUTE / compute /
+AFTER_COMPUTE；不导入新版 admission/schema/compile 机制，不推进 step_count。
+priming 前更新 active_batch，以便计算异常时保留实际到达体系供应用导出。
+低层 BaseDynamics.refill_check 仍负责成员和状态同步，直接使用者负责模型评估。
+
+**验证**：真实 sampler 的 arrival 首步 Hook 检查解析 E/stress、各来源恰好一次退出、
+priming 失败后 arrival 仍可导出；CPU/HCU4 合成工作流及 CPU MPA-0 应用。
+每次 priming 重新走 frequency=1 邻居 Hook；没有宣称完整 admission API 已移植。
+
+**接口缺口**：向量 dt/dt_min/dt_max 的新来源参数映射未实现。普通 Batch 保留向量
+参数，variable-cell refill 明确要求 scalar/单元素参数，不因 arrivals 数与旧 Batch
+相同而错误复用参数。该限制不是新增优化算法。
+
+**上游状态**：本轮未提交官方 issue/PR，未核验官方当前分支；fork SHA 是参考修复
+依据，不能替代本地执行证据。报告见 [M4](../reports/g2-mpa0-relaxation-m4.md)。
+
 ## 3. 上游没有的实现与本地扩展
 
 ### EXT-001：Langevin 最小积分器续算
@@ -251,9 +404,17 @@ Torch geometry 梯度和 HIP 邻居组合，均是在保留上游契约下新增
 | LOCAL-001 / LP-059 | composite workspace size-query 把 int32 candidate storage 当作 int64 key storage，改用正确 dtype/长度临时 buffers | 本地新增 HIP materializer；[runtime wrapper 报告](../reports/g2-native-hip-neighbor-runtime-wrapper.md) |
 | LOCAL-002 / LP-061 | Torch cell-list allocator 与 build 的 max_nbins 不一致，统一8192 | `torch_reference_cell_list.py` 为本地新增文件；[wall-clock 报告](../reports/g2-framework-hip-neighbor-wallclock.md) |
 | LOCAL-003 / LP-061 | HIP executor 在 query 前用未初始化 candidate_counts 校验，先 zero_ | `_hip_neighbor_executor.py` 为本地新增文件；同上报告 |
+| LOCAL-004 / LP-084 | 完整矩阵 FIRE reference 把 `dt_min=0` 错判为非法，改为只拒绝负下限 | 本地 `cell_fire_reference.py` 新增校验过严；[修复报告](../reports/g2-fire-zero-dt-min.md) |
 
 以上均须保留回归，但不能据其报告中的“修复”二字认定 NVIDIA 上游存在这些 bug。
 LP-061 原候选说明将 Torch reference 修复泛称上游候选，本次按文件来源纠正归因。
+
+LOCAL-004：锁定 NVIDIA ops `26dbceb` 和指定 fork ops `eadc3ee` 都使用
+`max(dt*f_dec, dt_min)`，允许零下限；本地 reference 的 `dt_min<=0` 校验造成不兼容。
+修正为 `<0` 并加来源注释，保留实际 `dt>0`、有限值及错误前无状态写入要求。
+默认参数、原生 FIRE 更新方程和默认 Warp 路径不变；没有修改或认定新的上游 bug。
+CPU NumPy 正/负/零/纯晶胞功率及公共解析势回归、HCU4 FP64 同类单步与
+公共25步对照、三份真实CIF的 MPA-0 十步通过；短步不代表完整弛豫收敛。
 
 ### 本次审查发现、尚未修改的本地风险
 

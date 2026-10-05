@@ -113,6 +113,19 @@ Tier 1 状态检查点已提交为 `9fb9d1f`。
 | LP-069 | `packages/framework/nvalchemi/models/mace.py` `MACEWrapper.from_checkpoint` | 历史提交 `3f5b544` 的本地文件加载修正，补登记 UBF-007：已有 Path/str 文件直接加载，其余名字走下载器 | 修正公共本地 checkpoint 支持；不改变模型能量/力公式或默认后端 | 上游接口修复候选；官方当前状态未复核 | `reports/g1-mace-wrapper-batch.md`；专用本地文件/设备回归历史3项通过；本次未重跑 |
 | LP-070 | `packages/framework/nvalchemi/data/level_storage.py` uniform/segmented put | 历史提交 `3f89f6b` 的多属性复制合同修正，补登记 UBF-008：uniform 复用初始 dest_mask/实际复制集合；segmented 复用初始 pointer 与复制集合 | uniform 防止属性被写到不同槽位；segmented 属合同加强，未据此证明原Warp segmented同样有bug；共同storage层作用于两种后端 | uniform 映射为上游修复候选，不能把整个Torch storage适配视为缺陷修复 | `reports/g1-storage-contract.md`；历史Torch backend3项、level storage96项通过；本次未重跑 |
 | LP-071 | `packages/framework/nvalchemi/dynamics/integrators/nvt_langevin.py` state_dict/load_state_dict | 历史提交 `267bba2` 新增最小积分器续算，补登记 EXT-001 | 锁定上游无此方法；新增本地API能力，保存随机序列位置和dt/kT/friction；不是完整checkpoint | 功能扩展候选，不作为原有上游bug修复；接口需单独评审 | `reports/g2-torch-nvt-langevin-restart.md`；历史CPU/HCU0各2项通过；本次未重跑 |
+| LP-072 | `packages/ops/nvalchemiops/dynamics/utils/cell_filter.py` stress kernel/说明 | 参考 fork ops `c4c3bb56b6c6` 更正为 `-V H^-T sigma`，修订拉伸为正和下三角投影；标记 `CELL-STRESS-ROW / UBF-009` | 非正交晶胞的固定分数坐标能量梯度修复；legacy 选择不变，晶胞力数值可能变化 | 上游修复候选；不移植 fork 的 FIRE/FIRE2 或晶胞更新 | `test/torch/test_torch_stress.py`、CPU/HCU Torch 与周期 MACE；Warp 未执行；见 stress 报告 |
+| LP-073 | `packages/framework/nvalchemi/dynamics/_ops/npt_nph.py`；新增 `_ops/stress.py` | 保留原 import 路径和 legacy torch.ops 名称，新增 keyword-only backend/selection，隔离 barostat/Warp 导入；说明参考 fork framework `4bf8bc8084a2` | reference 独立执行转换；NPT/NPH 只改依赖导入，不改积分算法 | 公式/说明更正对应 UBF-009；reference/executor/autograd/依赖隔离为平台适配 | `test/compatibility/test_cell_stress_force_reference.py`；见 `reports/g2-torch-cell-stress-force.md` |
+| LP-074 | `packages/ops/nvalchemiops/dynamics/utils/cell_filter.py` align kernel/文案 | UBF-010：左手输入以原始 H 求 transform；lower 文案参考 fork `eadc3ee` | 保持分数坐标；默认 Warp 路径选择不变，受 bug 影响的坐标结果改变 | transform 修复为上游候选，文案沿用指定 fork；实际 Warp 数值未执行 | `test/torch/test_torch_cell_tools.py`、`probes/cell_tools_reference.py`；M2 报告 |
+| LP-075 | `packages/framework/nvalchemi/dynamics/_ops/cell_align.py` | keyword-only backend/selection、lazy Warp；UBF-010 写回非连续 positions；lower 文案 | 保留原入口/位置参数/None 返回；generic executor 绑定 ops-owned reference；默认 legacy 保留 | bridge 写回为上游候选；reference/executor/依赖隔离为平台适配 | `test/compatibility/test_cell_tools_reference.py`；bridge stub 不作为 Warp parity；M2 报告 |
+| LP-076 | ops `dynamics/utils/cell_filter.py` `_fire2_coord_cell_*` | UBF-011：采用 fork c4c3bb5 行晶格仿射公式 | 原默认 Warp 选择不变，非正交晶胞轨迹会修正 | fork bug 修复移植；非 NPT/NPH 移植 | NumPy/分数坐标反例、HCU4 reference；Warp 未运行；M3 报告 |
+| LP-077 | ops `dynamics/optimizers/fire.py` `fire_update` | UBF-013：采用 fork eadc3ee 分离按体系控制和速度混合 launch | 只修 single/batch_idx 无 downhill 路径；PTR/downhill/fire_step 保留 | fork 竞态修复移植，未整体替换现有 FIRE | joint control oracle；实际 Warp 未运行；M3 报告 |
+| LP-078 | framework `dynamics/optimizers/fire.py` `FIREVariableCell` | UBF-012：fork b12b54c 完整应力驱动、3N+9 联合控制/位移限制；新增私有 `_ops/fire_cell.py` 桥接 | API/参数保留，None/warp 原子 kernel 默认选择保留，缺失晶胞运动补齐；冻结 stress/fire_cell selection | fork bug 修复加平台 executor 适配，不是 ASE filters | CPU 单步/公共160步、CPU MPA-0三步、HCU4解析势；M3 报告 |
+| LP-079 | framework `dynamics/optimizers/fire2.py`、`_ops/fire.py`、`_dynamics_reference/fire.py`；ops catalog | 六项变胞 reference executor 接线，optimizer/stress/cell_tools 单次选择；优化步梯度0 | fixed-cell/默认 Warp 保留；reference variable_cell 准入，requires_grad 显式拒绝 | 平台移植，未新增科学参数化；旧私有 import 兼容转发 | CPU ABI/第二 executor/错误/无 Warp、HCU4 parity；M3 报告 |
+| LP-080 | framework `dynamics/hooks/cell_align.py` | UBF-014：fork b12b54c 周期/active 子集保护，加本地缓存 F/v/stress 同帧；已对齐跳过、已有晶胞运动再对齐报错；keyword-only backend | 保留 frequency/原调用、默认 Warp 选择；只作预处理，不承诺运行中重对齐 | fork 掩码修复加 local 同帧 bug 修复/后端适配，fork 未修缓存旋转 | 子集协变与 MPA-0 旋转 E/F/stress，冻结 selection；M3 报告 |
+| LP-081 | framework `dynamics/base.py` | UBF-015：fork b12b54c 私有状态 snapshot/restore；本地四入口、Hook 前恢复及 storage-level 掩码 | 公共签名与算法保持；仅 active 行保留更新，已退出 E/F/stress 冻结 | fork 通用状态修正 + 本地 observer 边界补充 | CPU 四入口/Hook/单原子/已有 NHC gate；HCU4 合成；M4 报告 |
+| LP-082 | framework `dynamics/base.py`、`optimizers/fire*.py` | UBF-016：参考 fork admission priming，Fused refill 后先走已有 compute Hook；vector arrivals 映射缺口明确失败 | 改变组成才增一次 compute，不计优化步；Base refill 原职责保持；普通向量 Batch 保留 | 旧版接口窄适配，非新版 admission API 全量移植 | CPU/HCU arrival priming、ID/state、异常导出及实际 CPU MPA-0；M4 报告 |
+| LP-083 | 历史路径 `examples/relax_mace_mpa0.py`；现归属下游工程 `alchemi-app` | CIF I/O、原生 sampler/Fused/sink 的应用配置与 JSONL/最终 CIF 核验 | example 层本地薄入口；没有新增 optimizer/filter 科学 API | 应用代码已拆至独立工程；不属于上游移植补丁或缺陷修正 | CPU 合成成功/预算/异常/占位路径和实际 MPA-0；目标 HCU 留 M5 |
+| LP-084 | `packages/ops/nvalchemiops/cell_fire_reference.py`；对应 ops/framework 回归 | LOCAL-004：零下限 `dt_min=0` 与锁定 NVIDIA/fork 的 `max(dt*f_dec, dt_min)` 兼容，负下限拒绝 | 只放宽本地参数校验；默认参数、公式、公共 API、后端选择保持 | 本地移植 bug，非 UBF/上游 bug；不候选上游补丁 | [修复报告](../reports/g2-fire-zero-dt-min.md)：CPU gate 与 HCU4 FP64 单步/解析势及 MPA-0 十步；非长程收敛 |
 
 本表中未带 `packages/` 前缀的 `test/...` 路径是相应 package 内的相对路径；新增跨包回归的当前实际目录为
 `packages/framework/test/compatibility/`。历史条目的“工作树待提交”只描述当时快照，不表示当前 Git 状态。
@@ -122,3 +135,20 @@ Tier 1 状态检查点已提交为 `9fb9d1f`。
 测试指针。同步上游前先逐条重新审阅这些记录；不得直接在 `external/` 修改来绕过
 清单。当前工作树尚未提交的代码、测试和报告仍以真实 Git diff 为准，不能把本表
 当成已提交状态的替代品。
+
+## MPA-0 弛豫的 fork 参考锁定（2026-10-04）
+
+NVIDIA 基线 SHA 不变；本次只读核查用户指定 fork 的 develop 与相关提交。
+下表是修复参考，不是本工程已移植或 NVIDIA 官方已修复的声明。
+
+| 仓库 | 固定参考提交 | 本工程采用范围与后续安排 |
+|---|---|---|
+| fork ops | [c4c3bb56b6c6](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/c4c3bb56b6c6ae0d5e85b4e1ed14bd4bd4748a2a) | stress 随 UBF-009、FIRE2 行晶格耦合运动随 M3 UBF-011 摘取 |
+| fork framework | [4bf8bc8084a2](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/4bf8bc8084a2f588c332e0bf090978ba4ba76c4b) | 转换说明已采用；未整体同步 framework |
+| fork framework develop | [b12b54c48fc8](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/b12b54c48fc8001adb84654c3b42f2bef21db710) | 应力驱动全矩阵 FIRE、联合控制和位移限制已在 M3 按函数摘取，UBF-012 |
+| fork ops develop | [eadc3eeebaec](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit-ops/commit/eadc3eeebaeceb832f7341eb59303dc588f857bd) | single/batch_idx 无 downhill FIRE 控制/混合分离已摘取，UBF-013；其他路径不作扩大声明 |
+
+fork 还包含更新的数据 schema、训练、编译和0.5.0-rc依赖改动，均不由此任务整体引入。
+迁移按函数、测试和默认行为摘取相关语义；实际修正另加源码标记、UBF 和 LP 记录。
+M1 新 probe/契约没有修改上游产品运行时源码，CPU 模型/数值证据见
+[报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。
