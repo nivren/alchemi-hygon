@@ -39,7 +39,6 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/framework/test/compatibility/test_cell_tools_reference.py \
   packages/framework/test/compatibility/test_variable_cell_fire_reference.py \
   packages/framework/test/compatibility/test_variable_cell_workflow.py \
-  packages/framework/test/compatibility/test_mpa0_relaxation_entry.py \
   packages/framework/test/compatibility/test_inactive_dynamics_outputs.py \
   packages/framework/test/compatibility/test_dynamics_reference_velocity_verlet.py \
   packages/framework/test/compatibility/test_dynamics_reference_langevin.py \

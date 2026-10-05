@@ -62,11 +62,11 @@
 | 双阶段 MACE 弛豫：FIRE2 + BFGS | 当前不能完整完成 | FIRE2 固定晶胞 reference 已可用 | BFGS 尚未实现；无压 BFGS 与变胞/压力阶段尚未形成完整链路 | FIRE2 已完成，BFGS 排队 |
 | 周期 MACE 应力与晶胞力计算 | 可以，窄 reference | 在给定晶胞上计算 stress 与 cell-force；真实 checkpoint CPU/HCU4 parity、FP64 有限差分 | 完整模型族、真实MLIP stress训练；基础转换不推进晶胞，优化器另列 | MACE strain/stress、Torch neighbor/geometry、stress conversion |
 | MPA-0 Li/Na 晶体单点 | 可以，窄CPU/HCU4小样本 | CPU Batch/ASE/FP64导数；HCU两精度完整E/F/stress/邻居同几何对照 | 全目录/完整模型族未验证；精度须匹配默认dtype | 现有MACEWrapper、Torch neighbor、stress conversion；M1/M5报告 |
-| MPA-0 原生变胞 FIRE/FIRE2 | 可做窄单卡HCU批量应用 | 两精度原生联合收敛/退出补位、3结构容量2及8结构容量4；48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2未达应力阈值、FIRE精度敏感；全目录/流式/restart/混合变胞阶段/生产性能未验收 | M4/M5 reference；M5收口4656cce |
+| MPA-0 原生变胞 FIRE/FIRE2 集成 | 可由下游应用做窄单卡 HCU 批量计算 | toolkit 提供原生优化器、邻居与 FusedStage 生命周期；下游 `alchemi-app` 两精度/两优化器单体系、补位及8结构验收，48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2未达应力阈值、FIRE精度敏感；全目录/流式/restart/完整HCU gate/生产性能未验收；应用配置不属于 toolkit 公共 API | M4/M5 reference；M5收口4656cce；应用归属 `alchemi-app` |
 | MPA-0 原生 FIRE FP64较大Batch测量 | 已测一个Batch | 64结构/2287原子，原生raw力.05阈值，62收敛/2预算；应用101秒，峰值allocated23.49 GiB | 与M5/H100判据不同；仅NumPy/文件核验，未独立模型重算；1600为条件估算、持续补位/16000原子未测；历史测量dt_min=.002 | [测量报告](../reports/g2-mpa0-single-batch-timing.md)，收口7410445 |
 | MPA-0 FP64 8000门槛 | 容量诊断失败 | 同一前缀231项/7937原子，默认上限初始e3nn前向OOM，峰值allocated59.12 GiB；探针支持分项同步观测 | 未完成模型求值/优化更新，无完整分项或吞吐；仅当前默认allocator/模型/样本，不是所有输入通用上限 | [诊断报告](../reports/g2-mpa0-batch8000-timing.md)，收口eff753d |
 | MPA-0 FP64 4000门槛 | 已测一个完整Batch | 114项/3959原子、111原生raw力收敛/3预算，应用160秒，峰值allocated41.13 GiB；循环模型75.93%/邻居19.34%/优化器2.81%，NumPy/文件核验 | 普通e3nn与Torch reference邻居；非优化HIP邻居性能，判据与M5/H100不同，无独立模型重算/持续补位/全量1600实测 | [4000报告](../reports/g2-mpa0-batch4000-timing.md)，收口1dba058 |
-| FIRE 零下限参数兼容 | 本地bug已修正 | dt_min=0符合上游；CPU ops46/公共19项，HCU4 FP64四类功率/非法边界/解析势25步/三CIF十步 | 仅torch_reference本地校验修正；未跑零下限完整Batch/完整HCU gate | [LOCAL-004报告](../reports/g2-fire-zero-dt-min.md)，待收口 |
+| FIRE 零下限参数兼容 | 本地bug已修正 | dt_min=0符合上游；CPU ops46/公共19项，HCU4 FP64四类功率/非法边界/解析势25步/三CIF十步 | 仅torch_reference本地校验修正；未跑零下限完整Batch/完整HCU gate | [LOCAL-004报告](../reports/g2-fire-zero-dt-min.md)，提交0e354f4 |
 | 有限外压/NPT/NPH | 当前不能承诺 | stress和晶胞基础可供后续算法使用 | 压力接口及barostat/integrator未移植；M3不是加压应用 | 独立后续队列 |
 | 单大体系多卡、DomainParallel、生产训练 | 当前不能承诺 | 可保留上游接口作为后续适配目标 | ownership、halo/迁移、完整分布式训练与生产后端未完成 | DomainParallel/分布式任务暂停 |
 

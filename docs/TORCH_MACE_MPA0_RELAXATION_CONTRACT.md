@@ -101,9 +101,16 @@ M1 固定三个真实 CIF：Li2MgGe（4 原子）、LiSnCl3（10 原子）、NaL
 已退出体系的 positions/cell/forces/energy/stress 保持一致；补位初始化 cell velocity、
 dt/alpha/计数和临时缓冲。最终在输出坐标与晶胞上重算模型并核验阈值。
 
-提供薄应用入口读取目录、按可控批次处理，输出最终 CIF 和逐体系 JSONL/表格；记录
+下游应用入口负责读取目录、按可控批次处理并输出最终 CIF 和逐体系 JSONL/表格；应用记录
 来源 ID、模型 SHA、后端、dtype、优化器及参数、状态、步数、最终 E/体积/fmax/stress。
 不以自行实现的工作流替代上游 Dynamics/Hooks。全目录长作业待小样本验收后另行安排。
+
+应用脚本及应用专属测试已移到同级独立工程 `alchemi-app`。此处保留其作为 MPA-0 下游
+集成场景的需求与验收契约；toolkit 实现范围仍是上游 framework/ops 的 API 和生命周期能力。
+应用入口与 H100 设置的最终差异审查见
+[MPA-0 移植收口审查](../reports/g2-relaxation-port-closure-review.md)：当前应用暴露双阈值
+收敛和基础容量/预算配置，但不开放所有 FIRE/FIRE2 控制、native generalized-force/
+overflow 配置或 refill frequency；应用调用 `eval()`，没有显式冻结权重。
 
 ## 6. 里程碑与验收
 
@@ -141,8 +148,9 @@ invalid_input/calculation_error/not_started；budget 退出不冒充收敛。
 限时实际 CPU 小样本同时验证
 成功与 budget 路径，真实模型 HCU 仍属 M5；M4 HCU 只做合成工作流 smoke。
 
-实现入口为 `examples/relax_mace_mpa0.py`。单个 FusedStage 承载一种原生变胞优化器，
-scalar 参数补位；HostMemory/预读输入的内存随输入数增长，不是通用流式服务。
+历史验收入口为 toolkit 根目录 `examples/relax_mace_mpa0.py`，现已迁移至下游工程
+`alchemi-app`。单个 FusedStage 承载一种原生变胞优化器，scalar 参数补位；
+HostMemory/预读输入的内存随输入数增长，不是通用流式服务。
 墙钟在步间检查，输出核验可略超预算。完整重启、同进程混合 dtype、多种变胞算法
 混合阶段、全目录成功率及生产性能不在 M4 验收范围。证据见
 [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。

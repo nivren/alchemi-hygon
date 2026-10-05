@@ -4,6 +4,9 @@
 范围为普通单优化器 FusedStage 的变胞邻居、联合收敛、退出/scalar 补位与薄 CIF 应用。
 目标模型 HCU 留待 M5。本分支未合并、未推送。
 
+后续归档说明（2026-10-05）：本报告记录的 `examples/relax_mace_mpa0.py` 及应用专属测试
+已迁移到同级独立工程 `alchemi-app`；此处保留当时的实现路径和验收证据。
+
 ## 实现与来源
 
 - `BaseDynamics` 的四种掩码入口保护全部私有系统状态：cell velocity、dt/alpha、

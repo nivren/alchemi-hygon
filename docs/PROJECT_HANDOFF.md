@@ -13,6 +13,7 @@
 ## 2. 代码和上游边界
 
 - `packages/framework`、`packages/ops` 是正式产品源码，保持两个可独立构建的包边界。
+- 面向具体模型/材料数据的应用脚本归独立下游工程 `alchemi-app`；本仓库只保留通用示例、framework/ops 能力和上游兼容性跟踪。
 - `external/nvalchemi-toolkit`、`external/nvalchemi-toolkit-ops` 只读，版本以
   [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml) 为准，不作为产品安装源。
 - `probes/` 是设备、模型、梯度和性能验证入口，不是第三份生产实现。
@@ -103,6 +104,8 @@ CPU 426 passed/3 skipped，HCU4 只运行两精度/两优化器合成工作流�
 CPU FP64 FIRE 三样本收敛、FIRE2 NaLiTl2 收敛，另两项墙钟退出；FP32 只短步预算。
 14份实际输出 CIF 独立核验；UBF-015/016 与本地应用 LP-083 区分归因。
 见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。新分支未合并/推送。
+LP-083 的 MPA-0 CIF 应用入口及其专属测试现已移至同级独立工程 `alchemi-app`；本仓库
+保留 M4/M5 的历史验证记录、上游迁移契约和 framework 通用生命周期测试，不再承载该应用 CLI。
 里程碑5已在 `codex/test-mpa0-hcu-validation`（起点 `fa74ca1`）完成真实目标 HCU4 窄验收，
 只新增探针/契约/证据，无 framework/ops/应用源码修改。CPU gate426 passed/3 skipped；
 两精度/两优化器单体系及3结构异构补位全部收敛。扩大为8个不同真实CIF、共59原子、
@@ -136,8 +139,9 @@ FP64/e3nn/原生FIRE，显式Torch reference邻居（变胞/COO未纳入优化HI
 只将完整矩阵 FIRE reference 校验由 `dt_min<=0` 改为 `<0`，恢复锁定 NVIDIA/fork 零下限兼容。
 CPU ops46/公共19项通过，HCU4 FP64四种功率单步符合NumPy、三种非法边界无mutation，
 公共解析势25步CPU/HCU对照及三CIF/124原子MPA-0十步通过；证据见
-[零下限报告](../reports/g2-fire-zero-dt-min.md)。不代表零下限完整弛豫收敛或完整HCU gate。
-当前修正尚未提交；下一建议收口审查与运行参数整理，待确认，不自动合并/推送。
+[零下限报告](../reports/g2-fire-zero-dt-min.md)。不代表零下限完整弛豫收敛或完整HCU gate；
+修正已签名提交 `0e354f4`，功能分支仍未合并/推送。M1–M5与应用设置收口审查见
+[审查报告](../reports/g2-relaxation-port-closure-review.md)，报告及交接更新待下一阶段确认后收口。
 历史4000测量仍采用.002，无零下限完整Batch复测；没有扩展性能后端或1600作业。
 里程碑顺序按用户2026-10-05新要求执行：实施前说明目的与方案并等待确认；完成后
 先总结实现、验证和限制，再给下一阶段方案；用户确认下一阶段后，才收口提交当前

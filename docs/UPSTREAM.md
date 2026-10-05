@@ -124,7 +124,7 @@ Tier 1 状态检查点已提交为 `9fb9d1f`。
 | LP-080 | framework `dynamics/hooks/cell_align.py` | UBF-014：fork b12b54c 周期/active 子集保护，加本地缓存 F/v/stress 同帧；已对齐跳过、已有晶胞运动再对齐报错；keyword-only backend | 保留 frequency/原调用、默认 Warp 选择；只作预处理，不承诺运行中重对齐 | fork 掩码修复加 local 同帧 bug 修复/后端适配，fork 未修缓存旋转 | 子集协变与 MPA-0 旋转 E/F/stress，冻结 selection；M3 报告 |
 | LP-081 | framework `dynamics/base.py` | UBF-015：fork b12b54c 私有状态 snapshot/restore；本地四入口、Hook 前恢复及 storage-level 掩码 | 公共签名与算法保持；仅 active 行保留更新，已退出 E/F/stress 冻结 | fork 通用状态修正 + 本地 observer 边界补充 | CPU 四入口/Hook/单原子/已有 NHC gate；HCU4 合成；M4 报告 |
 | LP-082 | framework `dynamics/base.py`、`optimizers/fire*.py` | UBF-016：参考 fork admission priming，Fused refill 后先走已有 compute Hook；vector arrivals 映射缺口明确失败 | 改变组成才增一次 compute，不计优化步；Base refill 原职责保持；普通向量 Batch 保留 | 旧版接口窄适配，非新版 admission API 全量移植 | CPU/HCU arrival priming、ID/state、异常导出及实际 CPU MPA-0；M4 报告 |
-| LP-083 | `examples/relax_mace_mpa0.py` | CIF I/O、原生 sampler/Fused/sink 的应用配置与 JSONL/最终 CIF 核验 | example 层新增薄入口；没有新增 optimizer/filter 科学 API | 本地应用脚本，不能称为上游代码移植或缺陷修正 | CPU 合成成功/预算/异常/占位路径和实际 MPA-0；目标 HCU 留 M5 |
+| LP-083 | 历史路径 `examples/relax_mace_mpa0.py`；现归属下游工程 `alchemi-app` | CIF I/O、原生 sampler/Fused/sink 的应用配置与 JSONL/最终 CIF 核验 | example 层本地薄入口；没有新增 optimizer/filter 科学 API | 应用代码已拆至独立工程；不属于上游移植补丁或缺陷修正 | CPU 合成成功/预算/异常/占位路径和实际 MPA-0；目标 HCU 留 M5 |
 | LP-084 | `packages/ops/nvalchemiops/cell_fire_reference.py`；对应 ops/framework 回归 | LOCAL-004：零下限 `dt_min=0` 与锁定 NVIDIA/fork 的 `max(dt*f_dec, dt_min)` 兼容，负下限拒绝 | 只放宽本地参数校验；默认参数、公式、公共 API、后端选择保持 | 本地移植 bug，非 UBF/上游 bug；不候选上游补丁 | [修复报告](../reports/g2-fire-zero-dt-min.md)：CPU gate 与 HCU4 FP64 单步/解析势及 MPA-0 十步；非长程收敛 |
 
 本表中未带 `packages/` 前缀的 `test/...` 路径是相应 package 内的相对路径；新增跨包回归的当前实际目录为

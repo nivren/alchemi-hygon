@@ -28,8 +28,9 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
   4000测量 `codex/test-mpa0-batch4000-timing` 起点eff753d，收口1dba058：114项/3959原子完整FP64 Batch，
   111收敛/3预算退出，应用160.145秒，模型75.93%/Torch reference邻居19.34%/优化器2.81%。
   [4000报告](../reports/g2-mpa0-batch4000-timing.md)；测量阶段无源码改动。
-  当前 `codex/fix-fire-zero-dt-min` 恢复零下限兼容（LOCAL-004），CPU回归和
-  HCU4 FP64短步通过，[报告](../reports/g2-fire-zero-dt-min.md)；待下一阶段确认后提交。
+  当前 `codex/fix-fire-zero-dt-min` 已提交零下限兼容修正 `0e354f4`（LOCAL-004），
+  CPU回归和HCU4 FP64短步通过，[报告](../reports/g2-fire-zero-dt-min.md)。
+  M1–M5收口审查已完成，[审查报告](../reports/g2-relaxation-port-closure-review.md)；应用脚本和应用专属测试已移至同级 `alchemi-app`，本次边界调整与审查文档仍待收口。
   后续每个里程碑实施前先说明目的与方案，用户确认后实施；完成后先总结并给出
   下一阶段方案，等待用户确认后再收口提交当前阶段、启动下一阶段（用户2026-10-05
   明确的顺序）。不自动推送。M4 已有提交保留，此流程更新在 M5 启动前收口。
@@ -47,12 +48,18 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 | 完成 | FP64单个较大Batch | 收口7410445；64结构/2287原子、原生FIRE raw力判据；应用101秒，条件估算1600约41–50分钟 | 没有1600实测/16000原子/持续补位吞吐；与M5及H100判据不同 |
 | 完成 | 8000门槛与分项 | 收口eff753d；231结构/7937原子，默认上限初始e3nn前向OOM | 无完整模型求值/优化器更新/弛豫结果；分项不能作稳态或8000吞吐 |
 | 完成 | 4000门槛单Batch分项 | 收口1dba058；114结构/3959原子，111收敛/3预算，应用160秒；模型118.8/邻居30.3/优化器4.4秒，独立NumPy/文件核验 | 邻居为Torch reference；原生raw力判据不同于M5/H100，无持续补位/全量1600实测 |
-| 完成，待收口 | FIRE参数兼容修正 | LOCAL-004恢复dt_min=0，CPU回归和HCU4 FP64 NumPy/公共解析势/三CIF十步通过 | 本地移植bug，非上游bug；不代表零下限完整Batch收敛/性能 |
-| 待确认 | 弛豫移植收口审查 | 先提交本修正，再核对M1–M5与修正的差异、契约、验收清单及实际运行配置 | 不自动合并/推送，不扩大测试或引入新算法 |
-| 5 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
+| 完成 | FIRE参数兼容修正 | LOCAL-004提交0e354f4恢复dt_min=0，CPU回归和HCU4 FP64 NumPy/解析势/三CIF十步通过 | 本地移植bug，非上游bug；不代表零下限完整Batch收敛/性能 |
+| 完成，文档待收口 | 弛豫移植收口审查 | M1–M5、运行入口、实际参数、HCU/CPU证据边界和未覆盖项已核对 | 功能分支仍未合并/推送；审查文档待确认后提交 |
+| 完成，文档待收口 | MPA-0 应用分离 | CIF 应用入口及专属测试移入同级独立工程 `alchemi-app`；保留 toolkit 通用 API、生命周期测试和迁移证据 | 应用参数/H100 停止度量在下游工程处理，不加入 toolkit 公共 API |
+| 完成 | MPA-0 应用分离 | CIF 应用入口及应用专属测试移入同级独立工程 `alchemi-app`；toolkit 保留原生 API、通用生命周期测试和迁移证据 | 应用参数/H100 停止度量属于下游应用，不加入 toolkit 公共 API；全目录作业另行安排 |
+| 后续队列 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
+
+MPA-0 应用的后续 CLI/停止度量/性能工作属于 `alchemi-app`，不列入 toolkit 上游移植队列。
+
+MPA-0 应用的后续 CLI/停止度量/性能工作属于 `alchemi-app`，不列入 toolkit 上游移植队列。
 
 ### Stress/cell-force 已完成基础 reference
 

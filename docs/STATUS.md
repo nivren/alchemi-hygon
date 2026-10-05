@@ -15,7 +15,7 @@
 - 单Batch测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`，收口 `7410445`；FP64原生FIRE单个64结构/2287原子Batch完成；未合并、未推送。
 - 8000门槛诊断：`codex/test-mpa0-batch8000-timing`，起点 `7410445`，收口 `eff753d`；初始模型求值OOM；未合并、未推送。
 - 4000门槛测量：`codex/test-mpa0-batch4000-timing`，起点 `eff753d`，收口 `1dba058`；114结构/3959原子的完整FP64 Batch与分项测量完成；未合并或推送。
-- 当前修正：`codex/fix-fire-zero-dt-min`，起点 `1dba058`；LOCAL-004 恢复完整矩阵 FIRE reference 的零下限兼容，尚未提交、合并或推送。
+- 当前交付审查：`codex/fix-fire-zero-dt-min`，LOCAL-004 已收口提交 `0e354f4`；M1–M5 审查及应用分离见[报告](../reports/g2-relaxation-port-closure-review.md)。应用源文件已移到独立工程 `alchemi-app`；本仓库边界/交接文档改动待收口，功能分支仍未合并/推送到 `develop`。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -31,7 +31,7 @@
 | fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、生产后端未完成；变胞证据另列 |
 | stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 基础转换本身不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 未验证；变胞应用另列 |
 | MACE-MPA-0 单点 | 已验证窄 CPU/HCU4 | M1 CPU Batch/ASE及 FP64数值导数；M5 FP32/64 同几何 CPU/HCU完整 E/F/stress与邻居，48份导出核验 | 全目录/完整模型族未验证；单一精度须匹配默认 dtype；单点一致不代表弛豫轨迹等价 |
-| MPA-0 原生变胞批量弛豫 | 已验证窄 CPU/HCU4 真实工作流 | 两精度/两优化器单体系、3结构容量2补位、8结构容量4；FIRE八项收敛、FIRE2七项收敛一项预算，48份输出独立 CPU/HCU核验 | Li(CN)2 FIRE精度敏感、FIRE2应力未收敛；全目录/完整HCU gate、checkpoint/流式服务、混合变胞阶段、生产性能未验收 |
+| MPA-0 原生变胞批量弛豫集成 | 已验证窄 CPU/HCU4 下游工作流 | toolkit 原生优化器与生命周期 API 由 `alchemi-app` 应用组合；两精度/两优化器单体系、补位和8结构验收；48份输出独立 CPU/HCU核验 | Li(CN)2 FIRE精度敏感、FIRE2应力未收敛；全目录/完整HCU gate、checkpoint/流式服务、混合变胞阶段、生产性能未验收 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml) 为准；本表不把窄 slice 扩大为完整
@@ -140,7 +140,7 @@
   [应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md) / [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。
 - 复用原生 FusedStage/SizeAwareSampler/HostMemory/ConvergenceHook，完成退出/私有
   状态保护及补位 E/F/stress priming；UBF-015/016、LP-081/082 区分 fork 摘取与本地补充。
-  `examples/relax_mace_mpa0.py` 是本地薄应用入口（LP-083），没有新 filter/优化算法。
+  M4 时的薄 CIF/JSONL 入口为本地 LP-083，现已移至独立下游工程 `alchemi-app`；没有新 filter/优化算法。
 - 新增33项生命周期/应用回归，加原退出输出回归纳入 CPU gate；最终 CPU 门
   426 passed、3 skipped，compileall/Ruff/diff-check 通过。不是完整 HCU gate。
 - HCU4 合成 FP64/FP32、两种优化器各4个异构体系，收敛/补位/ID/邻居/退出状态
@@ -250,7 +250,16 @@
   公共解析势25步 CPU/HCU对照位置误差1.11e-16 Å；原抽样前三CIF/124原子
   MPA-0 + FIRE零下限十步正常，r/H/E/F/stress为有限设备内FP64且体积为正。
   不宣称十步达到收敛；作业后无KFD PID，不代表完整HCU gate。
-- 当前修正待收口；历史4000原子完整Batch仍使用.002，未复测零下限完整Batch或性能。
+- LOCAL-004已收口提交 `0e354f4`；历史4000原子完整Batch仍使用.002，未复测零下限完整Batch或性能。
+
+## 应用工程分离（2026-10-05）
+
+- MPA-0 CIF 弛豫入口和专属测试已迁至同级 `/home/wangleping/codes/alchemi-app`；本仓库继续维护
+  toolkit 移植、上游兼容性及集成验证证据，不再承载材料/模型专用应用入口。
+- 分离后验证：toolkit CPU gate **425 passed, 3 skipped, 1 deselected**；独立应用入口回归
+  **9 passed**，CLI `--help` 和项目 TOML 检查通过。两处 `git diff --check` 通过；此项只移动
+  应用代码并调整追踪文档，未改 framework/ops 算法，因此没有重跑 HCU。
+- 两个仓库的分离变更和文档尚未提交；现有 HCU 证据仍仅适用于各报告列明的窄验证范围。
 
 ## 运行时排障记录
 
@@ -382,12 +391,12 @@ MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约�
 通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
 M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 8000门槛诊断已收口 `eff753d`；4000门槛完整Batch及分项已收口 `1dba058`。
-零下限兼容修正已完成，待用户确认下一阶段后提交。
+零下限兼容修正已提交 `0e354f4`；本次收口审查文档尚未提交，功能分支仍未合并/推送。
 后续建议队列：
 
-1. 弛豫移植收口审查（待确认）：确认后先提交 LOCAL-004，再核对 M1–M5 与本修正的差异、契约和验收清单，整理实际运行参数与限制；不自动合并/推送、不扩大性能测试。
-2. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
-3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. 已完成 MPA-0 弛豫移植收口审查，见[报告](../reports/g2-relaxation-port-closure-review.md)。应用入口与专属测试现已移至独立下游工程 `alchemi-app`；toolkit 继续维护上游移植和兼容性跟踪。
+2. 若要对齐 H100 运行控制或停止度量，在 `alchemi-app` 单独规划；H100 `UnitCellFilter(cell_factor=N)` 广义力判据与4000探针 native raw-force 判据不同。全目录长作业仍需单独确认。
+3. 固定晶胞 ASE 3.29-compatible BFGS、NPT/NPH、DomainParallel 与生产性能仍是独立后续范围。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

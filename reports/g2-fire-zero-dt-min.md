@@ -66,6 +66,5 @@ HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 PYTHONPATH="$PWD:$PYTHONPATH" \
 零下限没有重跑完整4000原子Batch，未新增长期收敛、持续补位吞吐、NVIDIA/Warp数值
 对照或完整HCU gate证据；既有Batch性能继续使用 `.002` 历史参数，不能直接归于零下限。
 
-下一阶段建议（待确认）：收口审查 M1–M5 与本修正的差异、契约和验收清单，
-整理实际运行配置与限制。用户确认后先提交本修正，再进行审查；不自动合并/推送，
-不扩展测试规模、filters 或优化算法。
+后续 M1–M5 收口审查已完成，见 [审查报告](g2-relaxation-port-closure-review.md)。
+本修正已签名提交 `0e354f4`；审查文档待下一阶段确认后收口。
