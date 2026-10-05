@@ -42,6 +42,9 @@ registry 的 `variable_cell` feature 仅表示**公共 stateless executor 在调
 rebuild、target/pair、compile/opcheck、DomainParallel 与 native geometry backward
 均不在本阶段。MACE 及 FIRE/FIRE2 工作流将在后续里程碑分别准入。
 
+本文件保留 M1 阶段边界；后续 COO 与 MACE 单点能力见
+[M2 契约](HIP_COO_MACE_SNAPSHOT_CONTRACT.md)，不改变低层旧 plan 的固定 metadata 约束。
+
 ## 验证与状态
 
 最小回归：FP32/64 的异构 Batch 收缩、膨胀、剪切、周期 wrap、多镜像；同一张量的

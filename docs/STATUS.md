@@ -17,13 +17,13 @@
 | 功能 | 当前状态 | 已验证范围 | 明确限制 |
 |---|---|---|---|
 | Torch reference neighbor/cell-list | 已实现窄 reference | periodic/no-PBC、full/half、MATRIX/COO、mixed/triclinic Batch、image shift、容量、selective rebuild、连续 distance/vector 一二阶路径 | 不等于完整上游生产 cell-list；完整 target/pair/compile/opcheck/DomainParallel 仍未完成 |
-| 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、Batch、full-list、MATRIX、FP32/FP64、`skin=0`、自动 doubling capacity；允许调用间 full-PBC 晶胞改变，每次完整重建 | 不进入 `auto`；不支持 no-PBC、half、COO、skin/selective rebuild、target/pair、旧 plan 变胞复用、native geometry backward、compile/opcheck、DomainParallel；HIP MACE/FIRE 工作流待验收 |
+| 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、Batch、full-list、MATRIX/COO（Torch打包）、FP32/FP64、`skin=0`、自动 doubling capacity；允许调用间 full-PBC 晶胞改变，每次完整重建 | 不进入 `auto`；不支持 no-PBC、half、skin/selective rebuild、target/pair、旧 plan 变胞复用、native geometry backward、compile/opcheck、DomainParallel；MPA-0 HIP邻居单点已验收；HIP FIRE/FIRE2 工作流待验收 |
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
 | fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、生产后端未完成；变胞证据另列 |
 | stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 基础转换本身不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 未验证；变胞应用另列 |
-| MACE-MPA-0 单点 | 已验证窄 CPU/HCU4 | M1 CPU Batch/ASE及 FP64数值导数；M5 FP32/64 同几何 CPU/HCU完整 E/F/stress与邻居，48份导出核验 | 全目录/完整模型族未验证；单一精度须匹配默认 dtype；单点一致不代表弛豫轨迹等价 |
+| MACE-MPA-0 单点 | 已验证窄 CPU/HCU4 | M1 CPU Batch/ASE及 FP64数值导数；M5 FP32/64 同几何 CPU/HCU完整 E/F/stress与邻居，48份导出核验；HIP邻居M2单点三快照 | 全目录/完整模型族未验证；单一精度须匹配默认 dtype；单点一致不代表弛豫轨迹等价 |
 | MPA-0 原生变胞批量弛豫集成 | 已验证窄 CPU/HCU4 下游工作流 | toolkit 原生优化器与生命周期 API 由 `alchemi-app` 应用组合；两精度/两优化器单体系、补位和8结构验收；48份输出独立 CPU/HCU核验 | Li(CN)2 FIRE精度敏感、FIRE2应力未收敛；全目录/完整HCU gate、checkpoint/流式服务、混合变胞阶段、生产性能未验收 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
@@ -53,8 +53,22 @@
 - 新建每次调用的 cell metadata/plan 本来就是 stateless 行为；本轮明确准入并验证，
   修正容量错误为 Hook 可识别的 `NeighborOverflowError`，修复 registry 意外允许 auto 选 HIP。
 - 新增证据仅 full-PBC/full/MATRIX/skin=0；旧 plan 的固定 metadata ABI 保持。
-  COO、HIP MACE/FIRE/FIRE2 和性能优化待后续独立确认与验收。
+  M1 当时未验收 COO/HIP MACE；后续单点准入见 M2。HIP FIRE/FIRE2 与性能优化仍待确认。
 - [契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)、[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
+
+## HIP COO 与 MPA-0 单点 M2（2026-10-05）
+
+- 起点 `8120282`，分支 `codex/feat-hip-coo-mace-snapshot`；已收口实现 `3e394d7`，本地阶段分支，未合并或推送。
+- COO 为 HIP MATRIX 核心加设备内 Torch 打包；直接 ops、framework、Hook 均准入。
+  修正 Hook 对自动过量分配 MATRIX 的容量适配，只裁 padding、有效 counts 超容量则报错。
+- CPU ops `88 passed, 10 skipped`；framework `38 passed, 12 skipped, 1 xfailed`。
+  HCU4 ops `26 passed`、framework `17 passed`（其中5项CPU oracle）；46×32固定回归通过。
+- 同 checkpoint/dtype/几何的真实 MPA-0 三个 Li/Na CIF（18原子）、两精度各 initial/shear/wrap，
+  直接 compute 与 Hook 对照通过；边数610/602/610、atom/image 集合完全一致。
+  最大 E/F/stress 差 FP64 `1.78e-15/9.81e-15/1.30e-16`，FP32 `3.81e-6/5.42e-6/3.54e-8`。
+  FP64 force/strain 有限差分误差 `2.43e-10 eV/Å`、`1.68e-12 eV/Å³`，拓扑不变。
+- 没有 FIRE/FIRE2、其他模型或性能准入结论；HIP 仍不进入 auto。
+  [契约](HIP_COO_MACE_SNAPSHOT_CONTRACT.md)、[报告](../reports/g2-hip-coo-mace-snapshot-m2.md)。
 
 ## Langevin 窄 slice 收口证据
 
@@ -406,7 +420,7 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 3. 固定晶胞 ASE 3.29-compatible BFGS、NPT/NPH、DomainParallel 与生产性能仍是独立后续范围。
 
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
-[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点待确认；
+[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；M3 HIP邻居变胞 FIRE/FIRE2 已获确认；
 之后再验收变胞 FIRE/FIRE2 和实测优化。M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 

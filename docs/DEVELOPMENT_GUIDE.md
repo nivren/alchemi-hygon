@@ -13,7 +13,7 @@
 当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
 Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、device、dtype、梯度等级和
 特性集合登记已验证宽度；Triton 尚无生产 capability，HIP 目前只登记了邻居
-`hip.neighbor.cell_list-v1` 的 periodic/Batch/full/MATRIX 窄 capability；当前晶胞的逐次
+`hip.neighbor.cell_list-v1` 的 periodic/Batch/full/MATRIX+COO 窄 capability；当前晶胞的逐次
 完整重建见 [M1 契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)。默认
 Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
 
@@ -95,7 +95,7 @@ dtype、梯度等级和实际 benchmark。
 - backend="triton"：当前未注册，必须抛 BackendUnavailableError；实现和测试完成后才
   能登记；
 - backend="hip"：只对已登记的邻居窄 capability 生效；其它 operation 或不满足
-  periodic/Batch/full/MATRIX/FP32/FP64/skin=0 契约时必须明确失败；允许调用间晶胞变化，
+  periodic/Batch/full/MATRIX+COO/FP32/FP64/skin=0 契约时必须明确失败；允许调用间晶胞变化，
   每次重新初始化 cell metadata/CSR plan，不允许旧 plan 变胞复用；
 - backend="auto"：只在能力过滤、后端注册和证据齐全时选择；当前 slice 只会选已注册的
   reference，并针对每个选择签名首次报告实际后端和原因；

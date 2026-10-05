@@ -31,7 +31,7 @@
 - `backend="auto"`：只有 capability、profile 和证据满足时才可选择优化后端；当前 HIP
   neighbor 不进入 `auto`。
 - `backend="triton"`：当前没有已登记生产 capability。
-- `backend="hip"`：当前登记 `hip.neighbor.cell_list-v1` 的 periodic/Batch/full-list/MATRIX、
+- `backend="hip"`：当前登记 `hip.neighbor.cell_list-v1` 的 periodic/Batch/full-list/MATRIX/COO（Torch打包）、
   FP32/FP64、`skin=0`；调用间晶胞可变，每次完整重建。不满足契约必须显式失败。
 
 后端选择必须按 operation、device、dtype、layout、PBC、full/half、梯度等级、stream、容量、
@@ -68,7 +68,12 @@ HIP M1 当前晶胞快照已在 `codex/feat-hip-current-cell-neighbors` 完成 C
 每次重新派生 inverse/grid/radius/offset 并创建新 plan；低层复用 plan 仍是固定 metadata ABI。
 修正 Hook 的容量溢出类型，并以 `auto_enabled=False` 落实 HIP 不进入 auto 的既定边界。
 
-当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half/COO HIP、skin/selective rebuild
+HIP M2 在 `codex/feat-hip-coo-mace-snapshot` 完成设备内 Torch COO 接线与真实 MPA-0
+两精度/三快照单点 E/F/stress gate，实现收口 `3e394d7`；见[M2契约](HIP_COO_MACE_SNAPSHOT_CONTRACT.md)
+与[报告](../reports/g2-hip-coo-mace-snapshot-m2.md)。Hook 允许将过量分配的 MATRIX
+裁去 padding，但有效 counts 超容量明确失败。模型单点不等于 HIP FIRE/FIRE2 工作流验收。
+
+当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
 lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
 compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry 继续承担训练/梯度
 路径；native HIP geometry 是 forward-only 候选。
@@ -156,7 +161,7 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 既有提交保留；流程文档已在 M5 启动前以 `fa74ca1` 收口；全目录长作业另行授权。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
-已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已获用户确认，
+已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；M3 HIP邻居变胞 FIRE/FIRE2 已获确认，
 之后分别验收变胞 FIRE/FIRE2、实测优化。继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 

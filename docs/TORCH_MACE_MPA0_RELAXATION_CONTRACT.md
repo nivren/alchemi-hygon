@@ -92,8 +92,9 @@ M1 固定三个真实 CIF：Li2MgGe（4 原子）、LiSnCl3（10 原子）、NaL
 复用 periodic full-list reference、image shifts、容量扩展与连续 geometry。
 首轮 `skin=0` 每步用当前晶胞重建；压缩/剪切、cutoff 附近、多周期镜像和增长容量
 需要独立回归。已有 skin>0 接口保留，其晶胞变化缓存失效行为单列验证。
-HIP 邻居 M1 已独立验收调用间当前晶胞的全量 MATRIX 重建；MACE 所需 COO 和
-HIP 邻居的变胞 FIRE/FIRE2 工作流尚未验收，当前本契约应用证据继续采用 Torch reference。
+HIP 邻居 M1 已验收当前晶胞 MATRIX 重建；M2 已独立验收 Torch COO 适配与
+MPA-0 单点 E/F/stress，见 [M2契约](HIP_COO_MACE_SNAPSHOT_CONTRACT.md)。HIP 邻居的
+变胞 FIRE/FIRE2 工作流尚未验收，本契约既有弛豫应用证据继续采用 Torch reference。
 
 复用现有多条件 ConvergenceHook：原子最大力范数与最大绝对应力分量同时达标。
 建议初值 `fmax<=0.01 eV/Å`、`max(abs(sigma))<=0.1 GPa`

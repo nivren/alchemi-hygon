@@ -4,7 +4,7 @@
 
 | operation | Torch reference 已登记宽度 | 梯度 | `auto` 当前选择 | HCU 证据 |
 | --- | --- | --- | --- | --- |
-| `neighbor_list` | Torch reference no-PBC/periodic full/half、`cell_list`、MATRIX/COO、距离/向量；HIP periodic/Batch/full/MATRIX，调用间 full-PBC 当前晶胞完整重建，支持 `max_neighbors=None` 自动扩容 | 拓扑不可微；Torch geometry 保留一阶/二阶候选路径 | `torch_reference`（HIP 不进入 `auto`） | Torch periodic/full 与 cell-list reference 已验证；HIP framework selection→native build/query/topology 在 gfx936/BW200 `HIP_VISIBLE_DEVICES=4` 的 46×32、92×64 通过；Point39 API wall-clock、Point40 contract 和 Point41 自动容量增长/上界 gate 通过；M1 HCU4 BW1000 64G 当前晶胞 ops22/framework4项通过，仍不是完整上游 capability 或性能准入 |
+| `neighbor_list` | Torch reference no-PBC/periodic full/half、`cell_list`、MATRIX/COO、距离/向量；HIP periodic/Batch/full/MATRIX+COO（Torch打包），调用间 full-PBC 当前晶胞完整重建，支持 `max_neighbors=None` 自动扩容 | 拓扑不可微；Torch geometry 保留一阶/二阶候选路径 | `torch_reference`（HIP 不进入 `auto`） | Torch periodic/full 与 cell-list reference 已验证；HIP framework selection→native build/query/topology 在 gfx936/BW200 `HIP_VISIBLE_DEVICES=4` 的 46×32、92×64 通过；Point39 API wall-clock、Point40 contract 和 Point41 自动容量增长/上界 gate 通过；M1 HCU4 BW1000 64G 当前晶胞 ops22/framework4项通过，仍不是完整上游 capability 或性能准入 |
 | `lj_energy_forces` | no-PBC/PBC full、no-PBC half、energy/force | 至二阶 | `torch_reference` | G1 CPU/HCU 窄 slice |
 | `velocity_verlet` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
 | `fire` | 固定晶胞 reference | 一阶 | `torch_reference` | G2 CPU/HCU 窄 slice |
@@ -19,11 +19,15 @@
 `triton` 没有已登记 capability；`hip` 只有上述显式窄 capability，不进入 `auto`，unsupported request 必须抛出 `BackendUnavailableError`。`backend=None` 与 `backend="warp"` 不属于 registry executor，保持 framework 的 legacy Warp 路径。
 
 Torch `cell_list` 当前通过 `backend="torch_reference", method="cell_list"` 公开选择；HIP
-`cell_list` 只通过显式 `backend="hip"` 覆盖 periodic/Batch/full/MATRIX，允许调用间 full-PBC 变胞并完整重建。两者的
+`cell_list` 只通过显式 `backend="hip"` 覆盖 periodic/Batch/full/MATRIX+COO，允许调用间 full-PBC 变胞并完整重建。两者的
 `max_neighbors=None` active neighbor 集合已验证，但 HIP 本地 doubling capacity policy 不承诺
 上游最小 16/16 对齐 padded shape。当前晶胞快照见 [M1报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
-旧 plan 变胞复用、性能准入、skin/rebuild lifecycle、HIP MACE/FIRE2 和更宽 public capability
+旧 plan 变胞复用、性能准入、skin/rebuild lifecycle、HIP FIRE/FIRE2 和更宽 public capability
 仍未完成验证。
+
+M2 已准入显式 HIP MATRIX 核心加设备内 Torch COO 打包，HCU4 ops26/framework17项通过；
+真实 MPA-0 两精度/三快照单点与 FP64 force/strain 差分通过，见
+[M2报告](../reports/g2-hip-coo-mace-snapshot-m2.md)。这不覆盖其他 MLIP 或 HIP FIRE/FIRE2。
 
 ## M1 单次选择传递
 
