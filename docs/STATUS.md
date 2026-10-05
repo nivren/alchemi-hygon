@@ -12,7 +12,8 @@
 - MPA-0 里程碑2：`codex/feat-cell-tools-reference`，起点 `f802d49`，实现/测试 `036827e`；通用晶胞工具 CPU/HCU4 窄验证完成；未合并、未推送。
 - MPA-0 里程碑4：`codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；批量应用生命周期和窄 CPU/合成 HCU 验收完成；未合并、未推送。
 - MPA-0 里程碑5：`codex/test-mpa0-hcu-validation`，起点 `fa74ca1`，收口提交 `4656cce`；真实目标 HCU4 小样本验收完成；未合并、未推送。
-- 当前测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`；FP64原生FIRE单个64结构/2287原子Batch完成，结果见下文；尚未提交、合并或推送。
+- 单Batch测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`，收口 `7410445`；FP64原生FIRE单个64结构/2287原子Batch完成；未合并、未推送。
+- 当前测量：`codex/test-mpa0-batch8000-timing`，起点 `7410445`；8000门槛单批初始模型求值OOM，分项观测已接入探针；尚未提交、合并或推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -196,6 +197,25 @@
 - 初轮dt_min=0被本地参数校验拒绝且未完成一个完整优化步，不计时外推；
   最终明确采用现有默认.002。下一建议为恢复dt_min=0兼容性，待确认；本阶段未修改算子。
 
+## MPA-0 8000原子门槛与分项计时诊断（2026-10-05）
+
+- 用户追加授权8000门槛、仍只跑一批、估计模型与优化器等分项。
+  [报告](../reports/g2-mpa0-batch8000-timing.md)；复用相同抽样前缀231结构/7937原子，
+  每项3–176原子；下一项80原子会超容量，未纳入。FP64/e3nn/原生FIRE参数与上一测量相同。
+- 在探针给邻居、compute、masked pre/post update、停止观测器加互不嵌套的同步墙钟，
+  其余工作流记录残差。framework/ops/产品应用不变，没有新filter/算法/上游bug修复。
+- HCU4同批初始求值80%、95%、默认100%allocator上限三次均在e3nn张量积前向OOM；
+  模型求值及优化更新完成数0，没有弛豫输出。最后一次allocated峰值59.115 GiB、
+  reserved62.604 GiB，额外3.95 GiB分配失败；没有改变allocator策略或测出理论最小内存。
+- 默认上限：输入/模型准备4.986秒、初始冷邻居2.007秒、容量检查.000322秒、
+  失败前部分模型.694秒、循环其余1.107秒，探针总31.939秒。
+  未执行优化器，不能给完整E/F/stress求值/稳态分项占比、完整Batch耗时或8000容量1600项估算。
+- 运行时确认e3nn TensorProduct/FullyConnectedTensorProduct与MACE SymmetricContraction，
+  无CuEq/HCU等变加速库；OOM位置不是完整循环性能剖析或未来算子库收益证明。
+- CPU oracle及计时返回/异常/Hook语义检查通过，Ruff/格式/编译/diff检查；
+  HCU三次各CPU/HCU NumPy oracle通过，事后全部231输入哈希、容量、失败分类/分项总和核验。
+  无完整产品gate、成功弛豫或完整模型parity新增证据；原2304容量结果保留。作业后设备空闲。
+
 ## 运行时排障记录
 
 此前“加载/设备同步在当前卡上异常变慢”已定位为：超时终止 JIT 编译后遗留 PyTorch C++
@@ -324,12 +344,14 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
 通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
-M5已收口 `4656cce`；用户追加的一个较大FP64 Batch测量已完成，当前测量尚未提交。
+M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
+8000门槛诊断已完成、初始求值OOM，当前阶段尚未提交。
 后续建议队列：
 
-1. FIRE参数兼容修正（待确认）：确认后先提交本次测量，再核对上游/fork的dt_min=0语义、修正本地reference校验，补CPU边界回归和HCU限时短步；不加filters、不做性能优化。
-2. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
-3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. 可容纳单Batch完整分项（待确认）：先提交本次诊断，再以约4000原子门槛预检；可容纳后只跑一完整FP64/e3nn/原生FIRE Batch，测模型/邻居/优化器/工作流耗时。不自动扩大到1600。
+2. FIRE参数兼容修正（待确认）：核对上游/fork dt_min=0语义、修正本地reference校验，CPU边界回归和HCU短步；不加filters、不做性能优化。
+3. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
+4. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

@@ -7,6 +7,7 @@ optimization algorithm is introduced, and no performance tuning is done here.
 """
 
 import argparse
+import functools
 import json
 import sys
 import time
@@ -110,6 +111,64 @@ class TimingDataset(CIFDataset):
         return data, info
 
 
+class ComponentTimer:
+    """Disjoint synchronized wall intervals; no kernel-only timing claim."""
+
+    def __init__(self, device):
+        self.device, self.components = device, {}
+
+    def call(self, name, function, *args, **kwargs):
+        torch.cuda.synchronize(self.device)
+        started = time.perf_counter()
+        succeeded = False
+        try:
+            result = function(*args, **kwargs)
+            succeeded = True
+            return result
+        finally:
+            torch.cuda.synchronize(self.device)
+            elapsed = time.perf_counter() - started
+            item = self.components.setdefault(
+                name,
+                {"calls": 0, "completed_calls": 0, "failed_calls": 0, "seconds": 0.0},
+            )
+            item["calls"] += 1
+            item["completed_calls" if succeeded else "failed_calls"] += 1
+            item["seconds"] += elapsed
+            if item["calls"] == 1:
+                print(
+                    json.dumps(
+                        {
+                            "component": name,
+                            "first_call_seconds": elapsed,
+                            "completed": succeeded,
+                        }
+                    ),
+                    flush=True,
+                )
+
+    def wrap_method(self, obj, method, name):
+        original = getattr(obj, method)
+
+        @functools.wraps(original)
+        def measured(*args, **kwargs):
+            return self.call(name, original, *args, **kwargs)
+
+        # Instance-local instrumentation only; package implementations unchanged.
+        setattr(obj, method, measured)
+
+
+class TimedHook:
+    """Keep the original hook stage/frequency and measure its whole call."""
+
+    def __init__(self, hook, timer, name):
+        self.hook, self.timer, self.name = hook, timer, name
+        self.stage, self.frequency = hook.stage, hook.frequency
+
+    def __call__(self, ctx, stage):
+        return self.timer.call(self.name, self.hook, ctx, stage)
+
+
 class NativeObserver:
     stage = DynamicsStage.AFTER_COMPUTE
     frequency = 1
@@ -169,7 +228,9 @@ def run(args):
     assert sha256(args.checkpoint) == MODEL_SHA256
     # A process-local allocator cap protects the shared card. This can produce
     # an explicit allocation failure; it is never a precision/backend fallback.
-    torch.cuda.set_per_process_memory_fraction(0.8, device)
+    if not 0 < args.memory_fraction <= 1:
+        raise ValueError("--memory-fraction must be in (0, 1]")
+    torch.cuda.set_per_process_memory_fraction(args.memory_fraction, device)
     torch.set_default_dtype(torch.float64)
     torch.manual_seed(0)
     startup = time.perf_counter() - PROBE_STARTED
@@ -180,7 +241,8 @@ def run(args):
     torch.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
     selection = json.loads(args.selection.read_text())
-    paths = [Path(r["source"]) for r in selection["batch64"]]
+    selected = selection.get("batch", selection.get("batch64"))
+    paths = [Path(r["source"]) for r in selected]
     structures = [read(p, format="cif") for p in paths]
     model = MACEWrapper.from_checkpoint(
         args.checkpoint,
@@ -197,7 +259,14 @@ def run(args):
     supported = set(model.model.atomic_numbers.cpu().tolist())
     for atoms in structures:
         validate_atoms(atoms, supported, args.max_atoms)
-    assert len(structures) == 64 and sum(map(len, structures)) <= args.max_atoms
+    assert len(structures) > 0 and sum(map(len, structures)) <= args.max_atoms
+    module_classes = sorted(
+        {
+            f"{type(module).__module__}.{type(module).__name__}"
+            for module in model.model.modules()
+        }
+    )
+    assert not any(name.startswith("cuequivariance") for name in module_classes)
     dataset = TimingDataset(structures, list(range(len(paths))), torch.float64, device)
     sampler = SizeAwareSampler(
         dataset, max_atoms=args.max_atoms, max_batch_size=len(paths)
@@ -231,13 +300,23 @@ def run(args):
         refill_frequency=20,
         device_type=device.type,
     )
-    stage.register_hook(
+    timer = ComponentTimer(device) if args.components else None
+    if timer:
+        timer.wrap_method(stage, "compute", "model_evaluation")
+        timer.wrap_method(dynamics, "_masked_pre_update", "optimizer_pre_update")
+        timer.wrap_method(dynamics, "_masked_post_update", "optimizer_post_update")
+
+    def register(hook, name):
+        stage.register_hook(TimedHook(hook, timer, name) if timer else hook)
+
+    register(
         NeighborListHook(
             model.model_config.neighbor_config,
             skin=0.0,
             backend="torch_reference",
             stage=DynamicsStage.BEFORE_COMPUTE,
-        )
+        ),
+        "neighbor_list",
     )
 
     class CapacityCheck:
@@ -252,13 +331,23 @@ def run(args):
                     "neighbor row count exceeds supplied 512 limit; no truncation"
                 )
 
-    stage.register_hook(CapacityCheck())
+    register(CapacityCheck(), "neighbor_capacity_check")
     observer, progress = NativeObserver(), ExitAndProgress(started)
-    stage.register_hook(observer)
+    register(observer, "native_force_observer")
     stage.register_hook(progress)
     stage.register_hook(WallDeadline(started + args.wall_seconds))
     prepared = time.perf_counter()
     failure = None
+    print(
+        json.dumps(
+            {
+                "initial_batch_structures": len(paths),
+                "initial_batch_atoms": sum(map(len, structures)),
+                "max_atoms": args.max_atoms,
+            }
+        ),
+        flush=True,
+    )
     try:
         stage.run(n_steps=520)
     except Exception as error:
@@ -268,7 +357,7 @@ def run(args):
     complete = sink.read().to_data_list() if len(sink) else []
     pending = (
         []
-        if stage.active_batch is None
+        if stage.active_batch is None or (failure and observer.calls == 0)
         else stage.active_batch.to("cpu").to_data_list()
     )
     records, arrays = [], {}
@@ -332,7 +421,7 @@ def run(args):
         "device_total_memory_bytes": torch.cuda.get_device_properties(
             device
         ).total_memory,
-        "process_allocator_fraction": 0.8,
+        "process_allocator_fraction": args.memory_fraction,
         "torch_version": str(torch.__version__),
         "hip_version": torch.version.hip,
         "model_sha256": MODEL_SHA256,
@@ -341,7 +430,7 @@ def run(args):
         "structures": len(paths),
         "total_atoms": sum(map(len, structures)),
         "max_atoms": args.max_atoms,
-        "max_batch_size": 64,
+        "max_batch_size": len(paths),
         "refill_frequency": 20,
         "arrivals_after_initial_batch": 0,
         "force_tolerance_eV_A": 0.05,
@@ -368,6 +457,19 @@ def run(args):
         },
         "compute_calls": observer.calls,
         "fused_steps": progress.steps,
+        "exported_structures": len(records),
+        "wall_limit_seconds": args.wall_seconds,
+        "model_implementation_classes": module_classes,
+        "enable_cueq": False,
+        "compile_model": False,
+        "components": timer.components if timer else None,
+        "component_timing_method": "synchronized nonoverlapping wall intervals"
+        if timer
+        else None,
+        "workflow_other_seconds": (dynamics_end - prepared)
+        - sum(item["seconds"] for item in timer.components.values())
+        if timer
+        else None,
         "trace": progress.trace,
         "peak_allocated_bytes": torch.cuda.max_memory_allocated(device),
         "peak_reserved_bytes": torch.cuda.max_memory_reserved(device),
@@ -388,4 +490,6 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-atoms", type=int, default=2304)
     parser.add_argument("--wall-seconds", type=float, default=600)
+    parser.add_argument("--components", action="store_true")
+    parser.add_argument("--memory-fraction", type=float, default=0.8)
     run(parser.parse_args())
