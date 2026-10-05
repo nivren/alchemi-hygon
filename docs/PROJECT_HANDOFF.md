@@ -31,8 +31,8 @@
 - `backend="auto"`：只有 capability、profile 和证据满足时才可选择优化后端；当前 HIP
   neighbor 不进入 `auto`。
 - `backend="triton"`：当前没有已登记生产 capability。
-- `backend="hip"`：当前只登记 `hip.neighbor.cell_list-v1` 的 periodic/fixed-cell/Batch/
-  full-list/MATRIX、FP32/FP64、`skin=0` 窄 capability；不满足契约必须显式失败。
+- `backend="hip"`：当前登记 `hip.neighbor.cell_list-v1` 的 periodic/Batch/full-list/MATRIX、
+  FP32/FP64、`skin=0`；调用间晶胞可变，每次完整重建。不满足契约必须显式失败。
 
 后端选择必须按 operation、device、dtype、layout、PBC、full/half、梯度等级、stream、容量、
 确定性和分布式约束登记。framework 解析一次 `BackendSelection` 并传给 ops；dispatcher 不
@@ -63,8 +63,13 @@ Batch、image shift、分层 build/query、容量、selective rebuild 和连续 
 - framework explicit selection/executor 与 compatibility gate；
 - gfx936/BW200、`HIP_VISIBLE_DEVICES=4` 的 CPU/HCU parity 和窄 API evidence。
 
-当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half/COO HIP、skin/rebuild
-lifecycle、target/pair outputs、pair-centric/sorted query、变胞、native geometry backward、
+HIP M1 当前晶胞快照已在 `codex/feat-hip-current-cell-neighbors` 完成 CPU/HCU4 窄验证，
+实现收口 `fecbc39`，本地阶段分支、未合并或推送；见[契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)与[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
+每次重新派生 inverse/grid/radius/offset 并创建新 plan；低层复用 plan 仍是固定 metadata ABI。
+修正 Hook 的容量溢出类型，并以 `auto_enabled=False` 落实 HIP 不进入 auto 的既定边界。
+
+当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half/COO HIP、skin/selective rebuild
+lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
 compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry 继续承担训练/梯度
 路径；native HIP geometry 是 forward-only 候选。
 
@@ -129,7 +134,7 @@ M5已收口提交 `4656cce`，现已随整体移植链合入 `develop`。当前 
 见[容量诊断报告](../reports/g2-mpa0-batch8000-timing.md)。作业后无KFD PID。
 用户确认4000门槛后，8000诊断收口 `eff753d`，现已随整体移植链合入 `develop`。
 4000测量 `codex/test-mpa0-batch4000-timing` 起点eff753d，收口1dba058：同一抽样前缀114结构/3959原子，
-FP64/e3nn/原生FIRE，显式Torch reference邻居（变胞/COO未纳入优化HIP邻居支持范围）。
+FP64/e3nn/原生FIRE，显式Torch reference邻居（测量时变胞/COO未纳入优化HIP邻居支持范围）。
 一次完整Batch完成，111项原生raw力阈值收敛、3项500更新预算退出，无OOM/溢出/计算错误。
 应用160.145秒、探针182.673秒；循环156.489秒中模型118.819（75.93%）、
 邻居30.261（19.34%）、优化器4.404（2.81%）；峰值allocated/reserved为41.131/49.938 GiB。
@@ -151,7 +156,9 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 既有提交保留；流程文档已在 M5 启动前以 `fa74ca1` 收口；全目录长作业另行授权。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
-继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。
+已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已获用户确认，
+之后分别验收变胞 FIRE/FIRE2、实测优化。继续暂停 M2 planner、NPT/NPH、DomainParallel、
+生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 
 ## 7. 验证与交接规则
 

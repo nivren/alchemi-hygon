@@ -9,7 +9,8 @@
 |---|---|---|
 | 项目环境 | [`probe-environment-freeze.txt`](probe-environment-freeze.txt) | 机器事实和历史资源快照；新机器需重新确认 |
 | Torch reference 基线 | [`g2-torch-reference-pbc-cell-list-core.md`](g2-torch-reference-pbc-cell-list-core.md) | 不代表生产性能后端 |
-| HIP 邻居阶段二收口 | [`g2-framework-hip-neighbor-compatibility-gate.md`](g2-framework-hip-neighbor-compatibility-gate.md) | 只覆盖当前 periodic/fixed-cell/Batch/full-list/MATRIX 窄范围 |
+| HIP 邻居阶段二收口 | [`g2-framework-hip-neighbor-compatibility-gate.md`](g2-framework-hip-neighbor-compatibility-gate.md) | 当时覆盖 periodic/fixed-cell/Batch/full-list/MATRIX 窄范围 |
+| HIP 邻居当前晶胞 M1 | [`g2-hip-current-cell-neighbor-m1.md`](g2-hip-current-cell-neighbor-m1.md) | FP32/64 当前晶胞完整 MATRIX 重建、CPU/HCU4；COO/MACE/FIRE 工作流与性能待后续验收 |
 | HIP framework wall-clock | [`g2-framework-hip-neighbor-wallclock.md`](g2-framework-hip-neighbor-wallclock.md) | warm public API 描述性 evidence，不是 `auto` 准入 |
 | MACE/FIRE2 reference | [`g2-mace-fire2-batch32-tier1.md`](g2-mace-fire2-batch32-tier1.md) | 固定晶胞 reference；不代表变胞或生产 HIP/MACE |
 | MPA-0 弛豫 M1 | [`g2-mace-mpa0-m1-cpu-baseline.md`](g2-mace-mpa0-m1-cpu-baseline.md) | 三个真实 CIF 的 CPU 单点与有限差分；目标 HCU/变胞弛豫未验证 |

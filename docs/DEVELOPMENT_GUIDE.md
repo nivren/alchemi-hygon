@@ -13,7 +13,8 @@
 当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
 Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、device、dtype、梯度等级和
 特性集合登记已验证宽度；Triton 尚无生产 capability，HIP 目前只登记了邻居
-`hip.neighbor.cell_list-v1` 的 periodic/fixed-cell/Batch/full/MATRIX 窄 capability。默认
+`hip.neighbor.cell_list-v1` 的 periodic/Batch/full/MATRIX 窄 capability；当前晶胞的逐次
+完整重建见 [M1 契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)。默认
 Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
 
 ## 1. 开始前：定位工作范围
@@ -94,10 +95,15 @@ dtype、梯度等级和实际 benchmark。
 - backend="triton"：当前未注册，必须抛 BackendUnavailableError；实现和测试完成后才
   能登记；
 - backend="hip"：只对已登记的邻居窄 capability 生效；其它 operation 或不满足
-  periodic/fixed-cell/Batch/full/MATRIX/FP32/FP64/skin=0 契约时必须明确失败；
+  periodic/Batch/full/MATRIX/FP32/FP64/skin=0 契约时必须明确失败；允许调用间晶胞变化，
+  每次重新初始化 cell metadata/CSR plan，不允许旧 plan 变胞复用；
 - backend="auto"：只在能力过滤、后端注册和证据齐全时选择；当前 slice 只会选已注册的
   reference，并针对每个选择签名首次报告实际后端和原因；
 - backend="warp"：NVIDIA 上游参考路径，不能被 HCU 修改偷偷替换。
+
+`Implementation.default_strategy` 表示显式 family 未指定 method 时的默认策略；
+`auto_enabled` 是单独的自动准入标记。HIP neighbor 的标记为 False，显式 family 和精确
+implementation ID 均可选择它，但 `auto` 不选择它。新 capability 验证不自动等于性能准入。
 
 数据层例外：`LevelStorage` 默认使用 `TorchStorageBackend`，以保证基础数据导入不初始化
 Warp；`WarpStorageBackend` 必须显式传入并作为 NVIDIA 对照。完整宽度矩阵和 Warp-only

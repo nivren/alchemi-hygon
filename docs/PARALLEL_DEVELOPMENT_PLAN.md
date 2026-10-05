@@ -41,6 +41,8 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
+| 完成 | HIP 邻居 M1：当前晶胞 | 显式 full-PBC/Batch/full/MATRIX/FP32/64，每次完整重建；CPU/HCU4 gate；实现 `fecbc39`、分支 `codex/feat-hip-current-cell-neighbors` | 不含 COO/MACE/FIRE 工作流、skin、旧 plan 复用或性能结论 |
+| 已确认 | HIP 邻居 M2：COO + MACE 单点 | 复用 MATRIX→COO Torch 适配；验证 MPA-0 同几何能量/力/应力 | 不直接实现 native COO；变胞 FIRE/FIRE2 和实测优化分别后续验收 |
 | 完成 | MPA-0 M2：晶胞工具 | align_cell、pack/unpack、扩展索引/指针；CPU/HCU4 primitive 通过 | 未含优化器、ASE filters、NPT/NPH |
 | 完成 | MPA-0 M3：变胞 FIRE2/FIRE | 单步/公共解析势 CPU/HCU；MPA-0 CPU 三步与旋转协变 | 不代表目标 HCU、完整收敛/补位、新参数化、生产后端 |
 | 完成 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、薄 CIF/JSONL；CPU真实 FP64 收敛与 HCU合成工作流 | 通用完整 checkpoint、流式服务/向量 arrivals、全目录长作业；目标 HCU由M5补充 |
@@ -94,8 +96,9 @@ generic executor binding、公共 `NVTLangevin(backend="torch_reference")` 接�
 
 - M2 planner、NPT/NPH 和 DomainParallel；
 - 生产 Triton/HIP dynamics kernel；
-- 扩大 HIP neighbor capability（no-PBC、half/COO、skin/rebuild、target/pair、变胞、
-  native geometry backward、compile/opcheck 或 `auto`）；
+- 已确认的 HIP M1 当前晶胞完整重建以外的扩展，须按里程碑确认；当前 M2 COO/MACE 已确认，
+  no-PBC、half、skin/rebuild、target/pair、旧 plan 变胞复用、native geometry backward、
+  compile/opcheck 或 `auto` 继续暂停；
 - 仅为追求 benchmark 数字而重写已经有正确性证据的 Torch geometry 路径。
 
 ## 4. 并行边界

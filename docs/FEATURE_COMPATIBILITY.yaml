@@ -1180,7 +1180,7 @@
       "id": "neighbors.topology",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "Torch reference dense 与显式 backend=torch_reference、method=cell_list 已覆盖 periodic/no-PBC full/half、MATRIX/COO、正交/三斜 mixed-PBC Batch、image shifts、分层 build/query、预分配容量、selective rebuild 和连续 vector/distance 梯度；显式 backend=hip 已登记 periodic/fixed-cell/Batch/full/MATRIX 的 native build/query/topology 窄边界，并完成 build-inclusive public API 的两组 warm wall-clock 描述性测量；target/pair_fn/pair-centric/compile、HIP lifecycle 与生产默认性能准入仍未完成",
+      "implementation_scope": "Torch reference dense 与显式 backend=torch_reference、method=cell_list 已覆盖 periodic/no-PBC full/half、MATRIX/COO、正交/三斜 mixed-PBC Batch、image shifts、分层 build/query、预分配容量、selective rebuild 和连续 vector/distance 梯度；显式 backend=hip 已登记 periodic/Batch/full/MATRIX 的 native build/query/topology 窄边界，M1 新增调用间当前晶胞完整重建验证，并完成 build-inclusive public API 的两组 warm wall-clock 描述性测量；target/pair_fn/pair-centric/compile、HIP lifecycle 与生产默认性能准入仍未完成",
       "scenario": "shape/dtype/layout、PBC shift、三斜晶胞、half/full、self、排序、空输入、溢出报错/扩容与 stream；拓扑不可微",
       "source": {
         "repository": "ops",
@@ -1330,7 +1330,9 @@
           "probes/framework_neighbor_hip_contract.py",
           "probes/framework_neighbor_hip_boundary.py",
           "packages/ops/test/torch/test_hip_batch_neighbor_runtime.py",
-          "packages/ops/test/torch/test_hip_neighbor_executor.py"
+          "packages/ops/test/torch/test_hip_neighbor_executor.py",
+          "packages/ops/test/torch/test_hip_current_cell_neighbors.py",
+          "packages/framework/test/compatibility/test_hip_current_cell_neighbors.py"
         ],
         "evidence": [
           "reports/upstream_inventory.json",
@@ -1353,6 +1355,8 @@
           "reports/g2-framework-hip-neighbor-wallclock.md",
           "reports/g2-framework-hip-neighbor-contract.md",
           "reports/g2-framework-hip-neighbor-compatibility-gate.md",
+          "reports/g2-hip-current-cell-neighbor-m1.md",
+          "docs/HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md",
           "reports/README.md",
           "adr/0010-torch-reference-cell-list.md",
           "adr/0006-implementation-registry-and-neighbor-strategy.md"
@@ -1366,10 +1370,56 @@
       "limitations": [
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
-        "显式 Torch cell-list core 已在 CPU/HCU 覆盖 periodic/no-PBC full/half、method/scratch、分层 build/query 和 Batch selective rebuild；默认生产路径仍依赖 Warp；HIP 仅是显式 periodic/fixed-cell/Batch/full/MATRIX 功能窄边界，未接入 auto、no-PBC、half/COO、skin/rebuild、target rows、pair callbacks/outputs、pair-centric/sorted query、compile/opcheck 或 DomainParallel ownership",
+        "显式 Torch cell-list core 已在 CPU/HCU 覆盖 periodic/no-PBC full/half、method/scratch、分层 build/query 和 Batch selective rebuild；默认生产路径仍依赖 Warp；HIP 仅是显式 periodic/Batch/full/MATRIX、调用间当前晶胞完整重建的功能窄边界，未接入 auto、no-PBC、half/COO、skin/rebuild、target rows、pair callbacks/outputs、pair-centric/sorted query、compile/opcheck 或 DomainParallel ownership",
         "Point39 在 fixed periodic/full/MATRIX、FP32、capacity=256 的 46x32 与 92x64 workload 上观察到 HIP/Torch public warm API median factor 0.09398x/0.07839x；Point40/41 又通过 FP32/FP64、empty、capacity overflow、unsupported request、repeated skin=0 Hook 和 max_neighbors=None 自动容量增长/上界 contract；当前 HIP 自动容量采用本地 doubling policy，不承诺上游 estimate_max_neighbors 的最小 16/16 对齐 padded shape；这些是窄范围 correctness/performance evidence，不是 auto 准入或全邻居性能结论；registry 继续保持 auto 不选 HIP，lifecycle reuse 和更宽 capability 仍未实现"
       ],
       "release_gate": "G1"
+    },
+    {
+      "id": "neighbors.hip_current_cell_rebuild",
+      "category": "B",
+      "status": "implemented",
+      "implementation_scope": "M1 显式 HIP stateless 当前晶胞快照完整重建；低层旧 plan 固定 metadata 约束保持",
+      "scenario": "MPA-0 变胞弛豫的邻居前置能力；本阶段仅 MATRIX 拓扑，不构成 MACE/FIRE 工作流验收",
+      "source": {
+        "repository": "ops",
+        "commit": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+        "paths": ["nvalchemiops/neighbors/cell_list/kernels.py", "nvalchemiops/neighbors/cell_list/launchers.py"],
+        "symbols": {
+          "nvalchemiops/neighbors/cell_list/launchers.py": ["batch_query_cell_list"]
+        }
+      },
+      "contract": {
+        "api": "explicit backend=hip, method=cell_list; compute_neighbors and NeighborListHook skin=0",
+        "data": "positions[N,3], cell[B,3,3], full-PBC[B,3], segmented Batch; FP32/64; full MATRIX[N,K], counts[N], shifts[N,K,3]; global indices; r=s@H, dr=r_j-r_i+shift@H, strict cutoff in input units",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change",
+        "details": "docs/HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md; 每次新建 inverse/grid/radius/offset、CSR workspace 与 plan；输入不修改/结果不alias；当前Torch stream；行顺序不承诺；自动有限doubling，显式容量溢出NeighborOverflowError；空输入延续旧gate；拓扑梯度0"
+      },
+      "dependencies": ["torch", "DTK HIP C++ extensions"],
+      "backends": {
+        "upstream": "warp",
+        "target": ["hip"],
+        "selection": "hip.neighbor.cell_list-v1 explicit_only; auto_enabled=false; None retains Warp"
+      },
+      "gradient_level": "topology_none; continuous MACE geometry is a later milestone",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [],
+        "dcu_tests": [
+          "packages/ops/test/torch/test_hip_current_cell_neighbors.py",
+          "packages/ops/test/torch/test_hip_neighbor_executor.py",
+          "packages/framework/test/compatibility/test_hip_current_cell_neighbors.py",
+          "probes/framework_neighbor_hip_contract.py"
+        ],
+        "evidence": ["reports/g2-hip-current-cell-neighbor-m1.md", "artifacts/hip-current-cell-neighbor-m1/"],
+        "environments": ["project .venv + DTK26.04 + Torch2.9.0/HIP6.3.26093 + HCU4 BW1000 64G/gfx936"]
+      },
+      "limitations": [
+        "新增变胞证据仅 full-PBC/full/MATRIX/skin=0/FP32/64；既有固定晶胞 mixed-PBC gate 保持",
+        "COO、HIP MACE/FIRE/FIRE2、skin/selective rebuild、旧 plan 变胞复用、no-PBC/half、target/pair、compile/opcheck、DomainParallel 未验收",
+        "query仍每原子一线程；host metadata同步和逐次workspace未优化；无新增性能或auto准入证据"
+      ],
+      "release_gate": "G2"
     },
     {
       "id": "interactions.lj",

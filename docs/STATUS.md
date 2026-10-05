@@ -17,7 +17,7 @@
 | 功能 | 当前状态 | 已验证范围 | 明确限制 |
 |---|---|---|---|
 | Torch reference neighbor/cell-list | 已实现窄 reference | periodic/no-PBC、full/half、MATRIX/COO、mixed/triclinic Batch、image shift、容量、selective rebuild、连续 distance/vector 一二阶路径 | 不等于完整上游生产 cell-list；完整 target/pair/compile/opcheck/DomainParallel 仍未完成 |
-| 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、fixed-cell、Batch、full-list、MATRIX、FP32/FP64、`skin=0`、`max_neighbors=None` 本地 doubling capacity | 不进入 `auto`；不支持 no-PBC、half、COO、skin/rebuild、target/pair、变胞、native geometry backward、compile/opcheck、DomainParallel |
+| 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、Batch、full-list、MATRIX、FP32/FP64、`skin=0`、自动 doubling capacity；允许调用间 full-PBC 晶胞改变，每次完整重建 | 不进入 `auto`；不支持 no-PBC、half、COO、skin/selective rebuild、target/pair、旧 plan 变胞复用、native geometry backward、compile/opcheck、DomainParallel；HIP MACE/FIRE 工作流待验收 |
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
@@ -41,6 +41,20 @@
   对齐策略一致。
 - 当前阶段二 summary：[`reports/g2-framework-hip-neighbor-compatibility-gate.md`](../reports/g2-framework-hip-neighbor-compatibility-gate.md)。
   相关报告按主题见 [`reports/README.md`](../reports/README.md)。
+
+## HIP 当前晶胞重建 M1（2026-10-05）
+
+- 起点 `fb05b61`，分支 `codex/feat-hip-current-cell-neighbors`；已收口实现 `fecbc39`，本地阶段分支；未合并或推送。
+- CPU：ops `87 passed, 6 skipped`；framework `33 passed, 4 skipped, 1 xfailed`。
+  skip 为 HCU 专属用例；既有 xfail 为 `WARP-DEFAULT-001`，不是新增豁免。
+- HCU4 BW1000 64G/gfx936：ops `22 passed`，framework `4 passed`；46×32 既有
+  固定晶胞 gate 也通过。FP32/64、收缩/膨胀/剪切/wrap、多镜像、非默认 stream、
+  输入与旧输出保护、显式溢出及 Hook 自动扩容均有窄范围证据。
+- 新建每次调用的 cell metadata/plan 本来就是 stateless 行为；本轮明确准入并验证，
+  修正容量错误为 Hook 可识别的 `NeighborOverflowError`，修复 registry 意外允许 auto 选 HIP。
+- 新增证据仅 full-PBC/full/MATRIX/skin=0；旧 plan 的固定 metadata ABI 保持。
+  COO、HIP MACE/FIRE/FIRE2 和性能优化待后续独立确认与验收。
+- [契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)、[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
 
 ## Langevin 窄 slice 收口证据
 
@@ -217,8 +231,8 @@
 - [报告](../reports/g2-mpa0-batch4000-timing.md)。复用既有探针，无源码/算法/上游bug修复。
   同一Random(24)前缀114结构/3959原子，每项3–176原子，下一项44原子超4000未纳入。
   FP64、e3nn、原生完整9项FIRE、raw力.05阈值、500实际更新预算、refill20不变。
-- 邻居显式`torch_reference`，6Å/每次重建/COO/512上限检查；当前优化HIP邻居仅覆盖
-  固定晶胞/MATRIX等窄条件，变胞/COO未纳入该路径支持范围。30.261秒属于Torch reference邻居。
+- 邻居显式`torch_reference`，6Å/每次重建/COO/512上限检查；测量时优化HIP邻居仅覆盖
+  固定晶胞/MATRIX等窄条件，变胞/COO未纳入当时支持范围。30.261秒属于Torch reference邻居。
 - HCU4一次作业完成、allocator80%，111收敛/3 max_steps，无OOM/力溢出/计算错误。
   实际更新8679、中位数36步、P95为302.25；518次模型求值/500 fused步，不把reprime算作更新。
 - 应用160.145秒=准备3.287+循环156.489+导出.369；启动19.261/oracle3.267另计，
@@ -391,8 +405,10 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 2. 若要对齐 H100 运行控制或停止度量，在 `alchemi-app` 单独规划；H100 `UnitCellFilter(cell_factor=N)` 广义力判据与4000探针 native raw-force 判据不同。全目录长作业仍需单独确认。
 3. 固定晶胞 ASE 3.29-compatible BFGS、NPT/NPH、DomainParallel 与生产性能仍是独立后续范围。
 
-暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
-neighbor capability。
+用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
+[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点待确认；
+之后再验收变胞 FIRE/FIRE2 和实测优化。M2 planner、NPT/NPH、DomainParallel、生产
+Triton/HIP dynamics kernel 继续暂停。
 
 ## 验证和设备约定
 
