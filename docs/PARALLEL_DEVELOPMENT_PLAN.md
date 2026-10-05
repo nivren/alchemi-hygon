@@ -22,9 +22,12 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
   用户确认更大 Batch 测量后，M5收口 `4656cce`；`codex/test-mpa0-batch-timing`
   已完成一个64结构/2287原子的FP64原生FIRE Batch，应用101秒，62收敛/2预算退出，
   [报告](../reports/g2-mpa0-single-batch-timing.md)，收口 `7410445`。只条件估算1600，未跑全量。
-  当前 `codex/test-mpa0-batch8000-timing` 起点7410445：同一前缀231结构/7937原子，
+  8000诊断分支 `codex/test-mpa0-batch8000-timing` 起点7410445：同一前缀231结构/7937原子，
   初始模型求值在80%/95%/默认100%上限均OOM，无优化更新或弛豫输出。
-  [诊断报告](../reports/g2-mpa0-batch8000-timing.md)；分项观测仅改探针，本阶段尚未提交。
+  [诊断报告](../reports/g2-mpa0-batch8000-timing.md)，收口 `eff753d`；分项观测仅改探针。
+  当前 `codex/test-mpa0-batch4000-timing` 起点eff753d：114项/3959原子完整FP64 Batch，
+  111收敛/3预算退出，应用160.145秒，模型75.93%/Torch reference邻居19.34%/优化器2.81%。
+  [4000报告](../reports/g2-mpa0-batch4000-timing.md)；本阶段无源码改动，尚未提交。
   后续每个里程碑实施前先说明目的与方案，用户确认后实施；完成后先总结并给出
   下一阶段方案，等待用户确认后再收口提交当前阶段、启动下一阶段（用户2026-10-05
   明确的顺序）。不自动推送。M4 已有提交保留，此流程更新在 M5 启动前收口。
@@ -40,9 +43,9 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 | 完成 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、薄 CIF/JSONL；CPU真实 FP64 收敛与 HCU合成工作流 | 通用完整 checkpoint、流式服务/向量 arrivals、全目录长作业；目标 HCU由M5补充 |
 | 完成 | MPA-0 M5：目标 HCU | 收口4656cce；两精度/两优化器单体系、3结构补位、8结构容量4；48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2预算退出、FIRE精度敏感；非完整HCU gate/全目录/生产性能 |
 | 完成 | FP64单个较大Batch | 收口7410445；64结构/2287原子、原生FIRE raw力判据；应用101秒，条件估算1600约41–50分钟 | 没有1600实测/16000原子/持续补位吞吐；与M5及H100判据不同 |
-| 诊断完成，待收口 | 8000门槛与分项 | 231结构/7937原子，默认上限也在初始e3nn前向OOM；探针分项已接入 | 无完整模型求值/优化器更新/弛豫结果；分项不能作稳态或8000吞吐 |
-| 待确认 | 可容纳单Batch分项 | 先提交本次诊断，再以约4000原子预检，成功后只跑一完整FP64/e3nn/原生FIRE Batch | 不新增算法/filters/加速后端，不跑1600 |
-| 待确认 | FIRE参数兼容修正 | 核对上游/fork dt_min=0语义、修正本地reference参数边界、CPU回归/HCU短步 | 不加filters、不优化性能、不扩大Batch测试 |
+| 完成 | 8000门槛与分项 | 收口eff753d；231结构/7937原子，默认上限初始e3nn前向OOM | 无完整模型求值/优化器更新/弛豫结果；分项不能作稳态或8000吞吐 |
+| 测量完成，待收口 | 4000门槛单Batch分项 | 114结构/3959原子，111收敛/3预算，应用160秒；模型118.8/邻居30.3/优化器4.4秒，独立NumPy/文件核验 | 邻居为Torch reference；原生raw力判据不同于M5/H100，无持续补位/全量1600实测 |
+| 待确认 | FIRE参数兼容修正 | 先提交本次4000测量，再核对上游/fork dt_min=0语义、修正本地reference参数边界、CPU回归/HCU短步 | 不加filters、不优化性能、不扩大Batch测试 |
 | 5 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或

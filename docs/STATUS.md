@@ -13,7 +13,8 @@
 - MPA-0 里程碑4：`codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；批量应用生命周期和窄 CPU/合成 HCU 验收完成；未合并、未推送。
 - MPA-0 里程碑5：`codex/test-mpa0-hcu-validation`，起点 `fa74ca1`，收口提交 `4656cce`；真实目标 HCU4 小样本验收完成；未合并、未推送。
 - 单Batch测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`，收口 `7410445`；FP64原生FIRE单个64结构/2287原子Batch完成；未合并、未推送。
-- 当前测量：`codex/test-mpa0-batch8000-timing`，起点 `7410445`；8000门槛单批初始模型求值OOM，分项观测已接入探针；尚未提交、合并或推送。
+- 8000门槛诊断：`codex/test-mpa0-batch8000-timing`，起点 `7410445`，收口 `eff753d`；初始模型求值OOM；未合并、未推送。
+- 当前测量：`codex/test-mpa0-batch4000-timing`，起点 `eff753d`；114结构/3959原子的完整FP64 Batch与分项测量完成；尚未提交、合并或推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -216,6 +217,26 @@
   HCU三次各CPU/HCU NumPy oracle通过，事后全部231输入哈希、容量、失败分类/分项总和核验。
   无完整产品gate、成功弛豫或完整模型parity新增证据；原2304容量结果保留。作业后设备空闲。
 
+## MPA-0 4000原子门槛单Batch完整分项（2026-10-05）
+
+- [报告](../reports/g2-mpa0-batch4000-timing.md)。复用既有探针，无源码/算法/上游bug修复。
+  同一Random(24)前缀114结构/3959原子，每项3–176原子，下一项44原子超4000未纳入。
+  FP64、e3nn、原生完整9项FIRE、raw力.05阈值、500实际更新预算、refill20不变。
+- 邻居显式`torch_reference`，6Å/每次重建/COO/512上限检查；当前优化HIP邻居仅覆盖
+  固定晶胞/MATRIX等窄条件，变胞/COO未纳入该路径支持范围。30.261秒属于Torch reference邻居。
+- HCU4一次作业完成、allocator80%，111收敛/3 max_steps，无OOM/力溢出/计算错误。
+  实际更新8679、中位数36步、P95为302.25；518次模型求值/500 fused步，不把reprime算作更新。
+- 应用160.145秒=准备3.287+循环156.489+导出.369；启动19.261/oracle3.267另计，
+  探针182.673秒。峰值allocated41.131/reserved49.938 GiB；只证明当前样本可容纳。
+- 循环同步分项：模型118.819秒（75.93%）、邻居及容量检查30.261（19.34%）、
+  原生优化器pre/post共4.404（2.81%）、停止观测器.730（.47%）、工作流残差2.276（1.45%）。
+  模型含力/应力autograd，优化器含mask/私有状态保护；同步观测不是纯kernel或满载稳态时间。
+- CPU/HCU各3个NumPy oracle通过；114项ID/抽样/哈希/lossless FP64状态/预算/CIF几何/
+  计时分项核验通过，最终原生力差2.78e-17 eV/Å。无独立114项模型重算/完整CPU-HCU gate。
+  作业后设备空闲、无KFD PID；没有新到达结构、持续refill吞吐或全目录成功率证据。
+- 同等分布/参数按14.035批条件外推约37.8分钟，按15个完整批次安排约40.4分钟；
+  不是1600实测、全部收敛耗时或统计区间，H100输入/CuEq/容量/判据仍不同。
+
 ## 运行时排障记录
 
 此前“加载/设备同步在当前卡上异常变慢”已定位为：超时终止 JIT 编译后遗留 PyTorch C++
@@ -345,13 +366,12 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
 通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
 M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
-8000门槛诊断已完成、初始求值OOM，当前阶段尚未提交。
+8000门槛诊断已收口 `eff753d`；4000门槛完整Batch及分项已完成，本阶段尚未提交。
 后续建议队列：
 
-1. 可容纳单Batch完整分项（待确认）：先提交本次诊断，再以约4000原子门槛预检；可容纳后只跑一完整FP64/e3nn/原生FIRE Batch，测模型/邻居/优化器/工作流耗时。不自动扩大到1600。
-2. FIRE参数兼容修正（待确认）：核对上游/fork dt_min=0语义、修正本地reference校验，CPU边界回归和HCU短步；不加filters、不做性能优化。
-3. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
-4. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
+1. FIRE参数兼容修正（待确认）：确认后先提交本次4000测量，再核对上游/fork dt_min=0语义、修正本地reference校验，CPU边界回归和HCU短步；不加filters、不做性能优化。
+2. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
+3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP
 neighbor capability。

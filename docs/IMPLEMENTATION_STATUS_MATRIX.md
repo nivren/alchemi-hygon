@@ -64,7 +64,8 @@
 | MPA-0 Li/Na 晶体单点 | 可以，窄CPU/HCU4小样本 | CPU Batch/ASE/FP64导数；HCU两精度完整E/F/stress/邻居同几何对照 | 全目录/完整模型族未验证；精度须匹配默认dtype | 现有MACEWrapper、Torch neighbor、stress conversion；M1/M5报告 |
 | MPA-0 原生变胞 FIRE/FIRE2 | 可做窄单卡HCU批量应用 | 两精度原生联合收敛/退出补位、3结构容量2及8结构容量4；48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2未达应力阈值、FIRE精度敏感；全目录/流式/restart/混合变胞阶段/生产性能未验收 | M4/M5 reference；M5收口4656cce |
 | MPA-0 原生 FIRE FP64较大Batch测量 | 已测一个Batch | 64结构/2287原子，原生raw力.05阈值，62收敛/2预算；应用101秒，峰值allocated23.49 GiB | 与M5/H100判据不同；仅NumPy/文件核验，未独立模型重算；1600为条件估算、持续补位/16000原子未测；dt_min=0本地校验仍拒绝 | [测量报告](../reports/g2-mpa0-single-batch-timing.md)，收口7410445 |
-| MPA-0 FP64 8000门槛 | 容量诊断失败 | 同一前缀231项/7937原子，默认上限初始e3nn前向OOM，峰值allocated59.12 GiB；探针支持分项同步观测 | 未完成模型求值/优化更新，无完整分项或吞吐；仅当前默认allocator/模型/样本，不是所有输入通用上限 | [诊断报告](../reports/g2-mpa0-batch8000-timing.md)，尚未提交 |
+| MPA-0 FP64 8000门槛 | 容量诊断失败 | 同一前缀231项/7937原子，默认上限初始e3nn前向OOM，峰值allocated59.12 GiB；探针支持分项同步观测 | 未完成模型求值/优化更新，无完整分项或吞吐；仅当前默认allocator/模型/样本，不是所有输入通用上限 | [诊断报告](../reports/g2-mpa0-batch8000-timing.md)，收口eff753d |
+| MPA-0 FP64 4000门槛 | 已测一个完整Batch | 114项/3959原子、111原生raw力收敛/3预算，应用160秒，峰值allocated41.13 GiB；循环模型75.93%/邻居19.34%/优化器2.81%，NumPy/文件核验 | 普通e3nn与Torch reference邻居；非优化HIP邻居性能，判据与M5/H100不同，无独立模型重算/持续补位/全量1600实测 | [4000报告](../reports/g2-mpa0-batch4000-timing.md)，尚未提交 |
 | 有限外压/NPT/NPH | 当前不能承诺 | stress和晶胞基础可供后续算法使用 | 压力接口及barostat/integrator未移植；M3不是加压应用 | 独立后续队列 |
 | 单大体系多卡、DomainParallel、生产训练 | 当前不能承诺 | 可保留上游接口作为后续适配目标 | ownership、halo/迁移、完整分布式训练与生产后端未完成 | DomainParallel/分布式任务暂停 |
 

@@ -3939,7 +3939,10 @@
           "artifacts/mpa0-batch-timing/fp64-native-batch64/timing.json",
           "artifacts/mpa0-batch-timing/fp64-native-batch64/verification.json",
           "reports/g2-mpa0-batch8000-timing.md",
-          "artifacts/mpa0-batch8000-timing/verification.json"
+          "artifacts/mpa0-batch8000-timing/verification.json",
+          "reports/g2-mpa0-batch4000-timing.md",
+          "artifacts/mpa0-batch4000-timing/fp64-native-batch4000/timing.json",
+          "artifacts/mpa0-batch4000-timing/fp64-native-batch4000/verification.json"
         ],
         "environments": [
           "project .venv / Torch2.9.0 / DTK26.04 / HIP6.3.26093; CPU model, HCU4 BW1000 gfx936 synthetic workflow and M5 real locked MPA-0 FP32/64 eager acceptance"
@@ -3951,6 +3954,7 @@
         "Li(CN)2 FIRE FP64/FP32 reached thresholds with different final E/V and 88/364 steps; same-geometry E/F/stress parity is not trajectory/precision interchangeability, repeated-run stability or minimum classification evidence",
         "Additional FP64 native FIRE timing probe: one 64-CIF/2287-atom Batch, 62 native raw-force converged and two 500-update exits, application 101.046 s. Native raw atomic/cell max-row norm <=0.05 differs from M5 dual thresholds and supplied H100 UnitCellFilter criterion; NumPy force/IDs/hashes/CIF geometry verified, no independent final model rerun. No sustained refill arrivals, 16000-atom or 1600-structure execution; 1600 timing is conditional extrapolation. Local dt_min=0 validation rejects zero; measured dt_min=0.002 instead, compatibility correction pending",
         "8000-atom-capacity probe attempted 231-CIF/7937-atom prefix in FP64/e3nn: initial TensorProduct forward OOM at allocator fractions 0.8, 0.95 and default 1.0, zero completed model evaluations/optimizer updates/relaxation outputs. Peak allocated at default limit 59.115 GiB. Probe-only synchronized component timing is available, but this failed attempt has no complete model/optimizer timing or throughput; no allocator-strategy changes or universal capacity bound established",
+        "4000-capacity FP64/e3nn native FIRE probe completed one 114-CIF/3959-atom Batch: 111 raw-force converged, three 500-update exits, no OOM, application 160.145 s, peak allocated 41.131 GiB. Synchronized loop model E/F/stress 75.93%, explicit torch_reference COO neighbor 19.34%, masked optimizer 2.81%; not HIP neighbor, pure-kernel or sustained full-occupancy performance. CPU/HCU NumPy oracle and final IDs/hashes/CIF geometry/raw force/timing checks passed; no independent final model rerun or full product gate; 1600 estimate conditional only",
         "Ordinary single-optimizer FusedStage only; no arbitrary mixed variable-cell optimizer stages or vector arrival parameter mapping",
         "HostMemory/preloaded input cost grows with input count; wall budget checked between steps, final verification can exceed budget; no streaming/restart service or full-directory throughput guarantee",
         "No ASE filters, NPT/NPH, DomainParallel, full checkpoint, production HIP/Triton optimization, full compile or training validation"
