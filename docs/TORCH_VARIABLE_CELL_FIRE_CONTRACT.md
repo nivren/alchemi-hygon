@@ -72,4 +72,11 @@ HCU4单步16组/公共25步4组、MPA-0 CPU三步4组。保留上述未验证范
 M4 的生命周期追加证据独立见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md) 与
 [应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)：普通单优化器 FusedStage 的联合
 收敛、退出/补位、变胞邻居、薄 CIF 入口已验收窄 CPU/合成 HCU 范围；MPA-0 CPU
-FP64 有真实收敛，FP32 仅 budget 短步。M3 的数值门不变；真实目标 HCU 仍待 M5。
+FP64 有真实收敛，FP32 在 M4 仅 budget 短步。M3 的数值门不变；真实目标 HCU 由 M5 另验收。
+
+M5（2026-10-05）已复用同一实现完成真实 MPA-0 HCU4 的两精度/两优化器单体系、
+3结构容量2补位、8结构容量4的窄验收，见
+[M5 报告](../reports/g2-mpa0-relaxation-m5.md)。FIRE八项均收敛，FIRE2七项收敛、
+Li(CN)2各500步应力未达阈值而记 max_steps。48份最终CIF均独立CPU/HCU核验；
+FIRE Li(CN)2的FP64/FP32最终E/V不同，不宣称轨迹/精度互换或重复稳定性。
+本合同的原生数值语义、后端、参数和非目标范围保持不变，不代表完整HCU gate。

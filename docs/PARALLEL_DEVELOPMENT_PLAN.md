@@ -17,7 +17,9 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
   完成原生六项 FIRE2、fork 完整 FIRE、Hook 预处理和窄 CPU/HCU 验证（实现 `29a70f3`），
   [M3 报告](../reports/g2-variable-cell-fire-m3.md)。里程碑4已在
   `codex/feat-mpa0-relaxation-workflow`（实现 `7a8af50`）完成普通单优化器批量工作流、薄应用与窄
-  CPU/合成 HCU 验收，[M4 报告](../reports/g2-mpa0-relaxation-m4.md)；用户已于2026-10-05确认里程碑5。
+  CPU/合成 HCU 验收，[M4 报告](../reports/g2-mpa0-relaxation-m4.md)。里程碑5已在
+  `codex/test-mpa0-hcu-validation` 完成真实 HCU4 窄验收，[M5 报告](../reports/g2-mpa0-relaxation-m5.md)；
+  用户已确认下一步改为更大 Batch 的 FIRE + MPA-0 测量和1600结构估算，先收口 M5。
   后续每个里程碑实施前先说明目的与方案，用户确认后实施；完成后先总结并给出
   下一阶段方案，等待用户确认后再收口提交当前阶段、启动下一阶段（用户2026-10-05
   明确的顺序）。不自动推送。M4 已有提交保留，此流程更新在 M5 启动前收口。
@@ -30,8 +32,9 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 |---|---|---|---|
 | 完成 | MPA-0 M2：晶胞工具 | align_cell、pack/unpack、扩展索引/指针；CPU/HCU4 primitive 通过 | 未含优化器、ASE filters、NPT/NPH |
 | 完成 | MPA-0 M3：变胞 FIRE2/FIRE | 单步/公共解析势 CPU/HCU；MPA-0 CPU 三步与旋转协变 | 不代表目标 HCU、完整收敛/补位、新参数化、生产后端 |
-| 完成 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、薄 CIF/JSONL；CPU真实 FP64 收敛与 HCU合成工作流 | 通用完整 checkpoint、流式服务/向量 arrivals、全目录长作业、真实 MPA-0 HCU |
-| 1 | MPA-0 M5：目标 HCU 验收 | 单体系→异构小 Batch→扩大批量；FP64 再 FP32，用户确认后启动 | 全目录成功率、生产性能保证 |
+| 完成 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、薄 CIF/JSONL；CPU真实 FP64 收敛与 HCU合成工作流 | 通用完整 checkpoint、流式服务/向量 arrivals、全目录长作业；目标 HCU由M5补充 |
+| 验收完成，待收口 | MPA-0 M5：目标 HCU | 两精度/两优化器单体系、3结构补位、8结构容量4；48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2预算退出、FIRE精度敏感；非完整HCU gate/全目录/生产性能 |
+| 待确认 | 应用试运行 | 先提交M5，再分层20结构限时单卡、优先FP64；Li(CN)2重复/原生参数及预算核验 | 不新增算法/filters，不自动全目录 |
 | 5 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或

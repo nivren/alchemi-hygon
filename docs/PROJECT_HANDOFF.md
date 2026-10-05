@@ -103,11 +103,19 @@ CPU 426 passed/3 skipped，HCU4 只运行两精度/两优化器合成工作流�
 CPU FP64 FIRE 三样本收敛、FIRE2 NaLiTl2 收敛，另两项墙钟退出；FP32 只短步预算。
 14份实际输出 CIF 独立核验；UBF-015/016 与本地应用 LP-083 区分归因。
 见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。新分支未合并/推送。
-用户已于2026-10-05确认里程碑5：真实目标 HCU4 单体系→异构小 Batch→扩大批量，FP64 再 FP32。
+里程碑5已在 `codex/test-mpa0-hcu-validation`（起点 `fa74ca1`）完成真实目标 HCU4 窄验收，
+只新增探针/契约/证据，无 framework/ops/应用源码修改。CPU gate426 passed/3 skipped；
+两精度/两优化器单体系及3结构异构补位全部收敛。扩大为8个不同真实CIF、共59原子、
+容量4体系/64原子后，两精度 FIRE各8项收敛、FIRE2各7项收敛、Li(CN)2各500步预算退出。
+48份输出全部独立CPU/HCU重算；46份 converged/2份 max_steps，没有扩大阈值。
+Li(CN)2 FIRE FP64/FP32分别88/364步、不同最终E/V；精度敏感性与重复稳定性未验收。
+详见 [M5 报告](../reports/g2-mpa0-relaxation-m5.md)。M5未提交/合并/推送，
+用户已确认下一步改为 FIRE + MPA-0 更大 Batch 的限时端到端测量和1600结构耗时估算，
+按此授权先收口 M5，再开展测量；不自动开展1600结构完整长作业。
 里程碑顺序按用户2026-10-05新要求执行：实施前说明目的与方案并等待确认；完成后
 先总结实现、验证和限制，再给下一阶段方案；用户确认下一阶段后，才收口提交当前
 阶段并启动下一阶段，不自动推送。M4 的 `7a8af50`/`f909f52` 已在此新要求前提交，
-既有提交保留。本次流程文档更新在 M5 启动前收口；全目录长作业另行授权。
+既有提交保留；流程文档已在 M5 启动前以 `fa74ca1` 收口；全目录长作业另行授权。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
 继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。
