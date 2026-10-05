@@ -5,17 +5,10 @@
 
 ## 当前基线
 
-- 当前交付基线：本地 `develop`；NHC 开发分支 `codex/feat-fixed-cell-nhc`，起点 `7a90fcf`。
-- NHC 实现与测试提交：`b4050ec`；相关文档随本轮本地合并交付。未推送、未核验远端同步状态。
-- Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`、文档 `35ea133`；未合并、未推送。
-- MPA-0 弛豫里程碑1：`codex/test-mace-mpa0-baseline`，从 `35ea133` 起步；CPU 探针提交 `61484db`，基线完成；未合并、未推送。
-- MPA-0 里程碑2：`codex/feat-cell-tools-reference`，起点 `f802d49`，实现/测试 `036827e`；通用晶胞工具 CPU/HCU4 窄验证完成；未合并、未推送。
-- MPA-0 里程碑4：`codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；批量应用生命周期和窄 CPU/合成 HCU 验收完成；未合并、未推送。
-- MPA-0 里程碑5：`codex/test-mpa0-hcu-validation`，起点 `fa74ca1`，收口提交 `4656cce`；真实目标 HCU4 小样本验收完成；未合并、未推送。
-- 单Batch测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`，收口 `7410445`；FP64原生FIRE单个64结构/2287原子Batch完成；未合并、未推送。
-- 8000门槛诊断：`codex/test-mpa0-batch8000-timing`，起点 `7410445`，收口 `eff753d`；初始模型求值OOM；未合并、未推送。
-- 4000门槛测量：`codex/test-mpa0-batch4000-timing`，起点 `eff753d`，收口 `1dba058`；114结构/3959原子的完整FP64 Batch与分项测量完成；未合并或推送。
-- 当前交付审查：`codex/fix-fire-zero-dt-min`，LOCAL-004 已收口提交 `0e354f4`；M1–M5 审查及应用分离见[报告](../reports/g2-relaxation-port-closure-review.md)。应用源文件已移到独立工程 `alchemi-app`；本仓库边界/交接文档改动待收口，功能分支仍未合并/推送到 `develop`。
+- 当前交付基线：本地 `develop`，集成 merge commit `620a485`。它包含 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和本次应用分离收口；相应里程碑分支提交均已核实在 `develop` 历史中。
+- toolkit 应用分离提交为 `730a848`，由 `codex/fix-fire-zero-dt-min` 合入；LOCAL-004 实现提交为 `0e354f4`。完整移植审查见[报告](../reports/g2-relaxation-port-closure-review.md)。
+- 独立应用工程 `/home/wangleping/codes/alchemi-app` 已在本地 `develop` 创建首提交 `9ae235c`；此工程拥有 MPA-0 CIF 应用入口和专属测试。
+- 本次 remote 同步尚在进行；同步前 `github-origin/develop` 和 `local-origin/develop` 为 `7a90fcf`，`gitee-origin` 尚无 heads。同步后将在此记录最终 refs。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -117,7 +110,7 @@
 
 ## MPA-0 弛豫里程碑3（2026-10-04）
 
-- 分支 `codex/feat-variable-cell-fire`，起点 `d5b5f3c`，实现/测试/契约 `29a70f3`；未合并/推送。
+- 原开发分支 `codex/feat-variable-cell-fire`，起点 `d5b5f3c`，实现/测试/契约 `29a70f3`；其提交已随本次集成进入 `develop`。
   [契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md) / [报告](../reports/g2-variable-cell-fire-m3.md)。
 - 原生六项 FIRE2 与指定 fork 修复后的完整3×3 FIRE reference 已接公共优化器；
   optimizer/stress/align selection 冻结，`None/warp` 保留；没有 ASE filter 新参数化。
@@ -259,7 +252,7 @@
 - 分离后验证：toolkit CPU gate **425 passed, 3 skipped, 1 deselected**；独立应用入口回归
   **9 passed**，CLI `--help` 和项目 TOML 检查通过。两处 `git diff --check` 通过；此项只移动
   应用代码并调整追踪文档，未改 framework/ops 算法，因此没有重跑 HCU。
-- 两个仓库的分离变更和文档尚未提交；现有 HCU 证据仍仅适用于各报告列明的窄验证范围。
+- toolkit 分离提交 `730a848` 已并入本地 `develop`；应用工程提交 `9ae235c` 已建于其本地 `develop`。remote 同步完成后记录最终 SHA；现有 HCU 证据仍仅适用于各报告列明的窄验证范围。
 
 ## 运行时排障记录
 
@@ -391,7 +384,7 @@ MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约�
 通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
 M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 8000门槛诊断已收口 `eff753d`；4000门槛完整Batch及分项已收口 `1dba058`。
-零下限兼容修正已提交 `0e354f4`；本次收口审查文档尚未提交，功能分支仍未合并/推送。
+零下限兼容修正 `0e354f4` 及收口提交已于 `620a485` 合并到本地 `develop`；remote 同步状态见上方当前基线。
 后续建议队列：
 
 1. 已完成 MPA-0 弛豫移植收口审查，见[报告](../reports/g2-relaxation-port-closure-review.md)。应用入口与专属测试现已移至独立下游工程 `alchemi-app`；toolkit 继续维护上游移植和兼容性跟踪。

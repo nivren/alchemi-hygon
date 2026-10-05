@@ -74,13 +74,13 @@ compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry
 `TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
 state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。
 固定晶胞 NHC Torch reference 已完成窄范围，实现提交 `b4050ec`；
-由 `codex/feat-fixed-cell-nhc` 随本轮交付到本地 `develop`，未推送；
+由 `codex/feat-fixed-cell-nhc` 交付到本地 `develop`，并随本次集成计划同步到三个配置的目标 remote；
 保留异构 Batch、Hooks、FusedStage、scalar refill、最小 continuation；CPU/HCU 证据和
 四项上游逻辑修正见 [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md)。
 不承诺 vector arrivals、完整 workflow checkpoint、Warp/NVIDIA、DomainParallel 或生产后端。
 `TORCH-CELL-STRESS-FORCE` 基础 slice 明确排除晶胞及 FIRE/FIRE2 移植。
 该 slice 位于 `codex/feat-cell-stress-force`，起点 `e6dd99c`，实现与测试提交 `a76107e`，
-文档提交 `35ea133`；未合并/推送；
+文档提交 `35ea133`；其提交已包含在本地 `develop` 集成 merge `620a485` 中，remote 同步待完成；
 保留旧 stress API/import，ops reference 与 generic executor 接线已完成，CPU/HCU4 的转换和
 真实周期 MACE 应力证据见 [报告](../reports/g2-torch-cell-stress-force.md) 与
 [契约](TORCH_CELL_STRESS_FORCE_CONTRACT.md)。公式修正记录为 UBF-009；Warp 未执行。
@@ -97,13 +97,13 @@ M2 的 Warp 数值未执行，M2 本身未移植优化步。
 HCU4 合成单步16组/公共解析势4组通过；MPA-0 CPU 三个 CIF、两精度/两优化器各3步通过。
 见 [M3 报告](../reports/g2-variable-cell-fire-m3.md) 和
 [契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md)。UBF-011–014 注释/归因已记录；
-实际 Warp、MPA-0 HCU 当时未验收；M3 分支未合并/推送。
+实际 Warp、MPA-0 HCU 当时未验收；M3 分支提交已随整体移植链合入 `develop`。
 里程碑4已在 `codex/feat-mpa0-relaxation-workflow`（起点 `317b988`，实现 `7a8af50`）完成窄工作流验收：
 邻居变胞、联合收敛、退出/私有状态保护、scalar refill priming、薄 CIF/JSONL 入口。
 CPU 426 passed/3 skipped，HCU4 只运行两精度/两优化器合成工作流四组；真实 MPA-0
 CPU FP64 FIRE 三样本收敛、FIRE2 NaLiTl2 收敛，另两项墙钟退出；FP32 只短步预算。
 14份实际输出 CIF 独立核验；UBF-015/016 与本地应用 LP-083 区分归因。
-见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。新分支未合并/推送。
+见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。M4 提交已随整体移植链合入 `develop`。
 LP-083 的 MPA-0 CIF 应用入口及其专属测试现已移至同级独立工程 `alchemi-app`；本仓库
 保留 M4/M5 的历史验证记录、上游迁移契约和 framework 通用生命周期测试，不再承载该应用 CLI。
 里程碑5已在 `codex/test-mpa0-hcu-validation`（起点 `fa74ca1`）完成真实目标 HCU4 窄验收，
@@ -113,21 +113,21 @@ LP-083 的 MPA-0 CIF 应用入口及其专属测试现已移至同级独立工�
 48份输出全部独立CPU/HCU重算；46份 converged/2份 max_steps，没有扩大阈值。
 Li(CN)2 FIRE FP64/FP32分别88/364步、不同最终E/V；精度敏感性与重复稳定性未验收。
 详见 [M5 报告](../reports/g2-mpa0-relaxation-m5.md)。用户确认更大 Batch 测量后，
-M5已收口提交 `4656cce`，未合并/推送。当前 `codex/test-mpa0-batch-timing` 起点即该提交：
+M5已收口提交 `4656cce`，现已随整体移植链合入 `develop`。当前 `codex/test-mpa0-batch-timing` 起点即该提交：
 只测一个FP64/FIRE原生完整矩阵Batch，64个随机真实输入/2287原子，容量2304、refill20；
 62项原生raw力阈值.05收敛、2项500步预算退出。应用101.046秒、探针124.420秒，
 峰值allocated/reserved为23.486/35.096 GiB。64项NumPy力/ID/哈希/CIF几何核验通过，
 没有独立模型重算；此判据与M5双阈值、H100的UnitCellFilter判据不同。
 没有运行完整1600或16000原子Batch；按25个同等批次条件估算约41–50分钟，
 不能承诺全部收敛或持续补位收益。详见[测量报告](../reports/g2-mpa0-single-batch-timing.md)。
-用户追加8000门槛与分项测量后，上一测量已收口 `7410445`，未合并/推送。
+用户追加8000门槛与分项测量后，上一测量已收口 `7410445`，现已随整体移植链合入 `develop`。
 8000诊断分支 `codex/test-mpa0-batch8000-timing` 起点为该提交：
 同一抽样顺序前231项/7937原子，容量8000，80%/95%/默认100%allocator上限
 均在初始e3nn张量积前向OOM，模型求值/优化更新完成数0，没有弛豫输出。
 默认上限峰值allocated/reserved为59.115/62.604 GiB；冷邻居2.007秒、失败前部分模型
 .694秒，不能当完整模型/优化循环耗时。分项同步包装只在探针中，无framework/ops改动。
 见[容量诊断报告](../reports/g2-mpa0-batch8000-timing.md)。作业后无KFD PID。
-用户确认4000门槛后，8000诊断收口 `eff753d`，未合并/推送。
+用户确认4000门槛后，8000诊断收口 `eff753d`，现已随整体移植链合入 `develop`。
 4000测量 `codex/test-mpa0-batch4000-timing` 起点eff753d，收口1dba058：同一抽样前缀114结构/3959原子，
 FP64/e3nn/原生FIRE，显式Torch reference邻居（变胞/COO未纳入优化HIP邻居支持范围）。
 一次完整Batch完成，111项原生raw力阈值收敛、3项500更新预算退出，无OOM/溢出/计算错误。
@@ -140,8 +140,10 @@ FP64/e3nn/原生FIRE，显式Torch reference邻居（变胞/COO未纳入优化HI
 CPU ops46/公共19项通过，HCU4 FP64四种功率单步符合NumPy、三种非法边界无mutation，
 公共解析势25步CPU/HCU对照及三CIF/124原子MPA-0十步通过；证据见
 [零下限报告](../reports/g2-fire-zero-dt-min.md)。不代表零下限完整弛豫收敛或完整HCU gate；
-修正已签名提交 `0e354f4`，功能分支仍未合并/推送。M1–M5与应用设置收口审查见
-[审查报告](../reports/g2-relaxation-port-closure-review.md)，报告及交接更新待下一阶段确认后收口。
+修正已签名提交 `0e354f4`，并与应用分离收口提交一起于本地 merge `620a485` 合入 `develop`。
+M1–M5与应用设置收口审查见[审查报告](../reports/g2-relaxation-port-closure-review.md)；
+toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已提交到各自本地 `develop`；
+三个 remote 的推送和 refs 核验正在进行。
 历史4000测量仍采用.002，无零下限完整Batch复测；没有扩展性能后端或1600作业。
 里程碑顺序按用户2026-10-05新要求执行：实施前说明目的与方案并等待确认；完成后
 先总结实现、验证和限制，再给下一阶段方案；用户确认下一阶段后，才收口提交当前

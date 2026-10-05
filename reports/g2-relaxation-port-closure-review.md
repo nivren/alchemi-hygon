@@ -1,7 +1,9 @@
 # MPA-0 变胞弛豫移植收口审查
 
-日期：2026-10-05。用户要求在 `LOCAL-004` 提交后审查 M1–M5、零下限修正、
-实际使用配置与验证限制。本报告及相关交接文档为本次审查结果；尚未提交，未合并/推送。
+日期：2026-10-05。审查 M1–M5、零下限修正、实际使用配置与验证限制，并记录应用分离。
+toolkit 收口提交为 `730a848`，已由 merge `620a485` 合入本地 `develop`；应用工程首提交为
+`9ae235c`，位于应用仓库本地 `develop`。`github-origin`、`local-origin`、`gitee-origin`
+的推送及 refs 核验正在进行。
 
 ## 收口结论
 
@@ -16,16 +18,17 @@
 
 ## Git 与来源
 
-当前分支 `codex/fix-fire-zero-dt-min` 的提交 `0e354f4` 是本轮修复；它基于本地
-`develop` 的 `e6dd99c`，包含其后16个提交。该功能链未合并、未推送；本报告和交接文档
-变更待收口。M4 应用入口及应用专属测试已拆到同级独立工程 `alchemi-app`；此处继续
+当前功能分支 `codex/fix-fire-zero-dt-min` 的修复提交为 `0e354f4`，边界收口提交为
+`730a848`；整条功能链由 merge commit `620a485` 合入本地 `develop`。remote 推送待完成。
+本报告和交接文档已随集成状态提交。M4 应用入口及应用专属测试已拆到同级独立工程 `alchemi-app`；此处继续
 追踪 toolkit 的移植、兼容性和集成验证证据。LOCAL-004 是 reference 校验缺陷修正，
 没有登记为上游缺陷。
 
 分离后的验证独立运行：toolkit CPU gate 为 **425 passed, 3 skipped, 1 deselected**；
 `alchemi-app` 的入口回归为 **9 passed**，CLI `--help` 和 `pyproject.toml` 解析通过。
 这次只移动应用文件、隔离应用测试并更新边界文档，没有修改 framework/ops 算法，故未重跑
-HCU；之前各里程碑的 HCU 结果仍以对应报告描述的窄范围为准。两个工作树的分离变更尚未提交。
+HCU；之前各里程碑的 HCU 结果仍以对应报告描述的窄范围为准。分离提交分别为 toolkit `730a848`
+和 app `9ae235c`。
 
 ## 上游保真与源码差异
 
