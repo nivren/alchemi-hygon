@@ -1,6 +1,6 @@
 # 当前开发状态
 
-更新时间：2026-10-04。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
+更新时间：2026-10-05。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
 [`docs/history/STATUS.md`](history/STATUS.md)。
 
 ## 当前基线
@@ -10,6 +10,7 @@
 - Stress/cell-force：`codex/feat-cell-stress-force`，起点 `e6dd99c`；实现与测试提交 `a76107e`、文档 `35ea133`；未合并、未推送。
 - MPA-0 弛豫里程碑1：`codex/test-mace-mpa0-baseline`，从 `35ea133` 起步；CPU 探针提交 `61484db`，基线完成；未合并、未推送。
 - MPA-0 里程碑2：`codex/feat-cell-tools-reference`，起点 `f802d49`，实现/测试 `036827e`；通用晶胞工具 CPU/HCU4 窄验证完成；未合并、未推送。
+- MPA-0 里程碑4：`codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；批量应用生命周期和窄 CPU/合成 HCU 验收完成；未合并、未推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -22,9 +23,10 @@
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
-| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、变胞 FIRE/FIRE2、生产后端未完成 |
-| stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 和变胞 FIRE/FIRE2 未验证 |
-| MACE-MPA-0 单点 | 已验证 CPU 小样本 | 三个真实 CIF `[4,10,4]`、FP32/64 energy/force/stress；FP64 Batch/逐体系/ASE 对照和力/应力/晶胞力有限差分 | MPA-0 HCU、FIRE/FIRE2 弛豫、变胞生命周期和全目录未验证；单一精度须匹配进程默认 dtype |
+| fixed-cell dynamics | reference slice | VV、FIRE、FIRE2、kinetics 及部分公共 wrapper | NPT/NPH、生产后端未完成；变胞证据另列 |
+| stress/cell-force 基础 | 已验证窄 Torch reference | FP32/64、完整/下三角转换、CPU 一二阶/compile/opcheck、HCU4 一阶/stream、周期非正交真实 MACE 应力与 FP64 有限差分 | 基础转换本身不推进晶胞；Warp/NVIDIA、HCU 二阶/compile、完整 MLIP 训练、NPT/NPH 未验证；变胞应用另列 |
+| MACE-MPA-0 单点 | 已验证 CPU 小样本 | 三个真实 CIF `[4,10,4]`、FP32/64 energy/force/stress；FP64 Batch/逐体系/ASE 对照和力/应力/晶胞力有限差分 | MPA-0 HCU 和全目录未验证；单一精度须匹配进程默认 dtype |
+| MPA-0 原生变胞批量弛豫 | 已验证窄 CPU/合成 HCU 工作流 | FIRE/FIRE2 联合收敛、退出/补位、邻居生命周期、CIF/JSONL；CPU FP64 FIRE 三样本收敛、FIRE2 一样本收敛；FP32 budget 短步；HCU4 合成四组 | 真实 MPA-0 HCU、FP32 完整收敛、全目录、通用 checkpoint/流式服务、混合变胞算法阶段、生产性能未验收 |
 
 能力宽度以 [`BACKEND_CAPABILITY_MATRIX.md`](BACKEND_CAPABILITY_MATRIX.md) 和
 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml) 为准；本表不把窄 slice 扩大为完整
@@ -126,6 +128,27 @@
   掩码保护和本地 cached 字段旋转修正；源码与 [缺陷记录](UPSTREAM_BUGFIXES.md) 区分归因。
 - 未验收 Warp/NVIDIA、MPA-0 HCU、变胞退出/补位/联合收敛、skin 缓存、checkpoint、
   NPT/NPH、DomainParallel、compile/优化轨迹梯度和生产 HIP/Triton。
+
+## MPA-0 弛豫里程碑4（2026-10-05）
+
+- 分支 `codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；
+  [应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md) / [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。
+- 复用原生 FusedStage/SizeAwareSampler/HostMemory/ConvergenceHook，完成退出/私有
+  状态保护及补位 E/F/stress priming；UBF-015/016、LP-081/082 区分 fork 摘取与本地补充。
+  `examples/relax_mace_mpa0.py` 是本地薄应用入口（LP-083），没有新 filter/优化算法。
+- 新增33项生命周期/应用回归，加原退出输出回归纳入 CPU gate；最终 CPU 门
+  426 passed、3 skipped，compileall/Ruff/diff-check 通过。不是完整 HCU gate。
+- HCU4 合成 FP64/FP32、两种优化器各4个异构体系，收敛/补位/ID/邻居/退出状态
+  与 CPU 对照四组通过；FIRE2 181、FIRE 84 个 fused 步。HCU_MPA0=`not_run`。
+- 真实 CPU FP64 `[4,4,10]`、最大活跃2体系：FIRE 三个样本31/35/80步收敛；FIRE2
+  NaLiTl2 53步收敛，另两项到达120秒墙钟预算。阈值0.01 eV/Å 与0.1 GPa。
+  FP32 两种优化器三样本各2步 budget 路径通过，不能算 FP32 完整收敛。
+- 实际导出 CIF 独立重读/model核验14份；NaLiTl2 两种优化器另用最终入口完整重跑。
+  退出原因区分收敛/步数/墙钟/非法输入/计算异常/未开始/最终核验失败。
+- scalar refill；普通向量 Batch 保留，向量 arrivals 来源映射明确拒绝。预读输入及
+  HostMemory 占用随输入数增长，步间墙钟检查后还需完成最终导出核验。
+  Warp/NVIDIA、目标 HCU、compile/训练梯度、checkpoint、混合变胞算法阶段、DD、
+  NPT/NPH、生产后端与全目录均未验收。
 
 ## 运行时排障记录
 
@@ -254,10 +277,11 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 固定晶胞 NHC reference 已在本地 `develop`；stress/cell-force 基础已完成上述窄范围，
 实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
-通用晶胞工具 M2、原生变胞优化器 M3 已完成上述窄验证。当前等待里程碑4确认；后续队列：
+通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
+当前等待里程碑5确认；后续队列：
 
-1. MPA-0 M4：变胞邻居、力/应力联合收敛、退出/补位及薄应用入口。
-2. MPA-0 M5：真实目标结构 HCU4 分级验收，随后再安排全目录长作业。
+1. MPA-0 M5：真实目标结构 HCU4 单体系→异构小 Batch→扩大批量，FP64 再 FP32；用户确认后启动。
+2. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
 3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 
 暂不启动 M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP kernel 或扩大当前 HIP

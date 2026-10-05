@@ -1,6 +1,6 @@
 # 项目背景、兼容性契约与当前交接
 
-更新时间：2026-10-04。本文件只保留稳定架构、接口约束和当前交接；按日期追加的完整历史
+更新时间：2026-10-05。本文件只保留稳定架构、接口约束和当前交接；按日期追加的完整历史
 保存在 [`docs/history/PROJECT_HANDOFF.md`](history/PROJECT_HANDOFF.md)。当前支持范围以
 [`STATUS.md`](STATUS.md)、能力矩阵和真实报告为准。
 
@@ -86,7 +86,7 @@ state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STA
 用户已确认下一目标为 MPA-0 + 原生 FIRE/FIRE2 弛豫，里程碑1在
 `codex/test-mace-mpa0-baseline`（起点 `35ea133`）完成基础收口、来源/契约和 CPU 单点验证。
 证据见 [CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md) 与
-[应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)。MPA-0 HCU/弛豫未运行。
+[应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)。当时 MPA-0 HCU/弛豫未运行；后续证据分里程碑列出。
 里程碑2已在 `codex/feat-cell-tools-reference`（起点 `f802d49`，实现 `036827e`）完成通用晶胞工具移植，
 CPU/HCU4 窄验证见 [M2 报告](../reports/g2-cell-tools-m2.md) 和
 [工具契约](TORCH_CELL_TOOLS_CONTRACT.md)。UBF-010 保护左右手分数坐标/strided 写回；
@@ -96,9 +96,15 @@ M2 的 Warp 数值未执行，M2 本身未移植优化步。
 HCU4 合成单步16组/公共解析势4组通过；MPA-0 CPU 三个 CIF、两精度/两优化器各3步通过。
 见 [M3 报告](../reports/g2-variable-cell-fire-m3.md) 和
 [契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md)。UBF-011–014 注释/归因已记录；
-实际 Warp、MPA-0 HCU 和真实完整收敛尚未验收，M3 分支未合并/推送。
-当前等待里程碑4确认：邻居变胞、联合收敛、退出/补位、薄应用入口与结果导出；
-M5 做真实目标 HCU 验收。每个里程碑均先给目的与方案，用户确认后实施。
+实际 Warp、MPA-0 HCU 当时未验收；M3 分支未合并/推送。
+里程碑4已在 `codex/feat-mpa0-relaxation-workflow`（起点 `317b988`，实现 `7a8af50`）完成窄工作流验收：
+邻居变胞、联合收敛、退出/私有状态保护、scalar refill priming、薄 CIF/JSONL 入口。
+CPU 426 passed/3 skipped，HCU4 只运行两精度/两优化器合成工作流四组；真实 MPA-0
+CPU FP64 FIRE 三样本收敛、FIRE2 NaLiTl2 收敛，另两项墙钟退出；FP32 只短步预算。
+14份实际输出 CIF 独立核验；UBF-015/016 与本地应用 LP-083 区分归因。
+见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md)。新分支未合并/推送。
+当前等待里程碑5确认：真实目标 HCU4 单体系→异构小 Batch→扩大批量，FP64 再 FP32。
+每个里程碑均先给目的与方案，用户确认后实施；全目录长作业另行授权。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
 继续暂停：M2 planner、NPT/NPH、DomainParallel、生产 Triton/HIP 和扩大 HIP neighbor capability。

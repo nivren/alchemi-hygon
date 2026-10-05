@@ -536,7 +536,7 @@
       "id": "models.mace",
       "category": "B",
       "status": "planned",
-      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；G2 固定晶胞 MACE/FIRE2 batching、轨迹与短 inflight 已有 slice；MPA-0 M1 三个真实 CIF CPU FP32/64 单点与 FP64 力/应力/晶胞力有限差分通过，目标 HCU/弛豫未运行；训练混合二阶与完整模型加速仍未完成",
+      "implementation_scope": "G1 本地 checkpoint wrapper、energy/force 推理和 Batch/reference 邻居；G2 固定晶胞 MACE/FIRE2 batching、轨迹与短 inflight 已有 slice；MPA-0 M1 三个真实 CIF CPU FP32/64 单点与 FP64 力/应力/晶胞力有限差分通过，M4 补充 CPU FP64 真实变胞弛豫和最终 CIF 核验，FP32 仅 budget 短步；目标 HCU、训练混合二阶与完整模型加速仍未完成",
       "scenario": "真实 MACE/e3nn 能量、负梯度力、力损失到参数的混合二阶路径",
       "source": {
         "repository": "framework",
@@ -630,9 +630,9 @@
         "源码保留不等于 DCU 运行支持",
         "原测试未在本基线运行",
         "项目环境已安装 MACE/e3nn/ASE 最小组合，但未安装 PhysicsNeMo/cuEquivariance",
-        "MPA-0 仅 CPU 单点小样本已验证；MPA-0 HCU、FIRE/FIRE2 与变胞生命周期未验证。MACE 0.3.15 ZBL 依赖进程默认 dtype，单一精度作业显式匹配默认 dtype/权重/输入；atomic_energies 与同进程混合 dtype 并发未验收",
+        "MPA-0 CPU 单点及 M4 FP64 真实变胞弛豫已有小样本；MPA-0 HCU、FP32 完整收敛及全目录未验证。MACE 0.3.15 ZBL 依赖进程默认 dtype，单一精度作业显式匹配默认 dtype/权重/输入；atomic_energies 与同进程混合 dtype 并发未验收",
         "探索环境和项目 .venv 的 H₂O wrapper CPU/HCU、单个 perf_46 和两个 perf_46 的 HCU batching 已验证；向量化 reference 仍不是生产 cell-list/Triton/HIP 性能后端",
-        "已验证固定晶胞非 PBC 的短 reference dynamics 组合、周期 32×92/异构 [46,92] 的短 reference 组合，以及 HCU 上异构 [46,92] 与两个单体系的 FIRE2 收敛对照；DataSink/inflight 目前只覆盖短轨迹和短补位，不代表长 occupancy 或重启。A4 已有等长规模短 profile，但混合规模、长轨迹、skin rebuild 分项和完整性能结论仍未完成；CPU 完整收敛受当前 reference 性能限制，变胞 stress、checkpoint/restart、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
+        "已验证固定晶胞非 PBC 的短 reference dynamics 组合、周期 32×92/异构 [46,92] 的短 reference 组合，以及 HCU 上异构 [46,92] 与两个单体系的 FIRE2 收敛对照；DataSink/inflight 目前只覆盖短轨迹和短补位，不代表长 occupancy 或重启。A4 已有等长规模短 profile，但混合规模、长轨迹、skin rebuild 分项和完整性能结论仍未完成；M4 已追加目标 MPA-0 的窄 CPU FP64 联合收敛/应力证据，目标模型 HCU、checkpoint/restart、训练 wrapper 混合二阶梯度、cuEquivariance 和多卡域分解仍未验证"
       ],
       "release_gate": "G2"
     },
@@ -1768,7 +1768,7 @@
       "id": "dynamics.fire",
       "category": "B",
       "status": "implemented",
-      "implementation_scope": "固定晶胞 FIRE/FIRE2 reference 保留；M3 新增原生六项 FIRE2、指定 fork 修复后的完整矩阵 FIRE reference；各自控制和步序不统一，optimizer/stress/align selection 冻结。变胞详细契约与证据单列 TORCH-VARIABLE-CELL-FIRE；完整收敛/退出补位及目标 MPA-0 HCU 尚未验收",
+      "implementation_scope": "固定晶胞 FIRE/FIRE2 reference 保留；M3 新增原生六项 FIRE2、指定 fork 修复后的完整矩阵 FIRE reference；各自控制和步序不统一，optimizer/stress/align selection 冻结。变胞详细契约与证据单列 TORCH-VARIABLE-CELL-FIRE；M4 窄 CPU/合成 HCU 联合收敛、退出/补位已验收；目标 MPA-0 HCU 尚未验收",
       "scenario": "FIRE/FIRE2 坐标与晶胞优化、收敛、逐体系统计和参数默认值",
       "source": {
         "repository": "ops",
@@ -1894,7 +1894,7 @@
         ]
       },
         "limitations": [
-          "公共固定晶胞 FIRE/FIRE2、32×92 周期 MACE 固定晶胞弛豫和异构短 inflight 证据保留；变胞 FIRE2/FIRE 另在 M3 完成单步/解析势 CPU-HCU 与 MPA-0 CPU 三步。长轨迹、变胞收敛/退出补位、MPA-0 HCU 和完整上游行为套件尚未验收",
+          "公共固定晶胞 FIRE/FIRE2、32×92 周期 MACE 固定晶胞弛豫和异构短 inflight 证据保留；变胞 FIRE2/FIRE 另在 M3 完成单步/解析势 CPU-HCU 与 MPA-0 CPU 三步。M4 追加窄变胞收敛/退出补位工作流；长轨迹、MPA-0 HCU 和完整上游行为套件尚未验收",
         "上游 Warp-backed FIRE/FIRE2 默认路径保留但未在 HCU 验证；本次 32×92 结果只覆盖 Torch reference 单卡和固定晶胞",
         "FIRE2 reference 在 torch.compile(fullgraph=True) 下因输入校验和动态分支暂不通过；fullgraph=False 可运行但会产生 graph breaks，未承诺完整编译优化"
       ],
@@ -3846,12 +3846,96 @@
       "limitations": [
         "CPU independent NumPy and public analytic convergence; HCU16 single-step/4 public25-step cases; not full materials convergence",
         "MPA-0 CPU three CIFs/two precisions/two optimizers for three steps, initial FIRE2 alignment covariance and final E/F/stress consistency only; HCU_MPA0 not_run",
-        "Workflow convergence/refill/sinks/variable-cell neighbor lifecycle await M4; target HCU acceptance awaits M5",
+        "M4 adds narrow single-optimizer workflow convergence/refill/sinks/current-cell neighbors, synthetic HCU parity and real CPU FP64 convergence; see TORCH-MACE-MPA0-WORKFLOW; target HCU acceptance awaits M5",
         "No actual Warp/NVIDIA fixtures, compile/autograd trajectory/checkpoint/DomainParallel/NPT-NPH/ASE filters or production HIP-Triton/performance claim",
         "FIRE2 all-N=0 no advance; zero-atom member in nonempty optimizer Batch explicitly rejected; empty packing support does not imply optimizer support",
         "Full FIRE needs no AlignCellHook; Hook is preprocessing, not support for repeated full-cell reorientation during motion"
       ],
       "release_gate": "G2_M3_variable_cell_update_reference_only"
+    },
+    {
+      "id": "TORCH-MACE-MPA0-WORKFLOW",
+      "category": "B",
+      "status": "implemented",
+      "scenario": "M4 MACE-MPA-0 + native FIRE/FIRE2 zero-pressure CIF batch relaxation, joint convergence and scalar inflight refill",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": [
+          "nvalchemi/dynamics/base.py",
+          "nvalchemi/dynamics/sampler.py",
+          "nvalchemi/dynamics/sinks.py",
+          "nvalchemi/hooks/neighbor_list.py",
+          "nvalchemi/dynamics/optimizers/fire.py",
+          "nvalchemi/dynamics/optimizers/fire2.py",
+          "nvalchemi/models/mace.py"
+        ],
+        "symbols": [
+          "BaseDynamics",
+          "FusedStage",
+          "ConvergenceHook",
+          "SizeAwareSampler",
+          "HostMemory",
+          "NeighborListHook",
+          "FIREVariableCell",
+          "FIRE2VariableCell",
+          "MACEWrapper"
+        ],
+        "reference_fixes": [
+          "fork framework b12b54c private-state protection and admission force priming",
+          "UBF-015/016; local old-schema hook-boundary adaptation; LP-081/082",
+          "LP-083 is a local thin application example, not an upstream algorithm"
+        ]
+      },
+      "contract": {
+        "api": "Existing framework APIs retained; examples/relax_mace_mpa0.py configures native single-optimizer FusedStage/sampler/hooks/sinks; scalar refill only, ordinary vector Batch retained",
+        "data": "FP32/64 device-local eager Torch; periodic row-cell [B,3,3], ragged atoms [N,3]; units eV/Angstrom/eV-per-Angstrom3, tensile-positive stress; distinct source_index/admission-order system_id; private controls/cell velocity preserved for survivors and reset for arrivals",
+        "details": "Full periodic list/images/current H, skin=0 rebuild and skin>0 H-change invalidation; force maximum norm AND absolute stress maximum; graduated geometry/EFS/private state frozen before observers; changed-composition Fused refill computes fresh EFS through existing compute hooks without advancing step_count. CIF readback final topology/model checks use exported coordinate frame. Explicit convergence, step/wall budget, invalid input, compute error, not-started and final-check-failed statuses; no occupancy selection, silent dtype/device fallback or new cell filter API. See docs/TORCH_MACE_MPA0_RELAXATION_CONTRACT.md"
+      },
+      "dependencies": [
+        "torch",
+        "mace-torch==0.3.15",
+        "e3nn==0.4.4",
+        "ASE CIF I/O",
+        "existing cell/stress/optimizer reference operations"
+      ],
+      "backends": {
+        "upstream": "default None/warp retained, numerical execution not verified",
+        "target": [
+          "torch_reference"
+        ],
+        "model": "ordinary e3nn eager, cueq/compile_model disabled; locked MPA-0 SHA256"
+      },
+      "gradient_level": "forward-only optimization lifecycle, existing model autograd for E/F/stress; no differentiable optimization trajectory or training/compile claim",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [
+          "Original tests preserved; numerical Warp/NVIDIA suites not run"
+        ],
+        "dcu_tests": [
+          "packages/framework/test/compatibility/test_variable_cell_workflow.py",
+          "packages/framework/test/compatibility/test_mpa0_relaxation_entry.py",
+          "probes/variable_cell_workflow_reference.py",
+          "probes/mace_mpa0_export_verify.py"
+        ],
+        "evidence": [
+          "reports/g2-mpa0-relaxation-m4.md",
+          "artifacts/m4-workflow/cpu-gate-final.log",
+          "artifacts/m4-workflow/hcu4-synthetic.log",
+          "artifacts/m4-workflow/export-verify-final.log"
+        ],
+        "environments": [
+          "project .venv / Torch2.9.0 / DTK26.04 / HIP6.3.26093; CPU model and targeted HCU4 BW1000 gfx936 synthetic workflow"
+        ]
+      },
+      "limitations": [
+        "CPU gate 426 passed/3 existing Warp skips; HCU only 4 synthetic optimizer/dtype cases, no full HCU gate",
+        "Real CPU FP64 FIRE three CIFs converged in 31/35/80 steps; FIRE2 NaLiTl2 in 53 steps; two other FIRE2 samples wall budget; FP32 three CIFs/two optimizers two-step budgets only; HCU_MPA0 not_run",
+        "Ordinary single-optimizer FusedStage only; no arbitrary mixed variable-cell optimizer stages or vector arrival parameter mapping",
+        "HostMemory/preloaded input cost grows with input count; wall budget checked between steps, final verification can exceed budget; no streaming/restart service or full-directory throughput guarantee",
+        "No ASE filters, NPT/NPH, DomainParallel, full checkpoint, production HIP/Triton optimization, full compile or training validation"
+      ],
+      "release_gate": "G2_M4_workflow_CPU_real_and_HCU_synthetic_only"
     }
   ]
 }

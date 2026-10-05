@@ -1,6 +1,6 @@
 # 上游缺陷、实现补齐与逻辑修正记录
 
-更新日期：2026-10-04。
+更新日期：2026-10-05。
 
 本文件记录移植中发现的上游计算逻辑、状态管理和接口行为缺陷，以及本项目如何修正。
 每项记录须能回答：原来哪里错、为什么判定有问题、修改了什么、如何验证、同步上游时如何处理。
@@ -43,6 +43,8 @@ issue/PR、官方修复 SHA 和核验日期缺失时写明，不由本地测试�
 | [UBF-012](#ubf-012完整晶胞-fire-缺少应力驱动与联合控制) | 零初始化晶胞速度未受应力驱动；缺少九项联合控制 | framework | `UBF-012` | LP-078 | fork 修复移植；CPU/HCU4 解析势与 CPU MPA-0 短步通过 |
 | [UBF-013](#ubf-013fire-联合控制更新与混合存在竞态) | 参数写入与速度混合在同一并行 kernel 中竞态 | ops | `UBF-013` | LP-077 | fork 的分离 kernel 移植；reference 通过，Warp 未执行 |
 | [UBF-014](#ubf-014aligncellhook-未保护体系子集及坐标系一致性) | 忽略周期体系掩码；cached 力/速度/应力未旋转 | framework | `UBF-014` | LP-080 | 本地修正；CPU 公共 Hook/MPA-0 旋转协变通过 |
+| [UBF-015](#ubf-015变胞退出及掩码更新遗漏私有优化器状态) | 晶胞速度、dt/alpha/计数仍更新，Hooks 可看到未恢复的退出数据 | framework | `UBF-015` | LP-081 | fork 状态保护摘取及本地 Hook 边界修正；M4 CPU/HCU 合成工作流 |
+| [UBF-016](#ubf-016补位后首步使用未初始化的力和应力) | FusedStage 只 prime 首批，补位首步使用零占位输出 | framework | `UBF-016` | LP-082 | 参考 fork admission priming，窄适配旧版 refill；M4 CPU/HCU 合成及 CPU MPA-0 |
 
 NHC 条目的共同来源：
 
@@ -161,6 +163,8 @@ step 恢复已退出体系的 positions/velocities/cell，却留下临时坐标�
 `test_inactive_dynamics_outputs.py::test_step_preserves_outputs_for_graduated_graph`；
 历史行为验证见 [g2-upstream-dynamics-reference.md](../reports/g2-upstream-dynamics-reference.md)。
 新增字段包含 stress，但专用测试直接断言的是 positions/forces/energy，不能扩大为 stress 数值验收。
+M4 的 `test_hooks_observe_frozen_inactive_geometry_outputs_and_private_state` 追加了变胞
+stress/cell 与 observer 边界的 CPU 验证；合成 HCU 证据独立见 M4 报告。
 
 **上游状态**：适合作为 mixed-status 一致性候选；本次未提交或核验官方 issue/PR。
 
@@ -321,6 +325,50 @@ CPU Hook 子集/协变/重复调用和 MPA-0 FP32/64 旋转前后 E/F/stress 对
 
 以上 M3 证据汇总见 [报告](../reports/g2-variable-cell-fire-m3.md) 和
 [契约](TORCH_VARIABLE_CELL_FIRE_CONTRACT.md)；来源 SHA 不变，未验证 NVIDIA 当前分支。
+
+## UBF-015：变胞退出及掩码更新遗漏私有优化器状态
+
+**来源**：锁定 framework `4dfe372` 的 BaseDynamics 四种掩码入口仅保存 Batch
+中的坐标/速度等字段，没有恢复优化器 `_state`。FIRE/FIRE2 的 cell velocity、
+dt/alpha/功率计数和归约缓冲继续推进；早前 UBF-003 只在 NHC 类中保护私有链。
+`step()` 在 AFTER_PRE_UPDATE/AFTER_COMPUTE/AFTER_POST_UPDATE 后才恢复 Batch，
+observer 可能看到退出体系的临时坐标及不对应的输出。
+
+**修正与归因**：从用户 fork framework `b12b54c` 的 `_save_state_fields` /
+`_restore_unmasked_state` 摘取系统状态保护；用于全部四种入口。本地将 Batch 恢复
+提早到 observer Hooks 前，FusedStage 的共享 compute 也保护已退出输出。
+字段掩码按锁定 Batch 的 atoms/system storage level 选择，不靠 N 与 B 的大小猜测。
+这是通用状态缺陷修正，没有新增科学功能；源自 fork 的部分与本地补充不混写。
+
+**验证**：M4 两优化器四入口、非零晶胞运动后的冻结、Hook 观察、N=B 单原子体系、
+survivor/fresh-state 回归及 HCU4 FP32/64 合成退出/补位。已有 NHC gate 保留。
+不代表 Warp、compile、任意混合变胞多阶段或 DomainParallel 已验证。
+
+**上游状态**：本轮未提交官方 issue/PR，未核验官方当前分支；不能宣称官方已修复。
+
+## UBF-016：补位后首步使用未初始化的力和应力
+
+**来源**：锁定 framework `4dfe372` 的 FusedStage.run 在首批数据上 compute，
+但 refill 后直接进入下一次 pre_update。新体系携带的 forces/stress 是零占位，
+首步 kick、功率分支和晶胞运动因而与正常初始化不一致。
+
+**修正与归因**：用户 fork `b12b54c` 的 BaseDynamics.refill_check 清除
+`_forces_primed`，FusedStage.step 通过 `_prime_forces` 重新初始化模型输出。
+本地只在 FusedStage.refill_check 改变组成后调用已有 BEFORE_COMPUTE / compute /
+AFTER_COMPUTE；不导入新版 admission/schema/compile 机制，不推进 step_count。
+priming 前更新 active_batch，以便计算异常时保留实际到达体系供应用导出。
+低层 BaseDynamics.refill_check 仍负责成员和状态同步，直接使用者负责模型评估。
+
+**验证**：真实 sampler 的 arrival 首步 Hook 检查解析 E/stress、各来源恰好一次退出、
+priming 失败后 arrival 仍可导出；CPU/HCU4 合成工作流及 CPU MPA-0 应用。
+每次 priming 重新走 frequency=1 邻居 Hook；没有宣称完整 admission API 已移植。
+
+**接口缺口**：向量 dt/dt_min/dt_max 的新来源参数映射未实现。普通 Batch 保留向量
+参数，variable-cell refill 明确要求 scalar/单元素参数，不因 arrivals 数与旧 Batch
+相同而错误复用参数。该限制不是新增优化算法。
+
+**上游状态**：本轮未提交官方 issue/PR，未核验官方当前分支；fork SHA 是参考修复
+依据，不能替代本地执行证据。报告见 [M4](../reports/g2-mpa0-relaxation-m4.md)。
 
 ## 3. 上游没有的实现与本地扩展
 
