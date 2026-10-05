@@ -74,13 +74,13 @@ compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry
 `TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
 state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。
 固定晶胞 NHC Torch reference 已完成窄范围，实现提交 `b4050ec`；
-由 `codex/feat-fixed-cell-nhc` 交付到本地 `develop`，并随本次集成计划同步到三个配置的目标 remote；
+由 `codex/feat-fixed-cell-nhc` 交付到本地 `develop`，并随本次集成同步到三个配置的目标 remote；
 保留异构 Batch、Hooks、FusedStage、scalar refill、最小 continuation；CPU/HCU 证据和
 四项上游逻辑修正见 [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md)。
 不承诺 vector arrivals、完整 workflow checkpoint、Warp/NVIDIA、DomainParallel 或生产后端。
 `TORCH-CELL-STRESS-FORCE` 基础 slice 明确排除晶胞及 FIRE/FIRE2 移植。
 该 slice 位于 `codex/feat-cell-stress-force`，起点 `e6dd99c`，实现与测试提交 `a76107e`，
-文档提交 `35ea133`；其提交已包含在本地 `develop` 集成 merge `620a485` 中，remote 同步待完成；
+文档提交 `35ea133`；其提交已包含在 `develop` 集成 merge `620a485` 中并已同步至三个目标 remote；
 保留旧 stress API/import，ops reference 与 generic executor 接线已完成，CPU/HCU4 的转换和
 真实周期 MACE 应力证据见 [报告](../reports/g2-torch-cell-stress-force.md) 与
 [契约](TORCH_CELL_STRESS_FORCE_CONTRACT.md)。公式修正记录为 UBF-009；Warp 未执行。
@@ -143,7 +143,7 @@ CPU ops46/公共19项通过，HCU4 FP64四种功率单步符合NumPy、三种非
 修正已签名提交 `0e354f4`，并与应用分离收口提交一起于本地 merge `620a485` 合入 `develop`。
 M1–M5与应用设置收口审查见[审查报告](../reports/g2-relaxation-port-closure-review.md)；
 toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已提交到各自本地 `develop`；
-三个 remote 的推送和 refs 核验正在进行。
+三个 remote 的 `develop` refs 已核验一致地包含上述交付提交；GitHub 提示直推绕过了要求经 PR 的分支规则，但按用户明确授权完成。
 历史4000测量仍采用.002，无零下限完整Batch复测；没有扩展性能后端或1600作业。
 里程碑顺序按用户2026-10-05新要求执行：实施前说明目的与方案并等待确认；完成后
 先总结实现、验证和限制，再给下一阶段方案；用户确认下一阶段后，才收口提交当前

@@ -5,11 +5,11 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 
 ## 1. 当前基线
 
-- 本轮 NHC 起点 `7a90fcf`，开发分支 `codex/feat-fixed-cell-nhc`；实现提交 `b4050ec`，已纳入本地 `develop`，随本次交付同步 remote。
+- 本轮 NHC 起点 `7a90fcf`，开发分支 `codex/feat-fixed-cell-nhc`；实现提交 `b4050ec`，已纳入并同步到三个 remote 的 `develop`。
 - `TORCH-NEIGHBOR-PBC-CELL` 阶段一 Torch reference 与阶段二 HIP 窄 capability 已收口。
 - `TORCH-NVT-LANGEVIN` 固定晶胞 BAOAB 窄 reference slice 已收口，不再作为当前任务。
 - `TORCH-CELL-STRESS-FORCE` 基础 slice 位于 `codex/feat-cell-stress-force`，起点
-  `e6dd99c`，实现与测试提交 `a76107e`、文档 `35ea133`；已包含于本地 merge `620a485`，remote 同步待完成。该 slice 排除晶胞及 FIRE/FIRE2。
+  `e6dd99c`，实现与测试提交 `a76107e`、文档 `35ea133`；已包含于 merge `620a485` 并同步至三个目标 remote。该 slice 排除晶胞及 FIRE/FIRE2。
 - MPA-0 + 原生 FIRE/FIRE2 的里程碑1已完成：`codex/test-mace-mpa0-baseline`，起点 `35ea133`。
   [契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)、[CPU 报告](../reports/g2-mace-mpa0-m1-cpu-baseline.md)。
   里程碑2已在 `codex/feat-cell-tools-reference` 完成晶胞工具 CPU/HCU4 窄验证，
@@ -30,7 +30,7 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
   [4000报告](../reports/g2-mpa0-batch4000-timing.md)；测量阶段无源码改动。
   当前 `codex/fix-fire-zero-dt-min` 已提交零下限兼容修正 `0e354f4`（LOCAL-004），
   CPU回归和HCU4 FP64短步通过，[报告](../reports/g2-fire-zero-dt-min.md)。
-  M1–M5收口审查已完成，[审查报告](../reports/g2-relaxation-port-closure-review.md)；toolkit 边界提交 `730a848` 已由 merge `620a485` 合入本地 `develop`，应用工程首提交 `9ae235c` 位于应用仓库本地 `develop`；remote 同步待完成。
+  M1–M5收口审查已完成，[审查报告](../reports/g2-relaxation-port-closure-review.md)；toolkit 边界提交 `730a848` 已由 merge `620a485` 合入并同步，应用工程首提交 `9ae235c` 已同步到三个目标 remote 的 `develop`。
   后续每个里程碑实施前先说明目的与方案，用户确认后实施；完成后先总结并给出
   下一阶段方案，等待用户确认后再收口提交当前阶段、启动下一阶段（用户2026-10-05
   明确的顺序）。不自动推送。M4 已有提交保留，此流程更新在 M5 启动前收口。

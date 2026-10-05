@@ -8,7 +8,7 @@
 - 当前交付基线：本地 `develop`，集成 merge commit `620a485`。它包含 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和本次应用分离收口；相应里程碑分支提交均已核实在 `develop` 历史中。
 - toolkit 应用分离提交为 `730a848`，由 `codex/fix-fire-zero-dt-min` 合入；LOCAL-004 实现提交为 `0e354f4`。完整移植审查见[报告](../reports/g2-relaxation-port-closure-review.md)。
 - 独立应用工程 `/home/wangleping/codes/alchemi-app` 已在本地 `develop` 创建首提交 `9ae235c`；此工程拥有 MPA-0 CIF 应用入口和专属测试。
-- 本次 remote 同步尚在进行；同步前 `github-origin/develop` 和 `local-origin/develop` 为 `7a90fcf`，`gitee-origin` 尚无 heads。同步后将在此记录最终 refs。
+- 首轮 remote refs 核验已通过：toolkit 三个 remote 的 `develop` 均包含集成状态提交 `9552588`，应用工程三个 remote 的 `develop` 均包含首提交 `9ae235c`；本条状态记录随其后的 toolkit commit 继续同步。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -252,7 +252,7 @@
 - 分离后验证：toolkit CPU gate **425 passed, 3 skipped, 1 deselected**；独立应用入口回归
   **9 passed**，CLI `--help` 和项目 TOML 检查通过。两处 `git diff --check` 通过；此项只移动
   应用代码并调整追踪文档，未改 framework/ops 算法，因此没有重跑 HCU。
-- toolkit 分离提交 `730a848` 已并入本地 `develop`；应用工程提交 `9ae235c` 已建于其本地 `develop`。remote 同步完成后记录最终 SHA；现有 HCU 证据仍仅适用于各报告列明的窄验证范围。
+- toolkit 分离提交 `730a848` 已并入本地 `develop`；应用工程提交 `9ae235c` 已建于其本地 `develop`，两者已出现在三个目标 remote 的 `develop` refs。现有 HCU 证据仍仅适用于各报告列明的窄验证范围。
 
 ## 运行时排障记录
 
@@ -384,7 +384,7 @@ MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约�
 通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
 M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 8000门槛诊断已收口 `eff753d`；4000门槛完整Batch及分项已收口 `1dba058`。
-零下限兼容修正 `0e354f4` 及收口提交已于 `620a485` 合并到本地 `develop`；remote 同步状态见上方当前基线。
+零下限兼容修正 `0e354f4` 及收口提交已于 `620a485` 合并到 `develop`；remote 同步状态见上方当前基线。
 后续建议队列：
 
 1. 已完成 MPA-0 弛豫移植收口审查，见[报告](../reports/g2-relaxation-port-closure-review.md)。应用入口与专属测试现已移至独立下游工程 `alchemi-app`；toolkit 继续维护上游移植和兼容性跟踪。

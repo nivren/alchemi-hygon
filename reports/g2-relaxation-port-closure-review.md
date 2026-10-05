@@ -2,8 +2,9 @@
 
 日期：2026-10-05。审查 M1–M5、零下限修正、实际使用配置与验证限制，并记录应用分离。
 toolkit 收口提交为 `730a848`，已由 merge `620a485` 合入本地 `develop`；应用工程首提交为
-`9ae235c`，位于应用仓库本地 `develop`。`github-origin`、`local-origin`、`gitee-origin`
-的推送及 refs 核验正在进行。
+`9ae235c`，位于应用仓库本地 `develop`。首轮推送后，toolkit 三个 remote 的 `develop` 均
+核验到 `9552588`，应用工程三个 remote 均核验到 `9ae235c`。GitHub 接受直推时提示绕过
+PR-required 分支规则；此次直推由用户明确授权。状态文档随后以独立 toolkit commit 跟进并继续同步。
 
 ## 收口结论
 
@@ -19,7 +20,7 @@ toolkit 收口提交为 `730a848`，已由 merge `620a485` 合入本地 `develop
 ## Git 与来源
 
 当前功能分支 `codex/fix-fire-zero-dt-min` 的修复提交为 `0e354f4`，边界收口提交为
-`730a848`；整条功能链由 merge commit `620a485` 合入本地 `develop`。remote 推送待完成。
+`730a848`；整条功能链由 merge commit `620a485` 合入 `develop`，并已推送至三个目标 remote。
 本报告和交接文档已随集成状态提交。M4 应用入口及应用专属测试已拆到同级独立工程 `alchemi-app`；此处继续
 追踪 toolkit 的移植、兼容性和集成验证证据。LOCAL-004 是 reference 校验缺陷修正，
 没有登记为上游缺陷。
