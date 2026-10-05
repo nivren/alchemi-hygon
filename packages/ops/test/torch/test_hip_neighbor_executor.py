@@ -42,6 +42,43 @@ def test_hip_executor_rejects_cpu_before_loading_native_extensions():
         )
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_hip_current_cell_full_rebuild_is_registered(dtype):
+    selection = resolve_backend(
+        "hip", operation="neighbor_list", device=torch.device("cuda"),
+        dtype=dtype, features={"periodic", "full", "matrix", "variable_cell"},
+        strategy="cell_list",
+    )
+    assert selection.implementation_id == "hip.neighbor.cell_list-v1"
+    assert selection.gradient_order == 0
+
+
+def test_hip_stays_explicit_even_when_its_default_strategy_matches_auto():
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        selection = resolve_backend(
+            "auto", operation="neighbor_list", device=torch.device("cuda"),
+            dtype=torch.float64, features={"periodic", "full", "matrix"},
+        )
+    assert selection.family == "torch_reference"
+    # No auto-eligible implementation advertises the new snapshot feature.
+    with pytest.raises(BackendUnavailableError, match="no verified capability"):
+        resolve_backend(
+            "auto", operation="neighbor_list", device=torch.device("cuda"),
+            dtype=torch.float64,
+            features={"periodic", "full", "matrix", "variable_cell"},
+        )
+    # Family and exact implementation selection still admit the default.
+    for requested in ("hip", "hip.neighbor.cell_list-v1"):
+        explicit = resolve_backend(
+            requested, operation="neighbor_list", device=torch.device("cuda"),
+            dtype=torch.float64, features={"periodic", "full", "matrix"},
+        )
+        assert explicit.family == "hip"
+
+
 @pytest.mark.parametrize("feature", ("no_pbc", "half", "coo", "distances", "vectors"))
 def test_hip_registry_rejects_unregistered_output_modes(feature: str):
     features = {"periodic", "full", "matrix"}

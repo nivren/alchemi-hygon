@@ -3,13 +3,16 @@
 """Public executor adapter for the narrow native-HIP Batch neighbor path.
 
 The native stages intentionally expose caller-owned buffers.  This module is
-the small public-ABI adapter that allocates those buffers, derives fixed-cell
+the small public-ABI adapter that allocates those buffers, derives current-cell
 metadata, and invokes the already validated staged pipeline.  It is selected
 only by the central registry; it does not implement backend policy itself.
 
 Point38 deliberately registers only periodic, full-list, dense matrix output.
 The adapter therefore does not claim support for half lists, COO output,
-target rows, skin/rebuild state, or variable-cell execution.
+target rows or skin/selective-rebuild state. Cell changes between calls are
+supported by a full rebuild: no geometry-dependent metadata or trusted build
+plan survives a public call. This does not admit cell changes inside a reused
+low-level plan.
 """
 
 from __future__ import annotations
@@ -63,7 +66,7 @@ def _validate_request(
     if not isinstance(cutoff, (int, float)) or cutoff <= 0:
         raise ValueError("cutoff must be positive")
     if cell is None or pbc is None:
-        raise _unsupported("a fixed periodic cell and pbc tensor are required")
+        raise _unsupported("a periodic cell and pbc tensor are required")
     if half_fill:
         raise _unsupported("half-list requests are not admitted")
     if return_neighbor_list:
@@ -74,11 +77,15 @@ def _validate_request(
         raise _unsupported("unknown options: " + ", ".join(sorted(kwargs)))
 
 
-def _fixed_cell_metadata(
+def _current_cell_metadata(
     cells: torch.Tensor,
     cutoff: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Derive the same conservative grid metadata as the Torch cell-list path."""
+    """Derive fresh conservative metadata from this call's current cells.
+
+    A previous cell's dimensions/radii/offsets/inverse cannot be reused after
+    contraction or shear, even when the Batch layout is unchanged.
+    """
     dimensions: list[torch.Tensor] = []
     radii: list[torch.Tensor] = []
     for system in range(cells.shape[0]):
@@ -107,7 +114,7 @@ def _fixed_cell_metadata(
     cell_counts = torch.prod(cells_per_dimension.to(torch.int64), dim=1)
     max_int32 = torch.iinfo(torch.int32).max
     if bool(torch.any(cell_counts > max_int32)):
-        raise ValueError("fixed-cell metadata exceeds int32 cell-offset capacity")
+        raise ValueError("current-cell metadata exceeds int32 cell-offset capacity")
     if bool(cell_counts.sum() > max_int32):
         raise ValueError("Batch cell offsets exceed int32 cell-offset capacity")
     cell_offsets = torch.zeros(
@@ -204,7 +211,12 @@ def neighbor_list(
     target_indices: torch.Tensor | None = None,
     **kwargs: object,
 ) -> tuple[torch.Tensor, ...]:
-    """Execute the registered fixed-cell/full-list native-HIP ABI."""
+    """Build full-list MATRIX topology from the current periodic Batch snapshot.
+
+    Each call reinitializes all cell-dependent metadata and CSR buffers, so
+    callers may update positions and cells in-place between calls (skin=0).
+    The trusted runtime plan is fixed only for this individual snapshot.
+    """
     _validate_request(
         positions,
         cutoff,
@@ -262,7 +274,7 @@ def neighbor_list(
         if not torch.equal(supplied_batch_idx, batch_idx_work):
             raise ValueError("batch_idx and batch_ptr describe different layouts")
     cells_per_dimension, neighbor_search_radius, cell_offsets, inverse_cells = (
-        _fixed_cell_metadata(cells, cutoff)
+        _current_cell_metadata(cells, cutoff)
     )
     total_cells = int(torch.prod(cells_per_dimension.to(torch.int64), dim=1).sum().item())
     atom_periodic_shifts = torch.empty(
@@ -347,8 +359,12 @@ def neighbor_list(
                 gradient_order=2 if (return_distances or return_vectors) else 0,
             )
         except RuntimeError as exc:
-            if max_neighbors is not None or "capacity overflow" not in str(exc):
+            if "capacity overflow" not in str(exc):
                 raise
+            if max_neighbors is not None:
+                # Hooks use the common overflow type to discover a larger
+                # capacity after a cell contraction, then rebuild explicitly.
+                raise NeighborOverflowError(str(exc)) from exc
             if capacity >= upper:
                 raise NeighborOverflowError(
                     "native HIP neighbor capacity exceeded conservative retry bound"

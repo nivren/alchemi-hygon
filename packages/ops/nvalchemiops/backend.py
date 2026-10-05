@@ -304,7 +304,11 @@ class ImplementationRegistry:
                     if implementation.family == family
                 )
             matches = self._matching(
-                candidates,
+                (
+                    candidate
+                    for candidate in candidates
+                    if requested != "auto" or candidate.auto_enabled
+                ),
                 operation=operation,
                 strategy=effective_strategy,
                 device=device_label,

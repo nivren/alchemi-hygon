@@ -13,6 +13,10 @@ The contract is intentionally small:
 ``checked build init -> trusted reusable CSR workspace -> native candidate
 query -> canonical full topology -> Torch geometry``.
 
+The reusable plan remains fixed with respect to cell metadata. The public
+stateless executor supports changing cells between calls by creating a new
+checked plan for each current-cell snapshot; this does not widen plan reuse.
+
 The topology stages are forward-only and discrete.  Continuous distance/vector
 geometry remains the Torch reference stage, so first- and second-order
 gradients are part of this candidate contract.  This is a semantic admission

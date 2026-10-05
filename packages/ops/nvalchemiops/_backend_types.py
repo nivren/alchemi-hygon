@@ -32,6 +32,8 @@ class Implementation:
     excluded_feature_sets: tuple[frozenset[str], ...] = ()
     evidence: str = ""
     default_strategy: bool = False
+    # Explicit family defaults and evidence-based auto admission are separate.
+    auto_enabled: bool = True
 
     def supports(
         self,
