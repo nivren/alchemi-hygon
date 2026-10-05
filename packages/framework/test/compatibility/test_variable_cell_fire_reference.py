@@ -96,6 +96,28 @@ def test_public_stress_drives_cell_and_short_analytic_convergence(cls):
     assert "warp" not in sys.modules
 
 
+def test_public_fire_zero_dt_min_short_analytic_convergence():
+    b = batch()
+    d = FIREVariableCell(
+        model=CellHarmonic(), dt=0.04, dt_min=0.0, backend="torch_reference"
+    )
+    start = CellHarmonic()(b)["energy"].clone()
+    frac = torch.linalg.solve(
+        b.cell[b.batch_idx.long()].mT, b.positions[..., None]
+    ).squeeze(-1)
+    d.run(b, n_steps=160)
+    assert d.step_count == 160
+    assert torch.all(b.energy.flatten() < start * 1e-3)
+    torch.testing.assert_close(
+        torch.linalg.solve(
+            b.cell[b.batch_idx.long()].mT, b.positions[..., None]
+        ).squeeze(-1),
+        frac,
+        rtol=2e-11,
+        atol=2e-11,
+    )
+
+
 @pytest.mark.parametrize("cls", [FIRE2VariableCell, FIREVariableCell])
 def test_selections_frozen_after_initialization(cls, monkeypatch):
     import nvalchemi._backend as module

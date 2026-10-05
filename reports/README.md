@@ -19,6 +19,7 @@
 | MPA-0 FP64单Batch耗时 | [`g2-mpa0-single-batch-timing.md`](g2-mpa0-single-batch-timing.md) | 64结构/2287原子应用101秒；1600是条件外推，原生raw力判据与M5/H100不同 |
 | MPA-0 8000门槛分项诊断 | [`g2-mpa0-batch8000-timing.md`](g2-mpa0-batch8000-timing.md) | 231结构/7937原子初始e3nn模型前向OOM，未完成弛豫；分项仅失败前部分，非稳态耗时 |
 | MPA-0 4000门槛完整分项 | [`g2-mpa0-batch4000-timing.md`](g2-mpa0-batch4000-timing.md) | 114项/3959原子、111收敛/3预算、应用160秒；模型76%/Torch reference邻居19%/优化器3%，非满载稳态 |
+| FIRE 零步长下限兼容修正 | [`g2-fire-zero-dt-min.md`](g2-fire-zero-dt-min.md) | LOCAL-004，本地校验恢复上游 `dt_min=0` 语义；CPU回归/HCU4 FP64 单步、解析势及三CIF十步 |
 | Langevin reference | [`g2-torch-nvt-langevin.md`](g2-torch-nvt-langevin.md)、[`g2-torch-nvt-langevin-stat.md`](g2-torch-nvt-langevin-stat.md)、[`g2-torch-nvt-langevin-restart.md`](g2-torch-nvt-langevin-restart.md) | 固定晶胞 BAOAB 窄 reference slice 已完成；不等于完整上游 Langevin/NVT 或生产后端 |
 | NHC reference | [`g2-torch-nvt-nhc.md`](g2-torch-nvt-nhc.md) | 固定晶胞 Torch reference、批处理生命周期和单 HCU 短 MACE；Warp/NVIDIA、分布式、完整 checkpoint、生产后端未验收 |
 | Stress/cell-force 基础 | [`g2-torch-cell-stress-force.md`](g2-torch-cell-stress-force.md) | CPU/HCU reference、周期 MACE 应力与 FP64 有限差分；不包含晶胞更新、变胞 FIRE/FIRE2、NPT/NPH 或完整 MLIP 训练 |

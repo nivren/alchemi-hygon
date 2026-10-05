@@ -48,6 +48,9 @@ post 用新 F/stress 完成半 kick，然后所有原子与三行晶胞打包 `[
 联合 vf/vv/ff 更新控制且只每体系更新一次，再同步混合原子与晶胞速度。
 P>0 计数>=n_min 时 dt 增长/alpha 衰减；P<=0 dt 缩至 dt_min、alpha_reset，
 原子与全部晶胞速度归零。保留 dt_min/max 的来源语义，无自定义 cell mass/filter。
+实际步长 `dt>0`；步长下限 `dt_min>=0`，允许零下限。`dt_min=0` 时
+非正功率分支使用 `max(dt*f_dec, 0)`，不隐含正数下限；负下限仍在状态写入前报错。
+这是本地校验与上游的兼容性修正，不改变默认参数或 FIRE 算法。
 空 Batch 无操作；全矩阵不要求对齐。DomainParallel 只保留原有接口，不准入 reference。
 
 ## 验收与尚未完成
@@ -68,6 +71,11 @@ FP64 单步 rtol/atol=2e-12，FP32=3e-5；计数/索引精确。短解析周期�
 
 实际证据见 [M3 报告](../reports/g2-variable-cell-fire-m3.md)：CPU ops39项/公共18项、
 HCU4单步16组/公共25步4组、MPA-0 CPU三步4组。保留上述未验证范围。
+
+LOCAL-004（2026-10-05）：零下限独立回归后 CPU ops46项/公共19项通过，
+HCU4 FP64 四种联合功率单步符合 NumPy、三种非法边界在写入前拒绝、
+公共解析势25步 CPU/HCU对照及真实三CIF/124原子 MPA-0 十步通过。
+见 [修复报告](../reports/g2-fire-zero-dt-min.md)；未新增完整零下限弛豫/性能证据。
 
 M4 的生命周期追加证据独立见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md) 与
 [应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)：普通单优化器 FusedStage 的联合

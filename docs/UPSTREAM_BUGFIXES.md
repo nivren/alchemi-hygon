@@ -404,9 +404,17 @@ Torch geometry 梯度和 HIP 邻居组合，均是在保留上游契约下新增
 | LOCAL-001 / LP-059 | composite workspace size-query 把 int32 candidate storage 当作 int64 key storage，改用正确 dtype/长度临时 buffers | 本地新增 HIP materializer；[runtime wrapper 报告](../reports/g2-native-hip-neighbor-runtime-wrapper.md) |
 | LOCAL-002 / LP-061 | Torch cell-list allocator 与 build 的 max_nbins 不一致，统一8192 | `torch_reference_cell_list.py` 为本地新增文件；[wall-clock 报告](../reports/g2-framework-hip-neighbor-wallclock.md) |
 | LOCAL-003 / LP-061 | HIP executor 在 query 前用未初始化 candidate_counts 校验，先 zero_ | `_hip_neighbor_executor.py` 为本地新增文件；同上报告 |
+| LOCAL-004 / LP-084 | 完整矩阵 FIRE reference 把 `dt_min=0` 错判为非法，改为只拒绝负下限 | 本地 `cell_fire_reference.py` 新增校验过严；[修复报告](../reports/g2-fire-zero-dt-min.md) |
 
 以上均须保留回归，但不能据其报告中的“修复”二字认定 NVIDIA 上游存在这些 bug。
 LP-061 原候选说明将 Torch reference 修复泛称上游候选，本次按文件来源纠正归因。
+
+LOCAL-004：锁定 NVIDIA ops `26dbceb` 和指定 fork ops `eadc3ee` 都使用
+`max(dt*f_dec, dt_min)`，允许零下限；本地 reference 的 `dt_min<=0` 校验造成不兼容。
+修正为 `<0` 并加来源注释，保留实际 `dt>0`、有限值及错误前无状态写入要求。
+默认参数、原生 FIRE 更新方程和默认 Warp 路径不变；没有修改或认定新的上游 bug。
+CPU NumPy 正/负/零/纯晶胞功率及公共解析势回归、HCU4 FP64 同类单步与
+公共25步对照、三份真实CIF的 MPA-0 十步通过；短步不代表完整弛豫收敛。
 
 ### 本次审查发现、尚未修改的本地风险
 

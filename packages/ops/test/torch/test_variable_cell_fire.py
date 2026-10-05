@@ -167,7 +167,7 @@ def oracle_fire_pre(s, maxstep):
     return out
 
 
-def oracle_fire_post(s):
+def oracle_fire_post(s, dt_min=0.001):
     out = {k: v.copy() for k, v in s.items()}
     for b in range(2):
         atoms = np.where(s["idx"] == b)[0]
@@ -183,7 +183,7 @@ def oracle_fire_post(s):
             dt = min(dt * 1.1, 0.2)
             a *= 0.99
         elif power <= 0:
-            dt = max(dt * 0.5, 0.001)
+            dt = max(dt * 0.5, dt_min)
             a = 0.1
         mix = (
             (1 - a) * vv + a * np.sqrt(np.sum(vv * vv) / np.sum(ff * ff)) * ff
@@ -213,7 +213,7 @@ def run_pre(s, maxstep=0.1):
     )
 
 
-def run_post(s):
+def run_post(s, dt_min=0.001):
     like = s["a"]
     fire_cell_post(
         s["v"],
@@ -227,12 +227,42 @@ def run_post(s):
         s["n"],
         torch.full_like(like, 0.1),
         torch.full_like(like, 0.99),
-        torch.full_like(like, 0.001),
+        torch.full_like(like, dt_min),
         torch.full_like(like, 0.2),
         torch.full_like(s["n"], 2),
         torch.full_like(like, 0.5),
         torch.full_like(like, 1.1),
     )
+
+
+@pytest.mark.parametrize("branch", ["positive", "negative", "zero", "cell_only"])
+def test_full_fire_zero_dt_min_numpy(branch):
+    s = state(branch=branch)
+    # Below the old positive floor: detect a silently substituted lower bound.
+    s["dt"].copy_(torch.tensor([0.0004, 0.0006], dtype=s["dt"].dtype))
+    before = numpy_state(s)
+    expected = oracle_fire_post(before, dt_min=0.0)
+    run_post(s, dt_min=0.0)
+    for key in ("v", "hv", "a", "dt", "n"):
+        np.testing.assert_allclose(
+            s[key].numpy(), expected[key], atol=2e-12, rtol=2e-12
+        )
+    for key in ("r", "h", "f", "fh", "mass", "idx"):
+        np.testing.assert_array_equal(s[key].numpy(), before[key])
+
+
+@pytest.mark.parametrize("bad", ["negative_min", "zero_dt", "negative_dt"])
+def test_full_fire_invalid_dt_before_mutation(bad):
+    s = state()
+    dt_min = -0.001 if bad == "negative_min" else 0.0
+    if bad == "zero_dt":
+        s["dt"][0] = 0.0
+    elif bad == "negative_dt":
+        s["dt"][0] = -0.001
+    before = {key: value.clone() for key, value in s.items()}
+    with pytest.raises(ValueError):
+        run_post(s, dt_min=dt_min)
+    assert all(torch.equal(s[key], value) for key, value in before.items())
 
 
 @pytest.mark.parametrize("branch", ["positive", "negative", "zero", "cell_only"])

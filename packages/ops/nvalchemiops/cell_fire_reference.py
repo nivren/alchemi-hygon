@@ -427,7 +427,9 @@ def fire_cell_post(
         )
     if bool(
         (
-            (dt_min <= 0)
+            # LOCAL-004: upstream max(dt*f_dec, dt_min) permits a zero floor;
+            # only the actual dt must stay positive (checked by _controls).
+            (dt_min < 0)
             | (dt_max < dt_min)
             | (f_dec <= 0)
             | (f_inc <= 0)
