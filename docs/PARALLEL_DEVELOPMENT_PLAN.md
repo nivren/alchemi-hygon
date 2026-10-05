@@ -17,8 +17,10 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
   完成原生六项 FIRE2、fork 完整 FIRE、Hook 预处理和窄 CPU/HCU 验证（实现 `29a70f3`），
   [M3 报告](../reports/g2-variable-cell-fire-m3.md)。里程碑4已在
   `codex/feat-mpa0-relaxation-workflow`（实现 `7a8af50`）完成普通单优化器批量工作流、薄应用与窄
-  CPU/合成 HCU 验收，[M4 报告](../reports/g2-mpa0-relaxation-m4.md)；当前等待里程碑5确认。
-  后续每个里程碑先说明目的与方案，用户确认后实施。
+  CPU/合成 HCU 验收，[M4 报告](../reports/g2-mpa0-relaxation-m4.md)；用户已于2026-10-05确认里程碑5。
+  后续每个里程碑实施前先说明目的与方案，用户确认后实施；完成后先总结并给出
+  下一阶段方案，等待用户确认后再收口提交当前阶段、启动下一阶段（用户2026-10-05
+  明确的顺序）。不自动推送。M4 已有提交保留，此流程更新在 M5 启动前收口。
 - 后续单卡 HCU 验证统一使用 `HIP_VISIBLE_DEVICES=4`；历史报告中的卡号不改写。
 - 当前任务应从 `develop` 创建短期个人分支，完成一个可独立验证的 slice 后再合并。
 
