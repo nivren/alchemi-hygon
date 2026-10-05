@@ -11,7 +11,8 @@
 - MPA-0 弛豫里程碑1：`codex/test-mace-mpa0-baseline`，从 `35ea133` 起步；CPU 探针提交 `61484db`，基线完成；未合并、未推送。
 - MPA-0 里程碑2：`codex/feat-cell-tools-reference`，起点 `f802d49`，实现/测试 `036827e`；通用晶胞工具 CPU/HCU4 窄验证完成；未合并、未推送。
 - MPA-0 里程碑4：`codex/feat-mpa0-relaxation-workflow`，起点 `317b988`，实现/测试/契约 `7a8af50`；批量应用生命周期和窄 CPU/合成 HCU 验收完成；未合并、未推送。
-- MPA-0 里程碑5：`codex/test-mpa0-hcu-validation`，起点 `fa74ca1`；真实目标 HCU4 小样本验收完成，等待用户确认下一阶段后提交；未合并、未推送。
+- MPA-0 里程碑5：`codex/test-mpa0-hcu-validation`，起点 `fa74ca1`，收口提交 `4656cce`；真实目标 HCU4 小样本验收完成；未合并、未推送。
+- 当前测量：`codex/test-mpa0-batch-timing`，起点 `4656cce`；FP64原生FIRE单个64结构/2287原子Batch完成，结果见下文；尚未提交、合并或推送。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
 
@@ -173,7 +174,27 @@
 - Li(CN)2 FIRE FP64/FP32均双阈值收敛，但88/364步、能量-72.656861/-74.576416 eV、
   体积133.015271/124.967972 Å³；没有判定原因或极小值性质，精度互换和重复稳定性未验收。
   当前范围仍为单优化器 scalar refill/单卡 eager；全目录、NVIDIA、训练/compile、
-  checkpoint/DD/NPT-NPH/ASE filters/生产后端不在验收内。M5待确认下一阶段后提交。
+  checkpoint/DD/NPT-NPH/ASE filters/生产后端不在验收内。用户确认后续测量后，M5以 `4656cce` 收口提交。
+
+## MPA-0 单个较大 Batch 耗时测量（2026-10-05）
+
+- [报告](../reports/g2-mpa0-single-batch-timing.md)、`probes/mace_mpa0_batch_timing.py`；
+  只新增隔离探针及证据，framework/ops/产品应用源码不变。只测FP64原生完整矩阵FIRE。
+- 当前目录21755候选按文件名排序，Random(24)抽1600后只执行前64项；2287原子、
+  每项3–132原子，HCU4容量2304/64结构、refill20、ordinary e3nn/Torch reference。
+  初批全部装入，没有新到达结构；未测持续补位吞吐、16000原子容量或全部1600。
+- 停止判据为原子物理力与原生`stress_to_cell_force`全部行范数最大值<=.05 eV/Å，
+  无独立应力阈值；不同于M5双阈值及H100参考形变/cell_factor=N的UnitCellFilter判据。
+  62项收敛、2项500步预算退出，0溢出/计算错误；实际更新总5191，中位数37.5步。
+- 应用101.046秒（准备2.557+优化98.272+导出.218）；启动19.809、oracle3.564，
+  探针总124.420秒。峰值allocated/reserved为23.486/35.096 GiB；进程allocator限80%。
+  作业后无KFD PID；没有OOM不代表16000原子可运行。
+- CPU/HCU各3个NumPy原生力案例通过；CPU核验64项ID/哈希/FP64原始数组/预算分类/
+  CIF几何，最终原生力重算最大差3.47e-17 eV/Å；没有64份独立模型重算或完整HCU gate。
+- 同等规模25批条件估算：共享启动约41–42分钟，每批进程重启约50分钟；不是全部收敛
+  耗时或统计区间。H100输入、CuEq、容量和判据不同，不能作同工作量平台性能比较。
+- 初轮dt_min=0被本地参数校验拒绝且未完成一个完整优化步，不计时外推；
+  最终明确采用现有默认.002。下一建议为恢复dt_min=0兼容性，待确认；本阶段未修改算子。
 
 ## 运行时排障记录
 
@@ -303,9 +324,10 @@ gate 重跑通过。长时间验证和发布路径优先使用 AOT 或受控 JIT
 实现与测试已提交 `a76107e`。基础 slice 未移植晶胞及 FIRE/FIRE2。
 MPA-0 + 原生 FIRE/FIRE2 弛豫里程碑1已完成基础收口、来源/契约和 CPU 单点验证。
 通用晶胞工具 M2、原生变胞优化器 M3、应用生命周期 M4 已完成上述窄验证。
-M5 已完成上述窄真实 HCU 验收，尚未提交；等待用户确认下一阶段。后续建议队列：
+M5已收口 `4656cce`；用户追加的一个较大FP64 Batch测量已完成，当前测量尚未提交。
+后续建议队列：
 
-1. 应用试运行（待确认）：先收口提交 M5，再分层选择20个真实结构、限时单卡小作业；优先 FP64，另核验 Li(CN)2 的重复/精度/原生参数与预算。
+1. FIRE参数兼容修正（待确认）：确认后先提交本次测量，再核对上游/fork的dt_min=0语义、修正本地reference校验，补CPU边界回归和HCU限时短步；不加filters、不做性能优化。
 2. 全目录长作业另行授权，不能由 M4/M5 小样本推断成功率或生产性能。
 3. 固定晶胞 ASE 3.29-compatible BFGS，变胞 ASE 语义另列子里程碑。
 

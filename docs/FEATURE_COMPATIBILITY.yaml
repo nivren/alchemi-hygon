@@ -3924,7 +3924,8 @@
           "packages/framework/test/compatibility/test_mpa0_relaxation_entry.py",
           "probes/variable_cell_workflow_reference.py",
           "probes/mace_mpa0_export_verify.py",
-          "probes/mace_mpa0_hcu_validation.py"
+          "probes/mace_mpa0_hcu_validation.py",
+          "probes/mace_mpa0_batch_timing.py"
         ],
         "evidence": [
           "reports/g2-mpa0-relaxation-m4.md",
@@ -3933,7 +3934,10 @@
           "artifacts/m4-workflow/export-verify-final.log",
           "reports/g2-mpa0-relaxation-m5.md",
           "artifacts/m5-mpa0-hcu/cpu-gate.log",
-          "artifacts/m5-mpa0-hcu/summary.json"
+          "artifacts/m5-mpa0-hcu/summary.json",
+          "reports/g2-mpa0-single-batch-timing.md",
+          "artifacts/mpa0-batch-timing/fp64-native-batch64/timing.json",
+          "artifacts/mpa0-batch-timing/fp64-native-batch64/verification.json"
         ],
         "environments": [
           "project .venv / Torch2.9.0 / DTK26.04 / HIP6.3.26093; CPU model, HCU4 BW1000 gfx936 synthetic workflow and M5 real locked MPA-0 FP32/64 eager acceptance"
@@ -3943,6 +3947,7 @@
         "CPU gate 426 passed/3 existing Warp skips; M4 HCU synthetic four groups and M5 HCU real two parity/twelve relaxation groups, not a full HCU gate",
         "M5 FP32/64 single and three-CIF capacity-two native FIRE/FIRE2 converged; eight-CIF capacity-four FIRE 8/8 and FIRE2 7/8 each dtype, Li(CN)2 stress failed after 500 steps. 48 exports independently re-evaluated CPU/HCU: 46 converged, two max_steps; input atom counts only 4-16",
         "Li(CN)2 FIRE FP64/FP32 reached thresholds with different final E/V and 88/364 steps; same-geometry E/F/stress parity is not trajectory/precision interchangeability, repeated-run stability or minimum classification evidence",
+        "Additional FP64 native FIRE timing probe: one 64-CIF/2287-atom Batch, 62 native raw-force converged and two 500-update exits, application 101.046 s. Native raw atomic/cell max-row norm <=0.05 differs from M5 dual thresholds and supplied H100 UnitCellFilter criterion; NumPy force/IDs/hashes/CIF geometry verified, no independent final model rerun. No sustained refill arrivals, 16000-atom or 1600-structure execution; 1600 timing is conditional extrapolation. Local dt_min=0 validation rejects zero; measured dt_min=0.002 instead, compatibility correction pending",
         "Ordinary single-optimizer FusedStage only; no arbitrary mixed variable-cell optimizer stages or vector arrival parameter mapping",
         "HostMemory/preloaded input cost grows with input count; wall budget checked between steps, final verification can exceed budget; no streaming/restart service or full-directory throughput guarantee",
         "No ASE filters, NPT/NPH, DomainParallel, full checkpoint, production HIP/Triton optimization, full compile or training validation"
