@@ -1343,10 +1343,9 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
 
     # State that an integrator may mutate while a graduated graph is being
     # held in a mixed-status batch.  The output fields are included because
-    # the shared model forward still sees the temporary pre-update positions
-    # before ``step()`` restores the graduated graph's coordinates; leaving
-    # those outputs untouched would make ``forces``/``energy`` describe a
-    # position that is no longer present in the returned batch.
+    # a shared model forward can overwrite a held graph's cached outputs.
+    # Restore before observer hooks so its coordinates and E/F/stress stay
+    # consistent throughout the step (UBF-005/015).
     _mutable_fields: tuple[str, ...] = (
         "positions",
         "velocities",
@@ -1594,6 +1593,45 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
     # ------------------------------------------------------------------
     # Per-system integrator state management
     # ------------------------------------------------------------------
+
+    def _save_state_fields(self) -> dict[str, torch.Tensor]:
+        """Snapshot per-system private state before a masked update."""
+        # UBF-015: port private-state protection from fork b12b54c.
+        state = getattr(self, "_state", None)
+        return {} if state is None else {key: value.clone() for key, value in state}
+
+    def _restore_unmasked_state(
+        self, saved: dict[str, torch.Tensor], graph_mask: torch.Tensor
+    ) -> None:
+        """Keep updated active rows and restore all inactive private state."""
+        if not saved:
+            return
+        if self._state.num_graphs != graph_mask.shape[0]:
+            raise RuntimeError("Integrator state cardinality does not match graph mask")
+        with torch.no_grad():
+            for key, previous in saved.items():
+                value = getattr(self._state, key)
+                mask = graph_mask.view(graph_mask.shape[0], *([1] * (value.dim() - 1)))
+                torch.where(mask, value, previous, out=value)
+
+    def _save_mutable_fields(self, batch: Batch) -> dict[str, torch.Tensor]:
+        return {
+            key: getattr(batch, key).clone()
+            for key in self._mutable_fields
+            if getattr(batch, key, None) is not None
+        }
+
+    def _restore_unmasked_fields(
+        self, batch: Batch, saved: dict[str, torch.Tensor], graph_mask: torch.Tensor
+    ) -> None:
+        """Restore by storage level, including batches of one-atom graphs."""
+        atoms = batch._storage.groups.get("atoms", {})
+        with torch.no_grad():
+            for key, previous in saved.items():
+                value = getattr(batch, key)
+                mask = graph_mask[batch.batch_idx] if key in atoms else graph_mask
+                mask = mask.view(mask.shape[0], *([1] * (value.dim() - 1)))
+                torch.where(mask, value, previous, out=value)
 
     def _init_state(self, batch: Batch) -> None:
         """Allocate per-system integrator state from the first concrete batch.
@@ -1878,42 +1916,26 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
             )
             active_mask = status[: batch.num_graphs] < self.exit_status
 
-        saved: dict[str, torch.Tensor] = {}
-        if active_mask is not None:
-            node_mask_occupied = torch.repeat_interleave(
-                active_mask, batch.num_nodes_per_graph
-            )
-            node_mask = torch.zeros(
-                batch.num_nodes, dtype=torch.bool, device=batch.device
-            )
-            node_mask[: len(node_mask_occupied)] = node_mask_occupied
-            sys_mask = ~active_mask
-            for field in self._mutable_fields:
-                val = getattr(batch, field, None)
-                if val is None:
-                    continue
-                if val.shape[0] == batch.num_nodes:
-                    saved[field] = val[~node_mask].clone()
-                elif val.shape[0] == batch.num_graphs:
-                    saved[field] = val[sys_mask].clone()
+        saved = self._save_mutable_fields(batch) if active_mask is not None else {}
+        saved_state = self._save_state_fields() if active_mask is not None else {}
+
+        def restore_inactive() -> None:
+            if active_mask is not None:
+                self._restore_unmasked_fields(batch, saved, active_mask)
+                self._restore_unmasked_state(saved_state, active_mask)
 
         self._call_hooks(DynamicsStage.BEFORE_PRE_UPDATE, batch)
         self.pre_update(batch)
+        restore_inactive()
         self._call_hooks(DynamicsStage.AFTER_PRE_UPDATE, batch)
         self._call_hooks(DynamicsStage.BEFORE_COMPUTE, batch)
         self.compute(batch)
+        restore_inactive()
         self._call_hooks(DynamicsStage.AFTER_COMPUTE, batch)
         self._call_hooks(DynamicsStage.BEFORE_POST_UPDATE, batch)
         self.post_update(batch)
+        restore_inactive()
         self._call_hooks(DynamicsStage.AFTER_POST_UPDATE, batch)
-        if active_mask is not None:
-            with torch.no_grad():
-                for field, sv in saved.items():
-                    val = getattr(batch, field)
-                    if val.shape[0] == batch.num_nodes:
-                        val[~node_mask] = sv
-                    else:
-                        val[sys_mask] = sv
 
         self._call_hooks(DynamicsStage.AFTER_STEP, batch)
 
@@ -2140,34 +2162,8 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
         `batch.batch_idx` to correctly index per-node tensors like positions
         and velocities.
         """
-        # lazy init — FusedStage sub-stages never have step() called on them directly
-        self._ensure_state_initialized(batch)
-
-        node_mask_occupied = torch.repeat_interleave(mask, batch.num_nodes_per_graph)
-        node_mask = torch.zeros(batch.num_nodes, dtype=torch.bool, device=batch.device)
-        node_mask[: len(node_mask_occupied)] = node_mask_occupied
-        sys_mask = ~mask
-
-        saved: dict[str, torch.Tensor] = {}
-        for field in self._mutable_fields:
-            val = getattr(batch, field, None)
-            if val is None:
-                continue
-            if val.shape[0] == batch.num_nodes:
-                saved[field] = val[~node_mask].clone()
-            elif val.shape[0] == batch.num_graphs:
-                saved[field] = val[sys_mask].clone()
-
-        self.pre_update(batch)
-        self.post_update(batch)
-
-        with torch.no_grad():
-            for field, sv in saved.items():
-                val = getattr(batch, field)
-                if val.shape[0] == batch.num_nodes:
-                    val[~node_mask] = sv
-                else:
-                    val[sys_mask] = sv
+        self._masked_pre_update(batch, mask)
+        self._masked_post_update(batch, mask)
 
     def _masked_pre_update(
         self,
@@ -2182,29 +2178,11 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
         velocity-Verlet-based integrators).
         """
         self._ensure_state_initialized(batch)
-
-        node_mask = mask[batch.batch_idx]
-        sys_mask = ~mask
-
-        saved: dict[str, torch.Tensor] = {}
-        for field in self._mutable_fields:
-            val = getattr(batch, field, None)
-            if val is None:
-                continue
-            if val.shape[0] == batch.num_nodes:
-                saved[field] = val[~node_mask].clone()
-            elif val.shape[0] == batch.num_graphs:
-                saved[field] = val[sys_mask].clone()
-
+        saved = self._save_mutable_fields(batch)
+        saved_state = self._save_state_fields()
         self.pre_update(batch)
-
-        with torch.no_grad():
-            for field, sv in saved.items():
-                val = getattr(batch, field)
-                if val.shape[0] == batch.num_nodes:
-                    val[~node_mask] = sv
-                else:
-                    val[sys_mask] = sv
+        self._restore_unmasked_fields(batch, saved, mask)
+        self._restore_unmasked_state(saved_state, mask)
 
     def _masked_post_update(
         self,
@@ -2217,28 +2195,12 @@ class BaseDynamics(HookRegistryMixin, _CommunicationMixin):
         post_update (e.g. the final BAOAB velocity half-kick) uses forces at
         the new positions.
         """
-        node_mask = mask[batch.batch_idx]
-        sys_mask = ~mask
-
-        saved: dict[str, torch.Tensor] = {}
-        for field in self._mutable_fields:
-            val = getattr(batch, field, None)
-            if val is None:
-                continue
-            if val.shape[0] == batch.num_nodes:
-                saved[field] = val[~node_mask].clone()
-            elif val.shape[0] == batch.num_graphs:
-                saved[field] = val[sys_mask].clone()
-
+        self._ensure_state_initialized(batch)
+        saved = self._save_mutable_fields(batch)
+        saved_state = self._save_state_fields()
         self.post_update(batch)
-
-        with torch.no_grad():
-            for field, sv in saved.items():
-                val = getattr(batch, field)
-                if val.shape[0] == batch.num_nodes:
-                    val[~node_mask] = sv
-                else:
-                    val[sys_mask] = sv
+        self._restore_unmasked_fields(batch, saved, mask)
+        self._restore_unmasked_state(saved_state, mask)
 
 
 class ConvergenceHook:
@@ -2998,6 +2960,9 @@ class FusedStage(BaseDynamics):
         if status.dim() == 2:
             status = status.squeeze(-1)
 
+        overall_active = status < self.exit_status
+        saved_outputs = self._save_mutable_fields(batch)
+
         stage_active_masks: list[torch.Tensor] = []
         for status_code, dynamics in self.sub_stages:
             mask = status == status_code
@@ -3016,6 +2981,7 @@ class FusedStage(BaseDynamics):
             if key not in ("forces", "energy"):
                 batch[key] = tensor
 
+        self._restore_unmasked_fields(batch, saved_outputs, overall_active)
         self._call_hooks(DynamicsStage.AFTER_COMPUTE, batch)
         for _, dynamics in self.sub_stages:
             dynamics._call_hooks(DynamicsStage.AFTER_COMPUTE, batch)
@@ -3319,6 +3285,14 @@ class FusedStage(BaseDynamics):
         self._last_converged = None
         for _, dynamics in self.sub_stages:
             dynamics._last_converged = None
+        if result is not None and result is not batch:
+            self.active_batch = result
+            # UBF-016: arrivals need current E/F/stress before their first kick.
+            # Fork b12b54c primes admissions; preserve our pinned hook lifecycle
+            # without importing its newer admission/schema/compile machinery.
+            self._call_hooks(DynamicsStage.BEFORE_COMPUTE, result)
+            self.compute(result)
+            self._call_hooks(DynamicsStage.AFTER_COMPUTE, result)
         return result
 
     def __add__(self, other: BaseDynamics) -> FusedStage:

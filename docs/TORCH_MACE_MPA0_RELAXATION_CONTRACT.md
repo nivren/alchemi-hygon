@@ -120,6 +120,32 @@ dt/alpha/计数和临时缓冲。最终在输出坐标与晶胞上重算模型�
 4. M4：邻居生命周期、联合收敛、退出/补位、薄应用入口与结果导出。
 5. M5：真实小样本 HCU4，单体系→异构小 Batch→扩大 batch；FP64 再 FP32。
 
+### M4 工作流验收约定（2026-10-05）
+
+复用现有 BaseDynamics/FusedStage、SizeAwareSampler、HostMemory 和多条件
+ConvergenceHook，不引入新晶胞参数化或独立 filters。修正掩码更新遗漏私有状态和
+补位后未 priming 的来源缺陷，分别登记 UBF-015/016。每次模型评估仍调用 compute
+Hooks；补位 priming 不推进步数。退出字段在 observer Hooks 前恢复。
+
+CPU 门覆盖两种优化器的四种掩码入口、异构 scalar refill 的 survivor/fresh-state
+一致性、真实 sampler/sink ID 唯一性、力与绝对应力 AND 收敛、解析势联合收敛；
+邻居门独立覆盖当前晶胞压缩/剪切、cutoff、多周期镜像、容量增长及 skin 缓存失效。
+向量构造参数继续支持普通 Batch，但动态 arrivals 缺少来源参数映射时明确拒绝。
+
+应用为薄 CIF 入口，按体系计步且分别记录 converged/max_steps/wall_timeout/
+invalid_input/calculation_error/not_started；budget 退出不冒充收敛。
+写出后重新读取 CIF，在实际交付的 r/H 上重算 E/F/stress 并检查阈值；CIF 规范化
+晶胞朝向，分量应力用导出坐标系测量。final_check_failed 与计算异常分别记录。
+模型、输入/输出哈希及实际 backend/dtype/参数写入 JSONL；部分占位拒绝。
+限时实际 CPU 小样本同时验证
+成功与 budget 路径，真实模型 HCU 仍属 M5；M4 HCU 只做合成工作流 smoke。
+
+实现入口为 `examples/relax_mace_mpa0.py`。单个 FusedStage 承载一种原生变胞优化器，
+scalar 参数补位；HostMemory/预读输入的内存随输入数增长，不是通用流式服务。
+墙钟在步间检查，输出核验可略超预算。完整重启、同进程混合 dtype、多种变胞算法
+混合阶段、全目录成功率及生产性能不在 M4 验收范围。证据见
+[M4 报告](../reports/g2-mpa0-relaxation-m4.md)。
+
 M1 数值门：FP64 Batch/ASE 对照 `rtol=2e-8`，能量 `atol=2e-7 eV`、力
 `atol=2e-7 eV/Å`、stress `atol=2e-9 eV/Å³`。
 中心差分步长 `1e-5`（原子/cell 为 Å，应变无量纲）；力与 cell-force

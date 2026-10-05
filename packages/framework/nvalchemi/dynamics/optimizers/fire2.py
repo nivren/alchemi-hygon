@@ -367,6 +367,13 @@ class FIRE2VariableCell(BaseDynamics):
         )
 
     def _make_new_state(self, n: int, template_batch: Batch) -> Batch:
+        # Vector arrivals have no source-to-parameter mapping in the pinned API.
+        for name in ("_dt_init",):
+            value = getattr(self, name)
+            if isinstance(value, torch.Tensor) and value.numel() != 1:
+                raise ValueError(
+                    "Variable-cell refill requires scalar constructor parameters"
+                )
         dev = template_batch.device
         dtype = template_batch.positions.dtype
         dt = _to_per_system(self._dt_init, n, dev, dtype)

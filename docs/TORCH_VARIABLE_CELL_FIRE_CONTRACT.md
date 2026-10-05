@@ -68,3 +68,8 @@ FP64 单步 rtol/atol=2e-12，FP32=3e-5；计数/索引精确。短解析周期�
 
 实际证据见 [M3 报告](../reports/g2-variable-cell-fire-m3.md)：CPU ops39项/公共18项、
 HCU4单步16组/公共25步4组、MPA-0 CPU三步4组。保留上述未验证范围。
+
+M4 的生命周期追加证据独立见 [M4 报告](../reports/g2-mpa0-relaxation-m4.md) 与
+[应用契约](TORCH_MACE_MPA0_RELAXATION_CONTRACT.md)：普通单优化器 FusedStage 的联合
+收敛、退出/补位、变胞邻居、薄 CIF 入口已验收窄 CPU/合成 HCU 范围；MPA-0 CPU
+FP64 有真实收敛，FP32 仅 budget 短步。M3 的数值门不变；真实目标 HCU 仍待 M5。
