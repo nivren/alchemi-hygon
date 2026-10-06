@@ -37,7 +37,7 @@ from nvalchemiops.torch_reference import (
     _prepare_batch_ptr,
     _validate_positions,
 )
-from nvalchemiops.torch_reference_cell_list import _grid_spec, _result
+from nvalchemiops.torch_reference_cell_list import _result
 
 
 _MAX_NBINS = 8192
@@ -82,20 +82,10 @@ def _current_cell_metadata(
     """Derive fresh conservative metadata from this call's current cells.
 
     A previous cell's dimensions/radii/offsets/inverse cannot be reused after
-    contraction or shear, even when the Batch layout is unchanged.
+    contraction or shear, even when the Batch layout is unchanged. Grid
+    reduction follows the per-system reference rule with first-axis ties.
     """
-    dimensions: list[torch.Tensor] = []
-    radii: list[torch.Tensor] = []
-    for system in range(cells.shape[0]):
-        dims, radius = _grid_spec(
-            cells[system],
-            cutoff,
-            max_nbins=_MAX_NBINS,
-            min_cells_per_dimension=1,
-        )
-        dimensions.append(dims)
-        radii.append(radius)
-    if not dimensions:
+    if cells.shape[0] == 0:
         empty = torch.empty((0, 3), dtype=torch.int32, device=cells.device)
         return (
             empty,
@@ -103,12 +93,32 @@ def _current_cell_metadata(
             torch.empty((0,), dtype=torch.int32, device=cells.device),
             torch.empty((0, 3, 3), dtype=cells.dtype, device=cells.device),
         )
-    cells_per_dimension = torch.stack(dimensions).to(
-        device=cells.device, dtype=torch.int32
-    )
-    neighbor_search_radius = torch.stack(radii).to(
-        device=cells.device, dtype=torch.int32
-    )
+    if cutoff <= 0:
+        raise ValueError("cutoff must be positive")
+    if _MAX_NBINS <= 0:
+        raise ValueError("cell-list allocation limits must be positive")
+    try:
+        inverse_cells = torch.linalg.inv(cells).contiguous()
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Cell with volume == 0.0 detected and is not supported"
+        ) from exc
+    reciprocal_norm = torch.linalg.vector_norm(inverse_cells, dim=1)
+    dimensions = torch.floor(reciprocal_norm.reciprocal() / cutoff).to(torch.int64)
+    dimensions.clamp_(min=1)
+    # Products can overflow int64 before grid reduction. A float64 product
+    # exactly classifies the small 8192 boundary even for very large axes.
+    over_limit = dimensions.to(torch.float64).prod(1) > _MAX_NBINS
+    while bool(over_limit.any()):
+        largest = dimensions.argmax(1, keepdim=True)  # First axis wins ties.
+        values = dimensions.gather(1, largest)
+        reduced = values // 2 + values % 2  # ceil-half without int64 add overflow.
+        dimensions.scatter_(1, largest, torch.where(over_limit[:, None], reduced, values))
+        over_limit = dimensions.to(torch.float64).prod(1) > _MAX_NBINS
+    cells_per_dimension = dimensions.to(torch.int32)
+    neighbor_search_radius = (
+        torch.ceil(cutoff * reciprocal_norm * dimensions).to(torch.int64) + 1
+    ).to(torch.int32)
     cell_counts = torch.prod(cells_per_dimension.to(torch.int64), dim=1)
     max_int32 = torch.iinfo(torch.int32).max
     if bool(torch.any(cell_counts > max_int32)):
@@ -120,7 +130,6 @@ def _current_cell_metadata(
     )
     if cells.shape[0] > 1:
         cell_offsets[1:] = cell_counts.cumsum(0)[:-1].to(torch.int32)
-    inverse_cells = torch.linalg.inv(cells).contiguous()
     return (
         cells_per_dimension,
         neighbor_search_radius,
