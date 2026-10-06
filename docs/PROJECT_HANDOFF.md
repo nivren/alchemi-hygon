@@ -90,13 +90,21 @@ M5在 `codex/perf-hip-batch-metadata` 完成当前晶胞批量metadata，每次�
 见[M5契约](HIP_BATCH_METADATA_CONTRACT.md)与[M5报告](../reports/g2-hip-batch-metadata-m5.md)。
 用户确认M6后，M5实现以 `e2d569c` 收口；未合并或推送，查询并行实验已确认。
 
-M6在 `codex/perf-hip-cooperative-query` 完成单一HIP查询协作实现及窄验收，未提交/合并/推送。
+M6在 `codex/perf-hip-cooperative-query` 完成单一HIP查询协作实现及窄验收，实现收口 fe18147、文档 c2a8339；未合并/推送。
 CPU ops51/framework21、HCU环境ops85/framework49；真实两精度两优化器短轨迹及补位通过。
 FP64约20,000原子200/40/10结构公共邻居相对M5下降15.37%/15.46%/11.34%，
 两精度八配置无稳定退化；实际18原子邻居+模型约5.3%–5.5%下降，未含整个优化步。
 同名扩展别名的首轮时序作废保留，最后用独立扩展名验证；FP32原cutoff边界分歧未扩大。
 见[M6契约](HIP_COOPERATIVE_QUERY_CONTRACT.md)与[报告](../reports/g2-hip-cooperative-query-m6.md)。
-下一M7较大真实Batch综合验收待确认；确认后先收口M6，不自动合并或推送。
+M7在 `codex/test-hip-real-batch-validation` 完成较大真实Batch实验及M1–M6审阅；未提交/合并/推送。
+FP64真实1029/39及2030/92两优化器三轮三步、47/100 CIF预算补位通过；
+完整step相对Torch reference cell-list约2.04–2.37倍，模型耗时几乎相同；
+CPU ops51/framework21、HCU环境ops85/framework49定向回归通过。
+FP32仅1029 FIRE完整组通过，其余三组forces重复严格状态门失败；
+纯Torch/Torch FIRE2也出现3.03e-5失败，逐物理量输出容差全部通过，未改任何容差。
+见[M7契约](HIP_REAL_BATCH_VALIDATION_CONTRACT.md)和[报告](../reports/g2-hip-real-batch-validation-m7.md)。
+下一M8先澄清模型输出/优化器状态验收分层、保留Torch/Torch控制并复验，待确认。
+不修改HIP/模型或全局容差、不自动合并或推送。
 
 当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
 lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
@@ -188,7 +196,7 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 
 已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，未合并或推送。
-M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；M6查询协作实现及窄验收完成、待收口；M7待确认。
+M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；M6查询协作实现及窄验收完成并收口；M7实验完成、FP64窄验收通过，FP32严格forces门未全通过；下一M8待确认。
 继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 

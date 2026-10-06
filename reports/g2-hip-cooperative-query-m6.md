@@ -1,7 +1,7 @@
 # HIP 邻居 M6：查询线程协作实验
 
 2026-10-06；用户确认M6后收口M5实现 `e2d569c`、文档 `3073f63`。
-当前分支 `codex/perf-hip-cooperative-query`，M6尚未提交/合并/推送。
+阶段分支 `codex/perf-hip-cooperative-query`；用户确认M7后收口实现 `fe18147`、文档 `c2a8339`，未合并/推送。
 契约：`docs/HIP_COOPERATIVE_QUERY_CONTRACT.md`；最终窄gate通过，所测性能门槛满足，候选保留；非全库/全输入准入。
 
 ## 上游审阅与实施
@@ -141,7 +141,9 @@ M6没有native COO、workspace、skin/selective rebuild、其他MLIP族、长步
 实际比较、compile/opcheck、训练力损失或DomainParallel准入。实际MLIP较大Batch整体收益
 仍未测；约20,000原子数字是邻居API，不能外推整个弛豫吞吐。
 
-## 下一里程碑 M7 方案（待确认）
+## 下一里程碑 M7 原方案（已确认并实施）
+
+以下保留当时提案；用户随后确认，结果见 [M7报告](g2-hip-real-batch-validation-m7.md)。
 
 目的：验证较大真实分子/晶体Batch在MPA-0变胞流程中的整体受益，完成综合收口审查。
 
