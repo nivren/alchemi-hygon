@@ -1436,6 +1436,9 @@
           "docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md",
           "reports/g2-hip-real-batch-validation-m7.md",
           "artifacts/hip-real-batch-m7/",
+          "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md",
+          "reports/g2-hip-mpa0-state-validation-m8.md",
+          "artifacts/hip-mpa0-state-m8/",
           "reports/g2-hip-current-cell-neighbor-m1.md",
           "artifacts/hip-current-cell-neighbor-m1/",
           "docs/HIP_BATCH_METADATA_CONTRACT.md",
@@ -1450,7 +1453,7 @@
         ]
       },
       "limitations": [
-        "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；FP32仅1029 FIRE全组通过，其余三组forces重复严格状态门失败，纯Torch/Torch对照也可触发；未改变原容差，FP32综合状态验收未全通过",
+        "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；M7 FP32 forces曾因缓存模型输出重复套用一般状态门失败，纯Torch/Torch对照也可触发。M8不改阈值复测真实FP32/64两规模两优化器：八组拓扑、E/F/stress物理量、轨迹几何/速度/优化器状态比较均通过；两个FP32 FIRE2组仅未满足每个输入结构的最终晶胞均发生变化，分别46/47和99/100，详见reports/g2-hip-mpa0-state-validation-m8.md",
         "新增变胞证据仅 full-PBC/full/MATRIX/skin=0/FP32/64；既有固定晶胞 mixed-PBC gate 保持",
         "M1证据仅MATRIX；后续COO/MACE及变胞FIRE/FIRE2短步/预算补位见独立条目M2/M3/M5/M6。skin/selective rebuild、旧plan变胞复用、no-PBC/half公共HIP、target/pair、compile/opcheck、DomainParallel未新增",
         "M6 query改为每原子64线程block；M4 workspace候选未达门槛已撤回，M5当前cell批量metadata；M6两精度变胞约20000原子三路径/真实18原子短轨迹门槛通过，不代表较大真实模型整体吞吐；仍stateless、auto关闭",
@@ -1491,11 +1494,11 @@
           "probes/framework_neighbor_hip_contract.py",
           "probes/hip_coo_mace_snapshot.py"
         ],
-        "evidence": ["docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_COO_MACE_SNAPSHOT_CONTRACT.md", "reports/g2-hip-coo-mace-snapshot-m2.md", "artifacts/hip-coo-mace-snapshot-m2/"],
+        "evidence": ["docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "docs/HIP_COO_MACE_SNAPSHOT_CONTRACT.md", "reports/g2-hip-coo-mace-snapshot-m2.md", "artifacts/hip-coo-mace-snapshot-m2/"],
         "environments": ["DTK26.04/Torch2.9.0/HIP6.3.26093/HCU4 BW1000 64G gfx936; MACE0.3.15/e3nn0.4.4"]
       },
       "limitations": [
-        "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；FP32仅1029 FIRE全组通过，其余三组forces重复严格状态门失败，纯Torch/Torch对照也可触发；未改变原容差，FP32综合状态验收未全通过",
+        "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；M7 FP32 forces曾因缓存模型输出重复套用一般状态门失败，纯Torch/Torch对照也可触发。M8不改阈值复测真实FP32/64两规模两优化器：八组拓扑、E/F/stress物理量、轨迹几何/速度/优化器状态比较均通过；两个FP32 FIRE2组仅未满足每个输入结构的最终晶胞均发生变化，分别46/47和99/100，详见reports/g2-hip-mpa0-state-validation-m8.md",
         "新增当前晶胞 full-PBC/full/MATRIX+COO/skin=0；不新增 mixed-PBC 变胞证据",
         "M2 模型 gate 仅锁定 MPA-0 三个 CIF/FP32/64/三种快照；M3 短步和预算补位另列；其他 MLIP、训练力损失或完整工作流未验收",
         "no-PBC/half、skin/selective rebuild、旧 plan 变胞复用、target/pair、native geometry backward、compile/opcheck、DD 未准入",
@@ -1528,11 +1531,11 @@
         "dcu_status": "partial",
         "upstream_tests": [],
         "dcu_tests": ["probes/hip_real_batch_validation.py", "probes/mace_fp32_state_control.py", "packages/framework/test/compatibility/test_hip_variable_cell_workflow.py", "probes/hip_variable_cell_mace_workflow.py"],
-        "evidence": ["docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
+        "evidence": ["docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
         "environments": ["DTK26.04/Torch2.9.0/HIP6.3.26093/HCU4 BW1000 64G gfx936; locked MPA-0 checkpoint"]
       },
       "limitations": [
-        "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；FP32仅1029 FIRE全组通过，其余三组forces重复严格状态门失败，纯Torch/Torch对照也可触发；未改变原容差，FP32综合状态验收未全通过",
+        "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；M7 FP32 forces曾因缓存模型输出重复套用一般状态门失败，纯Torch/Torch对照也可触发。M8不改阈值复测真实FP32/64两规模两优化器：八组拓扑、E/F/stress物理量、轨迹几何/速度/优化器状态比较均通过；两个FP32 FIRE2组仅未满足每个输入结构的最终晶胞均发生变化，分别46/47和99/100，详见reports/g2-hip-mpa0-state-validation-m8.md",
         "M3真实模型证据为三个 CIF、两精度、两优化器各五步；另三结构容量2预算退出/补位，预算不是物理收敛",
         "解析势生命周期验证私有状态与联合力/绝对应力退出；不代表真实 MPA-0 长步收敛或完整 HCU gate",
         "M3未新增query并行或性能，后续M5/M6/M7证据另列；skin/selective rebuild、旧plan复用、no-PBC/half、native COO、workspace复用或auto仍未准入",

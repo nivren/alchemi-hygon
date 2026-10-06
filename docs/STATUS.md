@@ -149,7 +149,7 @@
 ## HIP 较大真实 Batch 综合验收 M7（2026-10-06）
 
 - 用户确认后收口M6实现 `fe18147`、文档 `c2a8339`；分支
-  `codex/test-hip-real-batch-validation`，本阶段未提交/合并/推送，不修改产品代码。
+  `codex/test-hip-real-batch-validation`，实验与文档以签名提交 `00637c0` 收口，未合并/推送；不修改产品代码。
 - 真实1029原子/39结构、2030原子/92结构MPA-0，FP64优先、FP32补充；
   两路径都是显式cell-list（Torch reference/当前HIP），同模型/e3nn/dtype/参数。
 - FP64两规模两优化器三轮三步及47/100真实CIF预算补位通过；同几何E/F/stress最大误差
@@ -165,8 +165,21 @@
 - CPU定向ops51/framework21、HCU环境ops85/framework49通过，非全库gate；
   M1–M6源/契约/报告一致性审阅完成。初次step2重编译样本与所有FP32失败保留。
 - [契约](HIP_REAL_BATCH_VALIDATION_CONTRACT.md)、[报告](../reports/g2-hip-real-batch-validation-m7.md)。
-  下一M8模型输出/优化器状态验收分层澄清及复验待确认；不自动改变契约或全局容差。
+  M7以 `00637c0` 收口；M8模型输出/优化器状态验收分层复验已确认并开始，详见下文。
   不新增长收敛、20k真实MLIP吞吐、其他模型/训练/compile/DD/skin/auto准入。
+
+## MPA-0 FP32 状态验收分层 M8（复验完成，待收口）
+
+- 分支 `codex/fix-mpa0-fp32-state-validation`，M7签名收口 `00637c0`。
+- 用户限定只改 `probes/` 测试与文档；不改 framework/ops 产品源码、kernel、模型或全局容差。
+- M7重复将模型缓存E/F/stress套用物理量门和通用mutable-state门。本阶段probe将前者仅按既有
+  逐物理量容差比较；positions/cell/velocities及优化器私有状态仍按原状态容差，拓扑/整数仍精确。
+- CPU单测3 passed；HCU真实Batch 8组合结果为6组完整通过。所有八组的邻居拓扑、E/F/stress
+  物理量比较和轨迹几何/速度/优化器状态比较通过；两组FP32 FIRE2仅在最终额外的“每个晶胞均
+  发生变化”断言失败，实际为46/47和99/100个晶胞变化，且保持原条件未放宽。
+- Torch/Torch FP32控制3轮×3步没有几何/私有状态严格门失败。framework/ops产品源码、HIP kernel
+  与数值阈值未改。
+- [M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)、[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)。结果完成，待用户确认收口。
 
 ## Langevin 窄 slice 收口证据
 
@@ -520,7 +533,7 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
 [报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 已完成短步/预算补位窄 gate，实现 `6b1680a`，见[M3报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
-M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已收口；M6查询协作完成窄验收并收口，M7实验完成、FP64通过，FP32严格forces门未全通过，下一M8待确认。
+M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已收口；M6查询协作完成窄验收并收口，M7签名收口，M8比较分层和八组复验完成：所有数值/轨迹比较通过，FP32 FIRE2两组只因46/47、99/100晶胞移动断言未通过；待用户确认收口。
 M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 

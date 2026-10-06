@@ -25,6 +25,7 @@ from nvalchemi.neighbors import compute_neighbors
 from nvalchemi.models.mace import MACEWrapper
 
 PATHS = ("torch_reference", "hip")
+MODEL_OUTPUT_FIELDS = frozenset(("energy", "forces", "stress"))
 
 
 def optimizer(*args, **kwargs):
@@ -62,7 +63,10 @@ def state_check(actual, expected, dynamics, reference):
     assert torch.equal(signature(actual), signature(expected))
     result = compare({k: getattr(actual, k).reshape(-1) for k in ("energy", "forces", "stress")},
                      {k: getattr(expected, k).reshape(-1) for k in ("energy", "forces", "stress")}, dtype)
-    pairs = [(k, getattr(actual, k), getattr(expected, k)) for k in dynamics._mutable_fields]
+    # E/F/stress are mutable Batch caches, but their correctness is governed by
+    # the physical-unit checks above, not the generic optimizer-state tolerance.
+    pairs = [(k, getattr(actual, k), getattr(expected, k))
+             for k in dynamics._mutable_fields if k not in MODEL_OUTPUT_FIELDS]
     pairs += [("state." + k, v, getattr(reference._state, k)) for k, v in dynamics._state]
     result["state_max_abs_errors"] = {}
     for key, a, b in pairs:
@@ -242,10 +246,13 @@ def lifecycle(model, systems, cls, max_atoms):
     moving = 0
     for source in budgets:
         a, b = stored_batches["hip"][source], stored_batches["torch_reference"][source]
-        for key in ("positions", "cell", "velocities", "energy", "forces", "stress"):
+        compare({key: getattr(a, key).reshape(-1) for key in MODEL_OUTPUT_FIELDS},
+                {key: getattr(b, key).reshape(-1) for key in MODEL_OUTPUT_FIELDS},
+                systems[source].positions.dtype)
+        for key in ("positions", "cell", "velocities"):
             torch.testing.assert_close(getattr(a, key), getattr(b, key), rtol=rtol, atol=atol)
         moving += int(not torch.equal(a.cell, systems[source].cell))
-    assert moving == len(systems)
+    assert moving == len(systems), f"only {moving}/{len(systems)} systems changed cell"
     return {"paths": reports, "final_state_parity": True, "moving_cells": moving}
 
 

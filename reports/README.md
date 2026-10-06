@@ -16,7 +16,8 @@
 | HIP 邻居性能/workspace M4 | [`g2-hip-neighbor-workspace-m4.md`](g2-hip-neighbor-workspace-m4.md) | 分项/hipprof/45样本配对；workspace候选未达5%门槛已撤回，产品仍stateless；批量metadata结果见后续M5 |
 | HIP 邻居批量metadata M5 | [`g2-hip-batch-metadata-m5.md`](g2-hip-batch-metadata-m5.md) | FP32/64约20,000原子变胞/补位三路径、真实MPA-0短轨迹；所测门槛通过，FP32 cutoff边界限制单列；实现已收口e2d569c |
 | HIP 邻居查询协作 M6 | [`g2-hip-cooperative-query-m6.md`](g2-hip-cooperative-query-m6.md) | 每原子64线程block；两精度约20,000原子变胞三路径，few FP64下降11.34%；真实短轨迹/生命周期通过，fe18147/c2a8339 收口 |
-| HIP 邻居真实Batch M7 | [`g2-hip-real-batch-validation-m7.md`](g2-hip-real-batch-validation-m7.md) | FP64真实1029/2030原子两优化器完整step约2.04–2.37倍；FP32严格forces门未全通过、纯Torch也失败；未提交 |
+| HIP 邻居真实Batch M7 | [`g2-hip-real-batch-validation-m7.md`](g2-hip-real-batch-validation-m7.md) | FP64真实1029/2030原子两优化器完整step约2.04–2.37倍；FP32严格forces门未全通过、纯Torch也失败；提交 `00637c0` |
+| MPA-0 FP32 状态验收分层 M8 | [`g2-hip-mpa0-state-validation-m8.md`](g2-hip-mpa0-state-validation-m8.md) | 修正E/F/stress重复状态比较；真实HCU八组6组完整通过，另两组FP32 FIRE2仅未满足最终46/47、99/100晶胞移动断言；未改产品代码或容差 |
 | HIP framework wall-clock | [`g2-framework-hip-neighbor-wallclock.md`](g2-framework-hip-neighbor-wallclock.md) | warm public API 描述性 evidence，不是 `auto` 准入 |
 | MACE/FIRE2 reference | [`g2-mace-fire2-batch32-tier1.md`](g2-mace-fire2-batch32-tier1.md) | 固定晶胞 reference；不代表变胞或生产 HIP/MACE |
 | MPA-0 弛豫 M1 | [`g2-mace-mpa0-m1-cpu-baseline.md`](g2-mace-mpa0-m1-cpu-baseline.md) | 三个真实 CIF 的 CPU 单点与有限差分；目标 HCU/变胞弛豫未验证 |
