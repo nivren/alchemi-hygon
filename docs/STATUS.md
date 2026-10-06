@@ -190,7 +190,7 @@
   未改变 neighbor contract 或 framework/ops/kernel。
 - HCU4复跑受影响的1029/39与2030/92 FP32 FIRE2，均退出0；分别46/47和99/100结构变化，
   unchanged source 36详情保留在 probe summary。M8其余六组已在更严格条件下通过。
-- [M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)。结果完成，待用户确认收口。
+- [M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)。结果已由签名提交 `fa1259b` 收口。
 
 ## Langevin 窄 slice 收口证据
 
@@ -544,7 +544,7 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
 [报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 已完成短步/预算补位窄 gate，实现 `6b1680a`，见[M3报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
-M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已收口；M6查询协作完成窄验收并收口，M7签名收口；M8已收口 `04f80bd`。M9已将过严的逐结构移动条件改为批次至少有一个晶胞移动，两组受影响FP32 FIRE2复跑通过，待用户确认收口。
+M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已收口；M6查询协作完成窄验收并收口，M7签名收口；M8已收口 `04f80bd`。M9已将过严的逐结构移动条件改为批次至少有一个晶胞移动，两组受影响FP32 FIRE2复跑通过，并由签名提交 `fa1259b` 收口。
 M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 
