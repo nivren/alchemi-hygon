@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
 #include <torch/extension.h>
@@ -27,20 +29,25 @@ __global__ void batch_cell_query_kernel(
     int32_t* neighbor_matrix, int32_t* neighbor_matrix_shifts,
     int32_t* num_neighbors, int32_t fill_value, bool half_fill,
     int32_t* error, int64_t num_atoms, int64_t capacity) {
-  const int64_t atom = blockIdx.x * blockDim.x + threadIdx.x;
+  // One block owns one output row; lanes enumerate different candidate cells.
+  const int64_t atom = blockIdx.x;
   if (atom >= num_atoms) {
     return;
   }
 
   int32_t* row = neighbor_matrix + atom * capacity;
   int32_t* row_shifts = neighbor_matrix_shifts + atom * capacity * 3;
-  for (int64_t slot = 0; slot < capacity; ++slot) {
+  for (int64_t slot = threadIdx.x; slot < capacity; slot += blockDim.x) {
     row[slot] = fill_value;
     row_shifts[slot * 3 + 0] = 0;
     row_shifts[slot * 3 + 1] = 0;
     row_shifts[slot * 3 + 2] = 0;
   }
-  num_neighbors[atom] = 0;
+  __shared__ int32_t count;
+  if (threadIdx.x == 0) {
+    count = 0;
+  }
+  __syncthreads();
 
   const int32_t system = batch_idx[atom];
   const int32_t* dimensions = cells_per_dimension + system * 3;
@@ -52,99 +59,116 @@ __global__ void batch_cell_query_kernel(
   const int32_t cell_offset = cell_offsets[system];
   const scalar_t* geometry = cells + system * 9;
   const scalar_t cutoff_sq = cutoff * cutoff;
-  int32_t count = 0;
 
-  for (int32_t dx = -radius[0]; dx <= radius[0]; ++dx) {
-    for (int32_t dy = -radius[1]; dy <= radius[1]; ++dy) {
-      for (int32_t dz = -radius[2]; dz <= radius[2]; ++dz) {
-        const int32_t raw_x = source_x + dx;
-        const int32_t raw_y = source_y + dy;
-        const int32_t raw_z = source_z + dz;
-        int32_t image_x = 0;
-        int32_t image_y = 0;
-        int32_t image_z = 0;
-        int32_t target_x = raw_x;
-        int32_t target_y = raw_y;
-        int32_t target_z = raw_z;
-        const int32_t raw[3] = {raw_x, raw_y, raw_z};
-        int32_t target[3] = {target_x, target_y, target_z};
-        int32_t image[3] = {image_x, image_y, image_z};
-        bool valid = true;
-        for (int dimension = 0; dimension < 3; ++dimension) {
-          if (system_pbc[dimension]) {
-            image[dimension] = floor_divide(raw[dimension], dimensions[dimension]);
-            target[dimension] = raw[dimension] -
-                               image[dimension] * dimensions[dimension];
-          } else if (raw[dimension] < 0 ||
-                     raw[dimension] >= dimensions[dimension]) {
-            valid = false;
-          } else {
-            image[dimension] = 0;
-            target[dimension] = raw[dimension];
-          }
-        }
-        if (!valid) {
-          continue;
-        }
-        const int32_t target_key =
-            cell_offset + target[0] + dimensions[0] *
-                                      (target[1] + dimensions[1] * target[2]);
-        const int32_t target_count = atoms_per_cell_count[target_key];
-        const int32_t target_start = cell_atom_start_indices[target_key];
-        for (int32_t rank = 0; rank < target_count; ++rank) {
-          const int32_t column = cell_atom_list[target_start + rank];
-          int32_t shift[3];
-          for (int dimension = 0; dimension < 3; ++dimension) {
-            shift[dimension] = atom_periodic_shifts[atom * 3 + dimension] -
-                              atom_periodic_shifts[column * 3 + dimension] +
-                              image[dimension];
-          }
-          scalar_t vector[3];
-          scalar_t distance_sq = 0;
-          for (int cartesian = 0; cartesian < 3; ++cartesian) {
-            scalar_t value = positions[atom * 3 + cartesian] -
-                             positions[column * 3 + cartesian];
-            for (int dimension = 0; dimension < 3; ++dimension) {
-              value -= static_cast<scalar_t>(shift[dimension]) *
-                       geometry[dimension * 3 + cartesian];
-            }
-            vector[cartesian] = value;
-            distance_sq += value * value;
-          }
-          if (column == atom && shift[0] == 0 && shift[1] == 0 && shift[2] == 0) {
-            continue;
-          }
-          if (!(distance_sq < cutoff_sq)) {
-            continue;
-          }
-          if (distance_sq == static_cast<scalar_t>(0)) {
-            atomicExch(error, 2);
-            return;
-          }
-          if (half_fill) {
-            const bool positive_image =
-                (shift[0] > 0) ||
-                (shift[0] == 0 &&
-                 (shift[1] > 0 ||
-                  (shift[1] == 0 && shift[2] > 0)));
-            if (!(atom < column || (atom == column && positive_image))) {
-              continue;
-            }
-          }
-          if (count >= capacity) {
-            atomicExch(error, 1);
-            return;
-          }
-          row[count] = column;
-          row_shifts[count * 3 + 0] = shift[0];
-          row_shifts[count * 3 + 1] = shift[1];
-          row_shifts[count * 3 + 2] = shift[2];
-          ++count;
-        }
+  const int64_t width_y = 2LL * radius[1] + 1;
+  const int64_t width_z = 2LL * radius[2] + 1;
+  // Reserve room for the loop increment; reject before either product wraps.
+  const int64_t max_offsets = INT64_MAX - blockDim.x;
+  if (width_y > max_offsets / width_z ||
+      (2LL * radius[0] + 1) > max_offsets / (width_y * width_z)) {
+    atomicMax(error, 3);
+    return;  // Uniform within this row/block, before the final barrier.
+  }
+  const int64_t num_offsets = (2LL * radius[0] + 1) * width_y * width_z;
+  bool row_failed = false;
+  for (int64_t offset = threadIdx.x; offset < num_offsets; offset += blockDim.x) {
+    const int32_t dx = offset / (width_y * width_z) - radius[0];
+    const int32_t dy = (offset / width_z) % width_y - radius[1];
+    const int32_t dz = offset % width_z - radius[2];
+    const int32_t raw_x = source_x + dx;
+    const int32_t raw_y = source_y + dy;
+    const int32_t raw_z = source_z + dz;
+    int32_t image_x = 0;
+    int32_t image_y = 0;
+    int32_t image_z = 0;
+    int32_t target_x = raw_x;
+    int32_t target_y = raw_y;
+    int32_t target_z = raw_z;
+    const int32_t raw[3] = {raw_x, raw_y, raw_z};
+    int32_t target[3] = {target_x, target_y, target_z};
+    int32_t image[3] = {image_x, image_y, image_z};
+    bool valid = true;
+    for (int dimension = 0; dimension < 3; ++dimension) {
+      if (system_pbc[dimension]) {
+        image[dimension] = floor_divide(raw[dimension], dimensions[dimension]);
+        target[dimension] = raw[dimension] -
+                           image[dimension] * dimensions[dimension];
+      } else if (raw[dimension] < 0 ||
+                 raw[dimension] >= dimensions[dimension]) {
+        valid = false;
+      } else {
+        image[dimension] = 0;
+        target[dimension] = raw[dimension];
       }
     }
+    if (!valid) {
+      continue;
+    }
+    const int32_t target_key =
+        cell_offset + target[0] + dimensions[0] *
+                                  (target[1] + dimensions[1] * target[2]);
+    const int32_t target_count = atoms_per_cell_count[target_key];
+    const int32_t target_start = cell_atom_start_indices[target_key];
+    for (int32_t rank = 0; rank < target_count; ++rank) {
+      const int32_t column = cell_atom_list[target_start + rank];
+      int32_t shift[3];
+      for (int dimension = 0; dimension < 3; ++dimension) {
+        shift[dimension] = atom_periodic_shifts[atom * 3 + dimension] -
+                          atom_periodic_shifts[column * 3 + dimension] +
+                          image[dimension];
+      }
+      scalar_t vector[3];
+      scalar_t distance_sq = 0;
+      for (int cartesian = 0; cartesian < 3; ++cartesian) {
+        scalar_t value = positions[atom * 3 + cartesian] -
+                         positions[column * 3 + cartesian];
+        for (int dimension = 0; dimension < 3; ++dimension) {
+          value -= static_cast<scalar_t>(shift[dimension]) *
+                   geometry[dimension * 3 + cartesian];
+        }
+        vector[cartesian] = value;
+        distance_sq += value * value;
+      }
+      if (column == atom && shift[0] == 0 && shift[1] == 0 && shift[2] == 0) {
+        continue;
+      }
+      if (!(distance_sq < cutoff_sq)) {
+        continue;
+      }
+      if (distance_sq == static_cast<scalar_t>(0)) {
+        atomicMax(error, 2);
+        row_failed = true;
+        break;
+      }
+      if (half_fill) {
+        const bool positive_image =
+            (shift[0] > 0) ||
+            (shift[0] == 0 &&
+             (shift[1] > 0 ||
+              (shift[1] == 0 && shift[2] > 0)));
+        if (!(atom < column || (atom == column && positive_image))) {
+          continue;
+        }
+      }
+      const int32_t slot = atomicAdd(&count, 1);
+      if (slot >= capacity) {
+        atomicMax(error, 1);
+        row_failed = true;
+        break;  // Stop this lane, then reach the final block barrier.
+      }
+      row[slot] = column;
+      row_shifts[slot * 3 + 0] = shift[0];
+      row_shifts[slot * 3 + 1] = shift[1];
+      row_shifts[slot * 3 + 2] = shift[2];
+    }
+    if (row_failed) {
+      break;  // At most capacity + blockDim.x count reservations on failure.
+    }
   }
-  num_neighbors[atom] = count;
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    num_neighbors[atom] = count;
+  }
 }
 
 void batch_cell_query_hip(
@@ -166,8 +190,8 @@ void batch_cell_query_hip(
     num_neighbors.zero_();
     return;
   }
-  constexpr int threads = 128;
-  const int blocks = static_cast<int>((num_atoms + threads - 1) / threads);
+  constexpr int threads = 64;
+  const int blocks = static_cast<int>(num_atoms);
   AT_DISPATCH_FLOATING_TYPES(positions.scalar_type(), "batch_cell_query_hip", [&] {
     batch_cell_query_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
         positions.data_ptr<scalar_t>(), cells.data_ptr<scalar_t>(),
@@ -190,5 +214,6 @@ void batch_cell_query_hip(
   const auto error_code = error.cpu().item<int32_t>();
   TORCH_CHECK(error_code == 0,
               error_code == 1 ? "native HIP Batch query capacity overflow"
-                               : "native HIP Batch query found overlapping active pair");
+              : error_code == 2 ? "native HIP Batch query found overlapping active pair"
+                                : "native HIP Batch query search-offset count exceeds int64");
 }
