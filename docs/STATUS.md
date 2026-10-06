@@ -53,7 +53,7 @@
 - 新建每次调用的 cell metadata/plan 本来就是 stateless 行为；本轮明确准入并验证，
   修正容量错误为 Hook 可识别的 `NeighborOverflowError`，修复 registry 意外允许 auto 选 HIP。
 - 新增证据仅 full-PBC/full/MATRIX/skin=0；旧 plan 的固定 metadata ABI 保持。
-  M1 当时未验收 COO/HIP MACE；后续单点准入见 M2。HIP FIRE/FIRE2 与性能优化仍待确认。
+  M1 当时未验收 COO/HIP MACE；后续单点准入见 M2，短步变胞工作流见 M3。性能优化待确认。
 - [契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)、[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
 
 ## HIP COO 与 MPA-0 单点 M2（2026-10-05）
@@ -69,6 +69,23 @@
   FP64 force/strain 有限差分误差 `2.43e-10 eV/Å`、`1.68e-12 eV/Å³`，拓扑不变。
 - 没有 FIRE/FIRE2、其他模型或性能准入结论；HIP 仍不进入 auto。
   [契约](HIP_COO_MACE_SNAPSHOT_CONTRACT.md)、[报告](../reports/g2-hip-coo-mace-snapshot-m2.md)。
+
+## HIP 邻居变胞 FIRE/FIRE2 工作流 M3（2026-10-05）
+
+- 起点 M2 `3e394d7`/`4136f0f`，分支 `codex/test-hip-variable-cell-workflow`；窄 gate 已通过，
+  实现已收口 `6b1680a`，未合并或推送；M4 已获确认。无新增产品 kernel 或优化器修改。
+- Torch reference 优化器/stress/align + 显式 HIP full-PBC/full/COO/skin=0；共享
+  NeighborListHook 登记在 FusedStage BEFORE_COMPUTE，run 显式传入设备 Batch。
+- CPU 新工作流16 passed/16 skipped、相关回归48 passed/12 skipped；HCU4 新工作流
+  16 passed/16 deselected。解析势覆盖短步、inactive 精确冻结、survivor重排/arrival
+  新状态、联合力/绝对应力退出、预算退出与补位 priming。
+- 真实 MPA-0 三个 Li/Na CIF(18原子)，两优化器×两精度各五步，两邻居轨迹分支及
+  当前 HIP 几何独立 reference 拓扑/E/F/stress 对照通过；同几何最大E/F/stress差
+  FP64 `1.42e-14/1.50e-14/2.06e-16`，FP32 `3.81e-6/7.80e-6/8.29e-8`。
+- 真实三结构容量2的三步预算补位通过，ptr `[0,4,14]→[0,10,14]`，ID完整、首kick
+  前输出通过。预算退出不是物理收敛；不包含长弛豫、其他MLIP、训练、完整HCU或性能准入。
+  HIP 仍不进入auto；query/workspace/skin优化留待下一里程碑确认。
+  [契约](HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md)、[报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
 
 ## Langevin 窄 slice 收口证据
 
@@ -420,8 +437,9 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 3. 固定晶胞 ASE 3.29-compatible BFGS、NPT/NPH、DomainParallel 与生产性能仍是独立后续范围。
 
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
-[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；M3 HIP邻居变胞 FIRE/FIRE2 已获确认；
-之后再验收变胞 FIRE/FIRE2 和实测优化。M2 planner、NPT/NPH、DomainParallel、生产
+[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
+M3 HIP邻居变胞 FIRE/FIRE2 已完成短步/预算补位窄 gate，实现 `6b1680a`，见[M3报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
+M4 实测与workspace优化已获确认。M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 
 ## 验证和设备约定

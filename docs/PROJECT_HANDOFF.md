@@ -72,6 +72,10 @@ HIP M2 在 `codex/feat-hip-coo-mace-snapshot` 完成设备内 Torch COO 接线�
 两精度/三快照单点 E/F/stress gate，实现收口 `3e394d7`；见[M2契约](HIP_COO_MACE_SNAPSHOT_CONTRACT.md)
 与[报告](../reports/g2-hip-coo-mace-snapshot-m2.md)。Hook 允许将过量分配的 MATRIX
 裁去 padding，但有效 counts 超容量明确失败。模型单点不等于 HIP FIRE/FIRE2 工作流验收。
+后续 M3 在 `codex/test-hip-variable-cell-workflow` 完成现有 Torch reference 优化器 + HIP
+COO 的 CPU/HCU4 短步/生命周期 gate，以及真实 MPA-0 两精度/两优化器各五步和预算补位；
+无新增产品 kernel，已收口实现 `6b1680a`，见[契约](HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md)与
+[报告](../reports/g2-hip-variable-cell-workflow-m3.md)。真实预算退出不代表物理收敛。
 
 当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
 lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
@@ -161,8 +165,9 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 既有提交保留；流程文档已在 M5 启动前以 `fa74ca1` 收口；全目录长作业另行授权。
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
-已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；M3 HIP邻居变胞 FIRE/FIRE2 已获确认，
-之后分别验收变胞 FIRE/FIRE2、实测优化。继续暂停 M2 planner、NPT/NPH、DomainParallel、
+已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
+M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，未合并或推送。
+M4 实测基线和workspace容量复用已获确认。继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 
 ## 7. 验证与交接规则

@@ -1429,7 +1429,7 @@
       "id": "neighbors.hip_coo_adapter",
       "category": "B",
       "status": "implemented",
-      "implementation_scope": "M2 显式 periodic/full HIP MATRIX 核心加设备内 Torch COO 适配；MPA-0 单点独立验收，FIRE/FIRE2 尚未验收",
+      "implementation_scope": "M2 显式 periodic/full HIP MATRIX 核心加设备内 Torch COO 适配；MPA-0 单点独立验收，短步 FIRE/FIRE2 另见 neighbors.hip_variable_cell_workflow",
       "scenario": "消费外部 COO 邻居的 MLIP 通用接线；仅 MPA-0 实际模型通过窄单点 gate",
       "source": {
         "repository": "ops",
@@ -1461,11 +1461,47 @@
       },
       "limitations": [
         "新增当前晶胞 full-PBC/full/MATRIX+COO/skin=0；不新增 mixed-PBC 变胞证据",
-        "模型 gate 仅锁定 MPA-0 三个 CIF/FP32/64/三种快照；无 FIRE/FIRE2、其他 MLIP、训练力损失或完整工作流验收",
+        "M2 模型 gate 仅锁定 MPA-0 三个 CIF/FP32/64/三种快照；M3 短步和预算补位另列；其他 MLIP、训练力损失或完整工作流未验收",
         "no-PBC/half、skin/selective rebuild、旧 plan 变胞复用、target/pair、native geometry backward、compile/opcheck、DD 未准入",
         "无 native COO kernel、性能测量或 auto 准入；MATRIX 分配和 Torch COO 动态打包保留"
       ],
       "release_gate": "G2"
+    },
+    {
+      "id": "neighbors.hip_variable_cell_workflow",
+      "category": "B",
+      "status": "implemented",
+      "implementation_scope": "现有 Torch reference 变胞优化器与显式 HIP COO Hook 组合；不新增 native optimizer kernel",
+      "scenario": "MPA-0/MACE Li/Na 异构 Batch 短步变胞 FIRE/FIRE2 与退出补位",
+      "source": {
+        "repository": "framework",
+        "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
+        "paths": ["nvalchemi/dynamics/base.py", "nvalchemi/dynamics/optimizers/fire.py", "nvalchemi/dynamics/optimizers/fire2.py", "nvalchemi/hooks/neighbor_list.py"],
+        "symbols": {"nvalchemi/dynamics/base.py": ["FusedStage"], "nvalchemi/dynamics/optimizers/fire.py": ["FIREVariableCell"], "nvalchemi/dynamics/optimizers/fire2.py": ["FIRE2VariableCell"]}
+      },
+      "contract": {
+        "api": "Torch reference FIREVariableCell/FIRE2VariableCell; HIP NeighborListHook at shared BEFORE_COMPUTE; explicit device Batch passed to FusedStage.run",
+        "data": "FP32/64 full-PBC/full-list/COO/skin=0; current r/H complete topology rebuild; native six lower-triangular FIRE2 and fork full-matrix FIRE; positive volume; E/F/stress current-geometry priming; survivor state reorder, fresh arrival state, inactive freeze",
+        "details": "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md; analytic joint convergence and real model budget exit are reported separately",
+        "fallback": "explicit_only_no_silent_cpu_or_precision_change"
+      },
+      "dependencies": ["neighbors.hip_coo_adapter", "TORCH-VARIABLE-CELL-FIRE", "mace-torch/e3nn"],
+      "backends": {"upstream": "None/Warp preserved", "target": ["hip neighbors + torch_reference dynamics/stress/align"], "selection": "explicit_only; HIP auto disabled"},
+      "gradient_level": "terminal eager optimizer forward-only; real MPA-0 position/strain autograd outputs; no training or differentiable trajectory claim",
+      "verification": {
+        "dcu_status": "partial",
+        "upstream_tests": [],
+        "dcu_tests": ["packages/framework/test/compatibility/test_hip_variable_cell_workflow.py", "probes/hip_variable_cell_mace_workflow.py"],
+        "evidence": ["docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
+        "environments": ["DTK26.04/Torch2.9.0/HIP6.3.26093/HCU4 BW1000 64G gfx936; locked MPA-0 checkpoint"]
+      },
+      "limitations": [
+        "真实模型证据仅三个 CIF、两精度、两优化器各五步；另三结构容量2预算退出/补位，预算不是物理收敛",
+        "解析势生命周期验证私有状态与联合力/绝对应力退出；不代表真实 MPA-0 长步收敛或完整 HCU gate",
+        "不新增 skin/selective rebuild、旧 plan metadata 复用、no-PBC/half、native COO/query 并行、workspace 性能或 auto 准入",
+        "不含其他 MLIP、compile/opcheck、训练力损失、checkpoint、DomainParallel、NPT/NPH 或 native HIP dynamics"
+      ],
+      "release_gate": "G2_M3_HIP_neighbor_variable_cell_workflow_narrow"
     },
     {
       "id": "interactions.lj",
