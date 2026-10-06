@@ -53,7 +53,7 @@
 - 新建每次调用的 cell metadata/plan 本来就是 stateless 行为；本轮明确准入并验证，
   修正容量错误为 Hook 可识别的 `NeighborOverflowError`，修复 registry 意外允许 auto 选 HIP。
 - 新增证据仅 full-PBC/full/MATRIX/skin=0；旧 plan 的固定 metadata ABI 保持。
-  M1 当时未验收 COO/HIP MACE；后续单点准入见 M2，短步变胞工作流见 M3。性能优化待确认。
+  M1 当时未验收 COO/HIP MACE；后续单点准入见 M2，短步变胞工作流见 M3。M4性能实验另列。
 - [契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)、[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
 
 ## HIP COO 与 MPA-0 单点 M2（2026-10-05）
@@ -86,6 +86,20 @@
   前输出通过。预算退出不是物理收敛；不包含长弛豫、其他MLIP、训练、完整HCU或性能准入。
   HIP 仍不进入auto；query/workspace/skin优化留待下一里程碑确认。
   [契约](HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md)、[报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
+
+## HIP 邻居性能与 workspace M4（2026-10-06）
+
+- 用户确认后，M3 已收口 `6b1680a`/`47cf259`；M4 分支
+  `codex/perf-hip-neighbor-workspace`，已收口实现 `95f2ef6`，未合并或推送；M5已获确认。
+- 完成基线/hipprof和workspace候选；候选CPU规则+真实HIP回归30 passed。
+  同进程AB/BA配对每项45样本，46×32 FP32邻居median `17.903→17.672ms`（下降1.29%），
+  真实18原子MPA-0邻居+模型 `36.662→36.428ms`（下降0.64%）。未达预设5%门槛，
+  撤回产品缓存改动，保留可重放实验；产品仍stateless、无新workspace/auto准入。
+- 分项metadata约 `12.35/24.20ms`（32/64体系），远高于workspace查询/分配约0.3–0.4ms；
+  trace支持存在逐体系小kernel与标量host/device往返，下一阶段批量metadata待确认。
+- 产品恢复后CPU ops27 passed/10 skipped、framework21 passed/24 skipped；HCU4 M3
+  16 passed/16 deselected；没有长弛豫或完整CPU/HCU性能结论。
+  [契约](HIP_NEIGHBOR_WORKSPACE_CONTRACT.md)、[报告](../reports/g2-hip-neighbor-workspace-m4.md)。
 
 ## Langevin 窄 slice 收口证据
 
@@ -439,7 +453,8 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
 [报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 已完成短步/预算补位窄 gate，实现 `6b1680a`，见[M3报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
-M4 实测与workspace优化已获确认。M2 planner、NPT/NPH、DomainParallel、生产
+M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已获确认。
+M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 
 ## 验证和设备约定

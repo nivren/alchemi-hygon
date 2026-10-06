@@ -77,6 +77,11 @@ COO 的 CPU/HCU4 短步/生命周期 gate，以及真实 MPA-0 两精度/两优�
 无新增产品 kernel，已收口实现 `6b1680a`，见[契约](HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md)与
 [报告](../reports/g2-hip-variable-cell-workflow-m3.md)。真实预算退出不代表物理收敛。
 
+M4 在 `codex/perf-hip-neighbor-workspace` 完成性能基线/trace与workspace实验，目标
+配对median下降1.29%、真实neighbor+model下降0.64%，未达5%门槛，产品缓存已撤回，
+原stateless源码恢复。保留显式归档重放benchmark和证据，见
+[M4报告](../reports/g2-hip-neighbor-workspace-m4.md)。主热点为逐体系metadata；M5批量推导已获确认。
+
 当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
 lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
 compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry 继续承担训练/梯度
@@ -167,7 +172,8 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 
 已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，未合并或推送。
-M4 实测基线和workspace容量复用已获确认。继续暂停 M2 planner、NPT/NPH、DomainParallel、
+M4实测和workspace实验完成，候选未达门槛已撤回；M5批量metadata已获确认。
+继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 
 ## 7. 验证与交接规则

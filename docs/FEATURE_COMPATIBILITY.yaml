@@ -1421,7 +1421,7 @@
       "limitations": [
         "新增变胞证据仅 full-PBC/full/MATRIX/skin=0/FP32/64；既有固定晶胞 mixed-PBC gate 保持",
         "M1 阶段证据不包含 COO/HIP MACE 单点，后续验收见 neighbors.hip_coo_adapter；HIP FIRE/FIRE2、skin/selective rebuild、旧 plan 变胞复用、no-PBC/half、target/pair、compile/opcheck、DomainParallel 未验收",
-        "query仍每原子一线程；host metadata同步和逐次workspace未优化；无新增性能或auto准入证据"
+        "query仍每原子一线程；M4实测主热点为逐体系metadata，workspace候选目标仅下降1.29%未达5%门槛已撤回；仍stateless，无新增workspace或auto准入，见reports/g2-hip-neighbor-workspace-m4.md"
       ],
       "release_gate": "G2"
     },
