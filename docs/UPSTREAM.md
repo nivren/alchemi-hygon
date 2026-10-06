@@ -126,6 +126,8 @@ Tier 1 状态检查点已提交为 `9fb9d1f`。
 | LP-082 | framework `dynamics/base.py`、`optimizers/fire*.py` | UBF-016：参考 fork admission priming，Fused refill 后先走已有 compute Hook；vector arrivals 映射缺口明确失败 | 改变组成才增一次 compute，不计优化步；Base refill 原职责保持；普通向量 Batch 保留 | 旧版接口窄适配，非新版 admission API 全量移植 | CPU/HCU arrival priming、ID/state、异常导出及实际 CPU MPA-0；M4 报告 |
 | LP-083 | 历史路径 `examples/relax_mace_mpa0.py`；现归属下游工程 `alchemi-app` | CIF I/O、原生 sampler/Fused/sink 的应用配置与 JSONL/最终 CIF 核验 | example 层本地薄入口；没有新增 optimizer/filter 科学 API | 应用代码已拆至独立工程；不属于上游移植补丁或缺陷修正 | CPU 合成成功/预算/异常/占位路径和实际 MPA-0；目标 HCU 留 M5 |
 | LP-084 | `packages/ops/nvalchemiops/cell_fire_reference.py`；对应 ops/framework 回归 | LOCAL-004：零下限 `dt_min=0` 与锁定 NVIDIA/fork 的 `max(dt*f_dec, dt_min)` 兼容，负下限拒绝 | 只放宽本地参数校验；默认参数、公式、公共 API、后端选择保持 | 本地移植 bug，非 UBF/上游 bug；不候选上游补丁 | [修复报告](../reports/g2-fire-zero-dt-min.md)：CPU gate 与 HCU4 FP64 单步/解析势及 MPA-0 十步；非长程收敛 |
+| LP-085 | ops `_hip_neighbor_executor.py` | M5批量当前cell inverse/grid/radius/offset，缩减规则保持；每次全重建 | 显式HIP接口/None/Warp/auto不变；无workspace缓存 | 本地HIP性能实现，非上游bug；不候选默认上游变更 | 实现e2d569c，[M5报告](../reports/g2-hip-batch-metadata-m5.md)：CPU/HCU窄gate、FP32/64变胞三路径及真实短轨迹 |
+| LP-086 | ops `_native/batch_cell_query.cu` | M6查询线程协作实现：每原子一个64线程block分担cell，共享计数及失败路径 | native候选无序，公共排序/COO/容量/梯度/默认选择不变；所测门槛通过 | 本地HIP优化实验，非上游bug；未运行Warp/NVIDIA | [M6报告](../reports/g2-hip-cooperative-query-m6.md)：CPU ops51、HCU ops85/framework49；few FP64下降11.34%，其余配置无稳定退化；失败与边界单列 |
 
 本表中未带 `packages/` 前缀的 `test/...` 路径是相应 package 内的相对路径；新增跨包回归的当前实际目录为
 `packages/framework/test/compatibility/`。历史条目的“工作树待提交”只描述当时快照，不表示当前 Git 状态。

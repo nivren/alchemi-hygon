@@ -48,4 +48,4 @@ HIP配置无>5%稳定退化，拓扑/模型/生命周期通过。Torch reference
 证据 `artifacts/hip-batch-metadata-m5/`；报告 `reports/g2-hip-batch-metadata-m5.md`。
 当前：实现完成，CPU ops45/framework21及HCU ops73/framework49通过；
 FP32/64八配置变胞三路径比较完成，所测性能门槛通过。具体数值和剩余边界以报告为准。
-产品只有一个注册HIP后端，修改前代码仅作probe基线；尚未提交/合并/推送。
+产品只有一个注册HIP后端，修改前代码仅作probe基线；M6确认后实现以 `e2d569c`、文档以 `3073f63` 收口；未合并/推送。
