@@ -48,7 +48,8 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 | 完成并收口 | HIP 邻居 M5：批量metadata | CPU ops45/framework21、HCU ops73/framework49；两精度约20,000原子六变胞/补位快照三路径比较，目标下降87.65%；真实模型短轨迹/补位回归 | 实现 `e2d569c`；FP32 cutoff舍入分歧单列，query/native COO/skin/auto未新增 |
 | 已收口 | HIP 邻居 M6：查询协作 | CPU ops51/framework21、HCU ops85/framework49；两精度变胞三路径/真实模型/补位通过，few FP64下降11.34%，候选保留 | fe18147/c2a8339；非全库/长收敛/较大真实MLIP吞吐，auto等未新增 |
 | 已收口 | HIP 邻居 M7：综合验收 | FP64真实1029/39、2030/92，两优化器step约2.04–2.37倍；短步/补位通过；CPU ops51/framework21、HCU ops85/framework49 | FP32仅1029 FIRE全组通过，其余严格forces门失败；纯Torch对照也失败，未改容差；提交 `00637c0` |
-| 结果完成，待收口 | HIP 邻居 M8：验收分层与复验 | CPU比较器单测3 passed；HCU八组中6组完整通过，其余FP32 FIRE2两组数值/轨迹状态比较通过，最终晶胞移动为46/47、99/100 | 仅改probes测试/验收代码及文档；framework/ops、HIP/model和全局容差未改；M7已收口 `00637c0`；等待确认 |
+| 已收口 | HIP 邻居 M8：验收分层与复验 | CPU比较器单测3 passed；修正E/F/stress重复状态比较，framework/ops与容差未改 | `04f80bd`；首次八组复验及边界见M8报告 |
+| 结果完成，待收口 | HIP 邻居 M9：FP32 FIRE2逐结构移动断言复核 | 未移动项为同一Li3Ge3(MoO6)2；HIP/Torch reference终态cell完全相同；改为批次至少一个cell移动，两受影响组复跑通过 | 仅probe/文档；framework/ops/kernel与物理容差未改；见M9报告 |
 | 完成 | MPA-0 M2：晶胞工具 | align_cell、pack/unpack、扩展索引/指针；CPU/HCU4 primitive 通过 | 未含优化器、ASE filters、NPT/NPH |
 | 完成 | MPA-0 M3：变胞 FIRE2/FIRE | 单步/公共解析势 CPU/HCU；MPA-0 CPU 三步与旋转协变 | 不代表目标 HCU、完整收敛/补位、新参数化、生产后端 |
 | 完成 | MPA-0 M4：批量应用 | 邻居变胞、联合收敛、退出/补位、薄 CIF/JSONL；CPU真实 FP64 收敛与 HCU合成工作流 | 通用完整 checkpoint、流式服务/向量 arrivals、全目录长作业；目标 HCU由M5补充 |
@@ -102,9 +103,9 @@ generic executor binding、公共 `NVTLangevin(backend="torch_reference")` 接�
 
 - M2 planner、NPT/NPH 和 DomainParallel；
 - 生产 Triton/HIP dynamics kernel；
-- 已确认的 HIP M1 当前晶胞完整重建以外的扩展，须按里程碑确认；当前 M2 COO/MACE、M3变胞工作流已收口；M4实验完成但workspace候选已拒绝，M4实现 `95f2ef6` 收口，M5实现及窄验收已收口 `e2d569c`，M6查询协作完成窄验收并收口，M7签名收口 `00637c0`；M8 probe/文档和八组复验完成，FP32 FIRE2两组数值/状态比较通过、最终移动断言分别46/47和99/100，待用户确认收口，
+- 已确认的 HIP M1 当前晶胞完整重建以外的扩展，须按里程碑确认；当前 M2 COO/MACE、M3变胞工作流已收口；M4实验完成但workspace候选已拒绝，M4实现 `95f2ef6` 收口，M5实现及窄验收已收口 `e2d569c`，M6查询协作完成窄验收并收口，M7签名收口 `00637c0`，M8签名收口 `04f80bd`；M9 probe条件修正及两组复验完成、待用户确认收口，
   no-PBC、half、skin/rebuild、target/pair、旧 plan 变胞复用、native geometry backward、
-  compile/opcheck 或 `auto` 继续暂停；M8八组比较结果见M8报告，尚待用户确认收口。
+  compile/opcheck 或 `auto` 继续暂停；M8/M9测试证据见对应报告。
 - 仅为追求 benchmark 数字而重写已经有正确性证据的 Torch geometry 路径。
 
 ## 4. 并行边界

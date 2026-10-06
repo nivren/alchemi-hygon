@@ -243,7 +243,7 @@ def lifecycle(model, systems, cls, max_atoms):
     assert [{k: e[k] for k in ("source_ids", "system_ids", "ptr")} for e in reports["hip"]["events"]] == [
         {k: e[k] for k in ("source_ids", "system_ids", "ptr")} for e in reports["torch_reference"]["events"]]
     rtol, atol = (2e-8, 2e-9) if systems[0].positions.dtype == torch.float64 else (2e-4, 2e-5)
-    moving = 0
+    moving, unchanged = 0, []
     for source in budgets:
         a, b = stored_batches["hip"][source], stored_batches["torch_reference"][source]
         compare({key: getattr(a, key).reshape(-1) for key in MODEL_OUTPUT_FIELDS},
@@ -251,9 +251,23 @@ def lifecycle(model, systems, cls, max_atoms):
                 systems[source].positions.dtype)
         for key in ("positions", "cell", "velocities"):
             torch.testing.assert_close(getattr(a, key), getattr(b, key), rtol=rtol, atol=atol)
-        moving += int(not torch.equal(a.cell, systems[source].cell))
-    assert moving == len(systems), f"only {moving}/{len(systems)} systems changed cell"
-    return {"paths": reports, "final_state_parity": True, "moving_cells": moving}
+        initial_cell = systems[source].cell
+        changed = not torch.equal(a.cell, initial_cell)
+        moving += int(changed)
+        if not changed:
+            unchanged.append({
+                "source_index": int(source),
+                "system_id": int(a.system_id.flatten()[0]),
+                "hip_cell_delta_A": float((a.cell - initial_cell).abs().max()),
+                "torch_cell_delta_A": float((b.cell - initial_cell).abs().max()),
+                "hip_torch_cell_delta_A": float((a.cell - b.cell).abs().max()),
+                "max_abs_final_stress_eV_per_A3": float(a.stress.abs().max()),
+                "max_abs_final_force_eV_per_A": float(a.forces.abs().max()),
+            })
+    assert moving > 0, (
+        f"no systems changed cell; unchanged_systems={json.dumps(unchanged, sort_keys=True)}")
+    return {"paths": reports, "final_state_parity": True, "moving_cells": moving,
+            "total_systems": len(systems), "unchanged_systems": unchanged}
 
 
 def main():

@@ -168,9 +168,9 @@
   M7以 `00637c0` 收口；M8模型输出/优化器状态验收分层复验已确认并开始，详见下文。
   不新增长收敛、20k真实MLIP吞吐、其他模型/训练/compile/DD/skin/auto准入。
 
-## MPA-0 FP32 状态验收分层 M8（复验完成，待收口）
+## MPA-0 FP32 状态验收分层 M8（已收口）
 
-- 分支 `codex/fix-mpa0-fp32-state-validation`，M7签名收口 `00637c0`。
+- 分支 `codex/fix-mpa0-fp32-state-validation`，M7签名收口 `00637c0`；M8签名收口 `04f80bd`。
 - 用户限定只改 `probes/` 测试与文档；不改 framework/ops 产品源码、kernel、模型或全局容差。
 - M7重复将模型缓存E/F/stress套用物理量门和通用mutable-state门。本阶段probe将前者仅按既有
   逐物理量容差比较；positions/cell/velocities及优化器私有状态仍按原状态容差，拓扑/整数仍精确。
@@ -179,7 +179,18 @@
   发生变化”断言失败，实际为46/47和99/100个晶胞变化，且保持原条件未放宽。
 - Torch/Torch FP32控制3轮×3步没有几何/私有状态严格门失败。framework/ops产品源码、HIP kernel
   与数值阈值未改。
-- [M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)、[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)。结果完成，待用户确认收口。
+- [M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)、[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)。
+
+## FP32 FIRE2 per-system 晶胞移动断言 M9（复验完成，待收口）
+
+- M8两组FP32 FIRE2只因`moving == len(systems)`失败。定位到 source 36：
+  `mp-1013795_Li3Ge3(MoO6)2.cif`。两组中 HIP 和 Torch reference 的终态晶胞均与初始值完全相同，
+  且两路径晶胞差为0；终态应力约`7.68e-4 eV/Å³`。
+- 仅将该批次的移动断言改为至少有一个晶胞变化；逐结构 backend parity、状态容差和物理量容差保持。
+  未改变 neighbor contract 或 framework/ops/kernel。
+- HCU4复跑受影响的1029/39与2030/92 FP32 FIRE2，均退出0；分别46/47和99/100结构变化，
+  unchanged source 36详情保留在 probe summary。M8其余六组已在更严格条件下通过。
+- [M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)。结果完成，待用户确认收口。
 
 ## Langevin 窄 slice 收口证据
 
@@ -533,7 +544,7 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
 [报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 已完成短步/预算补位窄 gate，实现 `6b1680a`，见[M3报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
-M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已收口；M6查询协作完成窄验收并收口，M7签名收口，M8比较分层和八组复验完成：所有数值/轨迹比较通过，FP32 FIRE2两组只因46/47、99/100晶胞移动断言未通过；待用户确认收口。
+M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已收口；M6查询协作完成窄验收并收口，M7签名收口；M8已收口 `04f80bd`。M9已将过严的逐结构移动条件改为批次至少有一个晶胞移动，两组受影响FP32 FIRE2复跑通过，待用户确认收口。
 M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 

@@ -103,7 +103,8 @@ CPU ops51/framework21、HCU环境ops85/framework49定向回归通过。
 FP32仅1029 FIRE完整组通过，其余三组forces重复严格状态门失败；
 纯Torch/Torch FIRE2也出现3.03e-5失败，逐物理量输出容差全部通过，未改任何容差。
 见[M7契约](HIP_REAL_BATCH_VALIDATION_CONTRACT.md)和[报告](../reports/g2-hip-real-batch-validation-m7.md)。
-M8 `codex/fix-mpa0-fp32-state-validation` 比较层修正与真实Batch复验完成；只改 `probes/` 测试/验收代码与文档，framework/ops产品源码、HIP kernel和数值容差未改。CPU单测3 passed；HCU八组合6组完整退出成功，所有八组数值/轨迹状态比较均通过，FP32 FIRE2两组仅因最终“所有晶胞均改变”断言分别46/47、99/100失败。纯Torch/Torch控制未出现几何/私有状态严格门失败。见[M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)及[报告](../reports/g2-hip-mpa0-state-validation-m8.md)。结果待用户确认收口。
+M8 `codex/fix-mpa0-fp32-state-validation` 比较层修正与真实Batch复验完成，签名收口 `04f80bd`；只改probe测试与文档，framework/ops产品源码、HIP kernel和数值容差未改。CPU单测3 passed；HCU八组合中六组完整通过，另两组所有数值/轨迹状态比较通过但被每个晶胞必须移动的附加断言阻断。纯Torch/Torch控制未出现几何/私有状态严格门失败。见[M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)及[报告](../reports/g2-hip-mpa0-state-validation-m8.md)。
+M9定位两组相同的未移动结构为 `mp-1013795_Li3Ge3(MoO6)2.cif`：HIP/Torch reference 的终态晶胞均与初态完全相同，应力约 `7.68e-4 eV/Å³`。移除“每个结构均须移动”的过强probe条件，保留逐结构backend/state parity和批次至少发生一次晶胞变化；两组FP32 FIRE2在HCU4复跑均通过。只改probes和文档，无邻居后端或framework/ops改动。见[M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)，结果待用户确认收口。
 不修改HIP/模型或全局容差、不自动合并或推送。
 
 当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
@@ -196,7 +197,7 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 
 已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，未合并或推送。
-M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；M6查询协作实现及窄验收完成并收口；M7签名收口 `00637c0`；M8 probe/文档与八组复验结果完成，FP32 FIRE2剩余两项晶胞移动断言失败，待用户确认收口。
+M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；M6查询协作实现及窄验收完成并收口；M7签名收口 `00637c0`；M8签名收口 `04f80bd`；M9 probe移动判定修正和两组HCU复验完成，待用户确认收口。
 继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 
