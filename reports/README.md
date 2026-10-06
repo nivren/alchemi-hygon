@@ -13,7 +13,8 @@
 | HIP 邻居当前晶胞 M1 | [`g2-hip-current-cell-neighbor-m1.md`](g2-hip-current-cell-neighbor-m1.md) | FP32/64 当前晶胞完整 MATRIX 重建、CPU/HCU4；COO/MACE/FIRE 工作流与性能待后续验收 |
 | HIP 邻居 COO/MACE M2 | [`g2-hip-coo-mace-snapshot-m2.md`](g2-hip-coo-mace-snapshot-m2.md) | 通用设备内 Torch COO 适配、真实MPA-0两精度单点及FP64差分；FIRE/FIRE2与性能未验收 |
 | HIP 邻居变胞工作流 M3 | [`g2-hip-variable-cell-workflow-m3.md`](g2-hip-variable-cell-workflow-m3.md) | CPU/HCU4短步/状态生命周期；真实MPA-0两精度/两优化器五步及预算补位；无长步收敛或性能结论 |
-| HIP 邻居性能/workspace M4 | [`g2-hip-neighbor-workspace-m4.md`](g2-hip-neighbor-workspace-m4.md) | 分项/hipprof/45样本配对；workspace候选未达5%门槛已撤回，产品仍stateless；批量metadata待确认 |
+| HIP 邻居性能/workspace M4 | [`g2-hip-neighbor-workspace-m4.md`](g2-hip-neighbor-workspace-m4.md) | 分项/hipprof/45样本配对；workspace候选未达5%门槛已撤回，产品仍stateless；批量metadata结果见后续M5 |
+| HIP 邻居批量metadata M5 | [`g2-hip-batch-metadata-m5.md`](g2-hip-batch-metadata-m5.md) | FP32/64约20,000原子变胞/补位三路径、真实MPA-0短轨迹；所测门槛通过，FP32 cutoff边界限制单列；实现已收口e2d569c |
 | HIP framework wall-clock | [`g2-framework-hip-neighbor-wallclock.md`](g2-framework-hip-neighbor-wallclock.md) | warm public API 描述性 evidence，不是 `auto` 准入 |
 | MACE/FIRE2 reference | [`g2-mace-fire2-batch32-tier1.md`](g2-mace-fire2-batch32-tier1.md) | 固定晶胞 reference；不代表变胞或生产 HIP/MACE |
 | MPA-0 弛豫 M1 | [`g2-mace-mpa0-m1-cpu-baseline.md`](g2-mace-mpa0-m1-cpu-baseline.md) | 三个真实 CIF 的 CPU 单点与有限差分；目标 HCU/变胞弛豫未验证 |

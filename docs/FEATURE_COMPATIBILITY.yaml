@@ -1383,7 +1383,7 @@
       "id": "neighbors.hip_current_cell_rebuild",
       "category": "B",
       "status": "implemented",
-      "implementation_scope": "M1 显式 HIP stateless 当前晶胞快照完整重建；低层旧 plan 固定 metadata 约束保持",
+      "implementation_scope": "M1 显式 HIP stateless 当前晶胞快照完整重建；M5设备内批量metadata推导，保留逐体系grid缩减语义；低层旧plan固定metadata约束保持",
       "scenario": "MPA-0 变胞弛豫的邻居前置能力；本阶段仅 MATRIX 拓扑，不构成 MACE/FIRE 工作流验收",
       "source": {
         "repository": "ops",
@@ -1405,7 +1405,7 @@
         "target": ["hip"],
         "selection": "hip.neighbor.cell_list-v1 explicit_only; auto_enabled=false; None retains Warp"
       },
-      "gradient_level": "topology_none; continuous MACE geometry is a later milestone",
+      "gradient_level": "topology_none; continuous MACE output/autograd evidence separately recorded by HIP COO adapter and variable-cell workflow",
       "verification": {
         "dcu_status": "partial",
         "upstream_tests": [],
@@ -1413,15 +1413,19 @@
           "packages/ops/test/torch/test_hip_current_cell_neighbors.py",
           "packages/ops/test/torch/test_hip_neighbor_executor.py",
           "packages/framework/test/compatibility/test_hip_current_cell_neighbors.py",
-          "probes/framework_neighbor_hip_contract.py"
+          "probes/framework_neighbor_hip_contract.py",
+          "packages/ops/test/torch/test_hip_batch_metadata.py",
+          "probes/hip_batch_metadata_benchmark.py",
+          "probes/hip_batch_metadata_mace.py"
         ],
-        "evidence": ["reports/g2-hip-current-cell-neighbor-m1.md", "artifacts/hip-current-cell-neighbor-m1/"],
+        "evidence": ["reports/g2-hip-current-cell-neighbor-m1.md", "artifacts/hip-current-cell-neighbor-m1/", "docs/HIP_BATCH_METADATA_CONTRACT.md", "reports/g2-hip-batch-metadata-m5.md", "artifacts/hip-batch-metadata-m5/"],
         "environments": ["project .venv + DTK26.04 + Torch2.9.0/HIP6.3.26093 + HCU4 BW1000 64G/gfx936"]
       },
       "limitations": [
         "新增变胞证据仅 full-PBC/full/MATRIX/skin=0/FP32/64；既有固定晶胞 mixed-PBC gate 保持",
         "M1 阶段证据不包含 COO/HIP MACE 单点，后续验收见 neighbors.hip_coo_adapter；HIP FIRE/FIRE2、skin/selective rebuild、旧 plan 变胞复用、no-PBC/half、target/pair、compile/opcheck、DomainParallel 未验收",
-        "query仍每原子一线程；M4实测主热点为逐体系metadata，workspace候选目标仅下降1.29%未达5%门槛已撤回；仍stateless，无新增workspace或auto准入，见reports/g2-hip-neighbor-workspace-m4.md"
+        "query仍每原子一线程；M4 workspace候选未达门槛已撤回，M5优化设备内当前cell批量metadata；三路径变胞/约20000原子比较及真实短轨迹证据见M5报告；仍stateless，无新增workspace或auto准入",
+        "M5原seed小Batch FP32有两条距cutoff约8.8e-8Å的边与Torch reference舍入分歧；原HIP和优化HIP完全一致。明确新seed夹具严格核对并保留原失败，未宣称任意FP32 cutoff边界位级等价"
       ],
       "release_gate": "G2"
     },

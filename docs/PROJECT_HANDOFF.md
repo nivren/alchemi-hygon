@@ -80,7 +80,15 @@ COO 的 CPU/HCU4 短步/生命周期 gate，以及真实 MPA-0 两精度/两优�
 M4 在 `codex/perf-hip-neighbor-workspace` 完成性能基线/trace与workspace实验，目标
 配对median下降1.29%、真实neighbor+model下降0.64%，未达5%门槛，产品缓存已撤回，
 原stateless源码恢复。保留显式归档重放benchmark和证据，见
-[M4报告](../reports/g2-hip-neighbor-workspace-m4.md)。主热点为逐体系metadata；M5批量推导已获确认。
+[M4报告](../reports/g2-hip-neighbor-workspace-m4.md)。主热点为逐体系metadata；后续M5结果如下。
+
+M5在 `codex/perf-hip-batch-metadata` 完成当前晶胞批量metadata，每次仍全量重建，
+只有一个产品HIP后端。CPU ops45/framework21、HCU4 ops73/framework49通过；
+真实两精度FIRE/FIRE2五步及预算补位回归通过。约20,000原子、200/40/10结构
+两精度、六变胞/补位快照三路径比较完成；FP64相对Torch邻居约130/29/11倍，
+仅所测邻居API，不是完整弛豫吞吐。原小Batch FP32有既有cutoff舍入分歧，失败保留。
+见[M5契约](HIP_BATCH_METADATA_CONTRACT.md)与[M5报告](../reports/g2-hip-batch-metadata-m5.md)。
+用户确认M6后，M5实现以 `e2d569c` 收口；未合并或推送，查询并行实验已确认。
 
 当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
 lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
@@ -172,7 +180,7 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 
 已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，未合并或推送。
-M4实测和workspace实验完成，候选未达门槛已撤回；M5批量metadata已获确认。
+M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；下一查询实验M6已确认。
 继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 

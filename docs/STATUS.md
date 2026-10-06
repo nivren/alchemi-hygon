@@ -17,7 +17,7 @@
 | 功能 | 当前状态 | 已验证范围 | 明确限制 |
 |---|---|---|---|
 | Torch reference neighbor/cell-list | 已实现窄 reference | periodic/no-PBC、full/half、MATRIX/COO、mixed/triclinic Batch、image shift、容量、selective rebuild、连续 distance/vector 一二阶路径 | 不等于完整上游生产 cell-list；完整 target/pair/compile/opcheck/DomainParallel 仍未完成 |
-| 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、Batch、full-list、MATRIX/COO（Torch打包）、FP32/FP64、`skin=0`、自动 doubling capacity；允许调用间 full-PBC 晶胞改变，每次完整重建 | 不进入 `auto`；不支持 no-PBC、half、skin/selective rebuild、target/pair、旧 plan 变胞复用、native geometry backward、compile/opcheck、DomainParallel；MPA-0 HIP邻居单点已验收；HIP FIRE/FIRE2 工作流待验收 |
+| 显式 HIP neighbor/cell-list | 已实现并验证窄 capability | periodic、Batch、full-list、MATRIX/COO（Torch打包）、FP32/FP64、`skin=0`、自动 doubling capacity；允许调用间 full-PBC 晶胞改变，每次完整重建 | 不进入 `auto`；不支持 no-PBC、half、skin/selective rebuild、target/pair、旧 plan 变胞复用、native geometry backward、compile/opcheck、DomainParallel；MPA-0 HIP邻居单点已验收；HIP FIRE/FIRE2 短步/预算补位已验收，M5两精度变胞性能见下文 |
 | Torch geometry | 当前训练/梯度路径 | distance/vector 连续坐标的一阶/二阶路径 | native HIP geometry 仍是 forward-only 性能候选 |
 | Langevin | 已完成窄 reference slice | 固定晶胞 BAOAB、float32/64、异构普通 Batch、空输入/错误、短统计 oracle、最小 integrator continuation state；当前 CPU 复核 `15 passed` | 不等于完整上游 Langevin/NVT；通用 checkpoint、`atom_ptr`/`_out`、inflight、分布式、完整行为套件、torch.compile、生产 Triton/HIP 未完成 |
 | 固定晶胞 NHC | 已验证窄 Torch reference | FP32/64、C=1–8、Yoshida 3/5、异构 Batch、scalar refill、FusedStage/Hook、最小 continuation、CPU 谐势统计/扩展能量收敛、HCU4 parity 与短 MACE | Warp/NVIDIA 未执行；vector arrivals 映射、完整 checkpoint、DomainParallel、生产 HIP/Triton 未完成 |
@@ -96,10 +96,31 @@
   真实18原子MPA-0邻居+模型 `36.662→36.428ms`（下降0.64%）。未达预设5%门槛，
   撤回产品缓存改动，保留可重放实验；产品仍stateless、无新workspace/auto准入。
 - 分项metadata约 `12.35/24.20ms`（32/64体系），远高于workspace查询/分配约0.3–0.4ms；
-  trace支持存在逐体系小kernel与标量host/device往返，下一阶段批量metadata待确认。
+  trace支持存在逐体系小kernel与标量host/device往返；M5批量metadata已获确认，证据独立记录。
 - 产品恢复后CPU ops27 passed/10 skipped、framework21 passed/24 skipped；HCU4 M3
   16 passed/16 deselected；没有长弛豫或完整CPU/HCU性能结论。
   [契约](HIP_NEIGHBOR_WORKSPACE_CONTRACT.md)、[报告](../reports/g2-hip-neighbor-workspace-m4.md)。
+
+## HIP 邻居批量 metadata M5（2026-10-06）
+
+- 分支 `codex/perf-hip-batch-metadata`；M4已收口 `95f2ef6`/`88b6b2f`。
+  M5仅修改ops当前晶胞metadata批量推导，每调用仍完整重建；无新native query/COO。
+  产品只有一个注册HIP后端，修改前源码仅作探针比较；实现已收口 `e2d569c`；未合并或推送。
+- CPU ops45 passed/28 skipped、framework21 passed/28 skipped；HCU4 ops73和framework49 passed。
+  真实MPA-0两精度/两优化器五步及FusedStage预算补位回归通过；不是长步物理收敛。
+- 约20,000原子异构Batch的200/40/10结构：均FP32/64，包含压缩/膨胀/剪切、N/B/ptr补位及
+  继续变胞。FP64 Torch reference→修改后HIP邻居median分别1432.148→11.011、
+  323.633→10.988、117.454→10.894ms；FP32分别1450.214→10.617、
+  317.542→10.539、111.241→10.472ms。每项六快照54样本，所测拓扑严格一致。
+- 相对修改前HIP，目标200结构FP32下降87.65%，三轮一致，其他项无稳定退化；超过5%门槛。
+  实际18原子MPA-0 FP64邻居+模型：FIRE 52.419→35.980ms、FIRE2 52.296→35.967ms
+  （Torch reference→修改后HIP）；未包含优化器/hook/IO，不是20,000原子真实模型吞吐。
+- 原小Batch seed20261006 FP32在6Å边界出现Torch多两条边，修改前后HIP一致；诊断边距
+  6.000000088Å。失败保留，不改cutoff/容差；小Batch性能fixture换为明确seed20261007。
+  不宣称任意FP32边界位级等价。`auto`、skin/selective rebuild、workspace、native COO、
+  query并行、长收敛、其他MLIP、DD/compile/训练未新增。
+- [契约](HIP_BATCH_METADATA_CONTRACT.md)、[报告](../reports/g2-hip-batch-metadata-m5.md)。
+  用户已确认查询并行实验M6；先收口M5再开始，不自动合并或推送。
 
 ## Langevin 窄 slice 收口证据
 
@@ -453,7 +474,7 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
 [报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 已完成短步/预算补位窄 gate，实现 `6b1680a`，见[M3报告](../reports/g2-hip-variable-cell-workflow-m3.md)。
-M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata已获确认。
+M4 已完成实测并拒绝未达门槛的workspace候选，产品保持stateless；M5批量metadata实现及两精度变胞比较完成，尚未提交，下一阶段待确认。
 M2 planner、NPT/NPH、DomainParallel、生产
 Triton/HIP dynamics kernel 继续暂停。
 

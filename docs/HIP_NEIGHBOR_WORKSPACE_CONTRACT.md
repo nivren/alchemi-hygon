@@ -40,4 +40,5 @@ kernel/API，不与无profiler总耗时直接相比。先拓扑reference精确�
 `reports/g2-hip-neighbor-workspace-m4.md`。实施结论：完成基线/trace/候选验证；
 候选30项CPU/HIP测试通过，同进程配对45样本/项，目标下降1.29%、真实neighbor+model
 下降0.64%，未达5%门槛，撤回产品缓存改动。归档实验可由benchmark显式重放；
-产品仍stateless，不持有缓存显存。未新增workspace/query/auto能力，M5 metadata优化待确认。
+产品仍stateless，不持有缓存显存。未新增workspace/query/auto能力；M4已收口
+`95f2ef6`/`88b6b2f`，M5 metadata优化已获确认并独立验收。
