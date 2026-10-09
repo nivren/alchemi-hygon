@@ -1,6 +1,6 @@
 # 项目背景、兼容性契约与当前交接
 
-更新时间：2026-10-05。本文件只保留稳定架构、接口约束和当前交接；按日期追加的完整历史
+更新时间：2026-10-09。本文件只保留稳定架构、接口约束和当前交接；按日期追加的完整历史
 保存在 [`docs/history/PROJECT_HANDOFF.md`](history/PROJECT_HANDOFF.md)。当前支持范围以
 [`STATUS.md`](STATUS.md)、能力矩阵和真实报告为准。
 
@@ -64,7 +64,7 @@ Batch、image shift、分层 build/query、容量、selective rebuild 和连续 
 - gfx936/BW200、`HIP_VISIBLE_DEVICES=4` 的 CPU/HCU parity 和窄 API evidence。
 
 HIP M1 当前晶胞快照已在 `codex/feat-hip-current-cell-neighbors` 完成 CPU/HCU4 窄验证，
-实现收口 `fecbc39`，本地阶段分支、未合并或推送；见[契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)与[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
+实现收口 `fecbc39`，本次随 M1–M9 提交链合入 `develop`；见[契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)与[报告](../reports/g2-hip-current-cell-neighbor-m1.md)。
 每次重新派生 inverse/grid/radius/offset 并创建新 plan；低层复用 plan 仍是固定 metadata ABI。
 修正 Hook 的容量溢出类型，并以 `auto_enabled=False` 落实 HIP 不进入 auto 的既定边界。
 
@@ -88,15 +88,15 @@ M5在 `codex/perf-hip-batch-metadata` 完成当前晶胞批量metadata，每次�
 两精度、六变胞/补位快照三路径比较完成；FP64相对Torch邻居约130/29/11倍，
 仅所测邻居API，不是完整弛豫吞吐。原小Batch FP32有既有cutoff舍入分歧，失败保留。
 见[M5契约](HIP_BATCH_METADATA_CONTRACT.md)与[M5报告](../reports/g2-hip-batch-metadata-m5.md)。
-用户确认M6后，M5实现以 `e2d569c` 收口；未合并或推送，查询并行实验已确认。
+用户确认M6后，M5实现以 `e2d569c` 收口；本次随提交链合入 `develop`，后续查询并行实验见M6。
 
-M6在 `codex/perf-hip-cooperative-query` 完成单一HIP查询协作实现及窄验收，实现收口 fe18147、文档 c2a8339；未合并/推送。
+M6在 `codex/perf-hip-cooperative-query` 完成单一HIP查询协作实现及窄验收，实现收口 fe18147、文档 c2a8339；本次随提交链合入 `develop`。
 CPU ops51/framework21、HCU环境ops85/framework49；真实两精度两优化器短轨迹及补位通过。
 FP64约20,000原子200/40/10结构公共邻居相对M5下降15.37%/15.46%/11.34%，
 两精度八配置无稳定退化；实际18原子邻居+模型约5.3%–5.5%下降，未含整个优化步。
 同名扩展别名的首轮时序作废保留，最后用独立扩展名验证；FP32原cutoff边界分歧未扩大。
 见[M6契约](HIP_COOPERATIVE_QUERY_CONTRACT.md)与[报告](../reports/g2-hip-cooperative-query-m6.md)。
-M7在 `codex/test-hip-real-batch-validation` 完成较大真实Batch实验及M1–M6审阅，签名提交 `00637c0`；未合并/推送。
+M7在 `codex/test-hip-real-batch-validation` 完成较大真实Batch实验及M1–M6审阅，签名提交 `00637c0`；本次随提交链合入 `develop`。
 FP64真实1029/39及2030/92两优化器三轮三步、47/100 CIF预算补位通过；
 完整step相对Torch reference cell-list约2.04–2.37倍，模型耗时几乎相同；
 CPU ops51/framework21、HCU环境ops85/framework49定向回归通过。
@@ -104,8 +104,8 @@ FP32仅1029 FIRE完整组通过，其余三组forces重复严格状态门失败�
 纯Torch/Torch FIRE2也出现3.03e-5失败，逐物理量输出容差全部通过，未改任何容差。
 见[M7契约](HIP_REAL_BATCH_VALIDATION_CONTRACT.md)和[报告](../reports/g2-hip-real-batch-validation-m7.md)。
 M8 `codex/fix-mpa0-fp32-state-validation` 比较层修正与真实Batch复验完成，签名收口 `04f80bd`；只改probe测试与文档，framework/ops产品源码、HIP kernel和数值容差未改。CPU单测3 passed；HCU八组合中六组完整通过，另两组所有数值/轨迹状态比较通过但被每个晶胞必须移动的附加断言阻断。纯Torch/Torch控制未出现几何/私有状态严格门失败。见[M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)及[报告](../reports/g2-hip-mpa0-state-validation-m8.md)。
-M9定位两组相同的未移动结构为 `mp-1013795_Li3Ge3(MoO6)2.cif`：HIP/Torch reference 的终态晶胞均与初态完全相同，应力约 `7.68e-4 eV/Å³`。移除“每个结构均须移动”的过强probe条件，保留逐结构backend/state parity和批次至少发生一次晶胞变化；两组FP32 FIRE2在HCU4复跑均通过。只改probes和文档，无邻居后端或framework/ops改动。见[M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)，结果待用户确认收口。
-不修改HIP/模型或全局容差、不自动合并或推送。
+M9定位两组相同的未移动结构为 `mp-1013795_Li3Ge3(MoO6)2.cif`：HIP/Torch reference 的终态晶胞均与初态完全相同，应力约 `7.68e-4 eV/Å³`。移除“每个结构均须移动”的过强probe条件，保留逐结构backend/state parity和批次至少发生一次晶胞变化；两组FP32 FIRE2在HCU4复跑均通过。只改probes和文档，无邻居后端或framework/ops改动。见[M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)，实现 `fa1259b`、收口文档 `b549558`。
+2026-10-09 用户明确要求将已完成更新合入 `develop` 并推送到 `github-origin`、`gitee-origin`、`local-origin`；本次以 fast-forward 集成 M1–M9 提交链及交接文档更新，保留各阶段报告的历史验证范围。
 
 当前不宣称完整上游邻居后端。未覆盖或未准入的能力包括 no-PBC/half HIP、skin/selective rebuild
 lifecycle、target/pair outputs、pair-centric/sorted query、旧 plan 变胞复用、native geometry backward、
@@ -196,8 +196,8 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
 
 已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
-M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，未合并或推送。
-M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；M6查询协作实现及窄验收完成并收口；M7签名收口 `00637c0`；M8签名收口 `04f80bd`；M9 probe移动判定修正和两组HCU复验完成，待用户确认收口。
+M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，本次随提交链合入 `develop`。
+M4实测和workspace实验完成，候选未达门槛已撤回并收口；M5批量metadata完成窄验收、实现收口 `e2d569c`；M6查询协作实现及窄验收完成并收口；M7签名收口 `00637c0`；M8签名收口 `04f80bd`；M9 probe移动判定修正和两组HCU复验完成，以 `fa1259b`/`b549558` 收口。M1–M9 本次整体合入 `develop`。
 继续暂停 M2 planner、NPT/NPH、DomainParallel、
 生产 Triton/HIP dynamics 及未经确认的邻居能力扩展。
 

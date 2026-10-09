@@ -1,11 +1,12 @@
 # 当前开发状态
 
-更新时间：2026-10-05。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
+更新时间：2026-10-09。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
 [`docs/history/STATUS.md`](history/STATUS.md)。
 
 ## 当前基线
 
-- 当前交付基线：本地 `develop`，集成 merge commit `620a485`。它包含 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和本次应用分离收口；相应里程碑分支提交均已核实在 `develop` 历史中。
+- 当前交付基线：`develop`，在既有基线 `fb05b61` 上以 fast-forward 集成 HIP 邻居 M1–M9 提交链（阶段末提交 `b549558`）及本次交接文档更新。既有 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和应用分离收口均保留。
+- 本次合并前 CPU 聚焦回归：ops `110 passed/34 skipped`，framework 独立进程 `54 passed/28 skipped/1 xfailed`，probe 比较器 `3 passed`；skips 为 HIP 设备项，xfail 为既有 `WARP-DEFAULT-001`。特性契约解析与 diff 检查通过；本次未重跑 HCU，原数值/性能证据仍以各阶段报告为准，不代表全库 gate。
 - toolkit 应用分离提交为 `730a848`，由 `codex/fix-fire-zero-dt-min` 合入；LOCAL-004 实现提交为 `0e354f4`。完整移植审查见[报告](../reports/g2-relaxation-port-closure-review.md)。
 - 独立应用工程 `/home/wangleping/codes/alchemi-app` 已在本地 `develop` 创建首提交 `9ae235c`；此工程拥有 MPA-0 CIF 应用入口和专属测试。
 - 首轮 remote refs 核验已通过：toolkit 三个 remote 的 `develop` 均包含集成状态提交 `9552588`，应用工程三个 remote 的 `develop` 均包含首提交 `9ae235c`；本条状态记录随其后的 toolkit commit 继续同步。
@@ -120,12 +121,12 @@
   不宣称任意FP32边界位级等价。`auto`、skin/selective rebuild、workspace、native COO、
   query并行、长收敛、其他MLIP、DD/compile/训练未新增。
 - [契约](HIP_BATCH_METADATA_CONTRACT.md)、[报告](../reports/g2-hip-batch-metadata-m5.md)。
-  用户已确认查询并行实验M6；先收口M5再开始，不自动合并或推送。
+  M5已收口；后续M6查询协作及M7–M9验证已完成，本次按用户要求随提交链合入 `develop`。
 
 ## HIP 查询线程协作 M6（2026-10-06）
 
 - 用户确认后M5实现 `e2d569c`、文档 `3073f63` 收口；M6分支
-  `codex/perf-hip-cooperative-query`，实现收口 fe18147、文档 c2a8339；未合并/推送。
+  `codex/perf-hip-cooperative-query`，实现收口 fe18147、文档 c2a8339；本次随提交链合入 `develop`。
 - 仅改变native查询：每原子一64线程block分担候选cell，共享计数预留slot；
   native仍无序、公共排序保持；溢出/重叠明确失败、int64平展数量超限明确失败。
   正式产品一个HIP后端，接口/metadata/CSR/COO/梯度/默认选择保持。
@@ -149,7 +150,7 @@
 ## HIP 较大真实 Batch 综合验收 M7（2026-10-06）
 
 - 用户确认后收口M6实现 `fe18147`、文档 `c2a8339`；分支
-  `codex/test-hip-real-batch-validation`，实验与文档以签名提交 `00637c0` 收口，未合并/推送；不修改产品代码。
+  `codex/test-hip-real-batch-validation`，实验与文档以签名提交 `00637c0` 收口，本次随提交链合入 `develop`；该阶段不修改产品代码。
 - 真实1029原子/39结构、2030原子/92结构MPA-0，FP64优先、FP32补充；
   两路径都是显式cell-list（Torch reference/当前HIP），同模型/e3nn/dtype/参数。
 - FP64两规模两优化器三轮三步及47/100真实CIF预算补位通过；同几何E/F/stress最大误差
@@ -181,7 +182,7 @@
   与数值阈值未改。
 - [M8契约](HIP_MPA0_FP32_STATE_VALIDATION_M8.md)、[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)。
 
-## FP32 FIRE2 per-system 晶胞移动断言 M9（复验完成，待收口）
+## FP32 FIRE2 per-system 晶胞移动断言 M9（已收口）
 
 - M8两组FP32 FIRE2只因`moving == len(systems)`失败。定位到 source 36：
   `mp-1013795_Li3Ge3(MoO6)2.cif`。两组中 HIP 和 Torch reference 的终态晶胞均与初始值完全相同，
