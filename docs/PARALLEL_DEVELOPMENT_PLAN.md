@@ -56,6 +56,7 @@ A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移
 | 已确认并收口 | B：Upstream Delta V1 | 工具/候选/报告；14 项夹具验证通过；467/322 文件变化、40/8 潜在交集；候选运行未验证 | 不修改 packages/锁/生产环境，不自动解决冲突 |
 | 已确认并收口 | C：UBF 上游对齐 | 16 项官方对照；核心 equivalent 3/partial 5/different 1/unknown 7；全部 retain；PR194 案例 6 passed，本地定向回归与原 MACE 收集失败分别记录 | 未运行候选/HCU/Warp；无补丁删除、产品同步或环境升级 |
 | 已确认收口 | D：隔离升级评估 | 依赖/API/三方文本审查、24个冲突文件；三原样模块 CPU/HCU4 各11项检查通过，stock导入失败；暂缓整体升级 | 非真实 Batch/grouped 工作流或全包/Warp 验收；不作为长期功能主线 |
+| 已确认收口 | HIP FIRE2 完整弛豫补测 | HCU4三Li/Na CIF、两精度×两邻居分支；12个结构运行全部联合收敛、真实补位/终态/导出核验；CPU59+探针4通过 | 仅三样本FIRE2；不扩展大Batch/其他材料成功率、性能或候选版本；见补测报告 |
 | 已获整理授权 | A–D 工程化成果 PR | 稳定基线流程、Delta 工具、UBF 表、回归与报告的可审阅集成 | 不含候选源码/实验环境/产品升级；集成和推送按用户确认 |
 | 完成 | HIP 邻居 M1：当前晶胞 | 显式 full-PBC/Batch/full/MATRIX/FP32/64，每次完整重建；CPU/HCU4 gate；实现 `fecbc39`、分支 `codex/feat-hip-current-cell-neighbors` | 不含 COO/MACE/FIRE 工作流、skin、旧 plan 复用或性能结论 |
 | 完成 | HIP 邻居 M2：COO + MACE 单点 | 实现 `3e394d7`；设备内 Torch 适配、ops/framework/Hook CPU/HCU4；真实MPA-0两精度/三快照E/F/stress与FP64差分 | 不直接实现 native COO；变胞 FIRE/FIRE2 和实测优化分别后续验收 |
