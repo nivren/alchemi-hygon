@@ -7,6 +7,7 @@
 
 | 主题 | 当前摘要 | 主要限制 |
 |---|---|---|
+| A–D 与补测集成收口 | [`g2-upstream-sync-v1-closure-2026-10-09.md`](g2-upstream-sync-v1-closure-2026-10-09.md) | 签名成果与CPU复验已整理到独立集成分支；候选保持Candidate；在线PR/推送待明确授权 |
 | 隔离升级 D（2026-10） | [`upstream-sync-2026-10.md`](upstream-sync-2026-10.md) | 三候选原样模块 CPU/HCU4 各11项检查通过；stock导入及依赖/API/24个文本冲突阻塞；暂不整体升级，仍Candidate |
 | FIRE2 + HIP 邻居完整弛豫补测 | [`g2-hip-fire2-convergence-2026-10-09.md`](g2-hip-fire2-convergence-2026-10-09.md) | 固定三Li/Na CIF，HCU4两精度/两邻居分支四作业，全部双阈值收敛及真实补位/终态/导出核验；非大Batch或普遍收敛保证 |
 | UBF 对齐 C（2026-10） | [`upstream-bugfix-alignment-2026-10.md`](upstream-bugfix-alignment-2026-10.md) | 16 项官方证据/额外边界；全部 retain；PR194 本地科学案例 6 passed；候选/HCU/Warp 未运行，原 MACE 模块收集失败单列 |

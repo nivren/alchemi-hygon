@@ -133,7 +133,7 @@ D 在 `sync/upstream-2026-10` 独立 worktree 完成
 [隔离升级评估](../reports/upstream-sync-2026-10.md)：候选三原样模块 CPU/HCU4 各11项检查通过，
 stock Batch/L-BFGS 导入因缺 Warp 失败；依赖/API/三方文本冲突尚有阻塞，结论暂不整体升级。
 这不是候选整包或 grouped 生命周期验收，现有产品/版本锁/环境/能力契约保持原值。
-用户已确认 D 以本签名提交收口，下一目标为独立 A–D 工程化成果 PR；尚未合并或推送 develop。
+D 已签名收口 `a0a3763`，完整候选组合保持 Candidate。
 A–C 完成后恢复正常功能开发，D 可单独确认并行；不升级当前锁或 Torch/DTK。
 
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。
@@ -143,8 +143,13 @@ A–C 完成后恢复正常功能开发，D 可单独确认并行；不升级当
 均退出0，固定三个Li/Na CIF全部双阈值收敛，真实补位、终态同几何和导出CPU/HCU核验通过。
 CPU定向59 passed/16设备skip、探针4 passed；产品/锁/环境保持原值。
 这是本地稳定基线的三样本证据，与另一个sync worktree中的候选评估分别保存；
-不提升上游候选版本状态。用户已确认补测和 D 签名收口，下一目标是整理独立集成 PR；
-尚未合并或推送 develop。
+不提升上游候选版本状态。补测已签名收口 `8306b7f`。
+
+A–D 与补测已整理到 `wangleping/integration-g2-upstream-sync-v1` 独立分支，
+合并提交 `8623517` 保留两个成果提交；CPU 定向工作流59、Delta14、科学案例6、
+补测夹具4、候选独立模块11项复验通过，工作流16项既有设备skip单列。
+[PR 收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)作为下一步交付入口；
+在线 PR 与推送仍待明确授权，develop 仍为 `2e211ab`。
 
 `TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
 state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。

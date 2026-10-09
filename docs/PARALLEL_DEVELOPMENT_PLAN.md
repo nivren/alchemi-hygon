@@ -47,7 +47,8 @@ B 已完成只读差异工具/冻结候选记录/[首轮报告](../reports/upstr
 C 已完成 [16 项 UBF 对照](UPSTREAM_BUGFIX_STATUS.yaml)与
 [审查/回归报告](../reports/upstream-bugfix-alignment-2026-10.md)，全部 retain；C 已签名收口 `ad18998`。
 D 已在 `sync/upstream-2026-10` 完成 [独立评估](../reports/upstream-sync-2026-10.md)，
-结论暂不整体升级；用户已确认签名收口并整理工程化成果 PR。
+结论暂不整体升级；D 已签名收口 `a0a3763`，补测已签名收口 `8306b7f`。
+两条成果以 `8623517` 汇合到独立集成分支；[PR 收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)记录复验与交付确认点。
 A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移植。
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
@@ -57,7 +58,7 @@ A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移
 | 已确认并收口 | C：UBF 上游对齐 | 16 项官方对照；核心 equivalent 3/partial 5/different 1/unknown 7；全部 retain；PR194 案例 6 passed，本地定向回归与原 MACE 收集失败分别记录 | 未运行候选/HCU/Warp；无补丁删除、产品同步或环境升级 |
 | 已确认收口 | D：隔离升级评估 | 依赖/API/三方文本审查、24个冲突文件；三原样模块 CPU/HCU4 各11项检查通过，stock导入失败；暂缓整体升级 | 非真实 Batch/grouped 工作流或全包/Warp 验收；不作为长期功能主线 |
 | 已确认收口 | HIP FIRE2 完整弛豫补测 | HCU4三Li/Na CIF、两精度×两邻居分支；12个结构运行全部联合收敛、真实补位/终态/导出核验；CPU59+探针4通过 | 仅三样本FIRE2；不扩展大Batch/其他材料成功率、性能或候选版本；见补测报告 |
-| 已获整理授权 | A–D 工程化成果 PR | 稳定基线流程、Delta 工具、UBF 表、回归与报告的可审阅集成 | 不含候选源码/实验环境/产品升级；集成和推送按用户确认 |
+| 本地准备完成 | A–D 工程化成果与补测 PR | 独立集成分支；原提交保留、文档冲突核对、CPU复验通过；待源分支推送和在线PR授权 | 不含候选源码/实验环境/产品升级；不自动合并develop；新功能优先级另行确认 |
 | 完成 | HIP 邻居 M1：当前晶胞 | 显式 full-PBC/Batch/full/MATRIX/FP32/64，每次完整重建；CPU/HCU4 gate；实现 `fecbc39`、分支 `codex/feat-hip-current-cell-neighbors` | 不含 COO/MACE/FIRE 工作流、skin、旧 plan 复用或性能结论 |
 | 完成 | HIP 邻居 M2：COO + MACE 单点 | 实现 `3e394d7`；设备内 Torch 适配、ops/framework/Hook CPU/HCU4；真实MPA-0两精度/三快照E/F/stress与FP64差分 | 不直接实现 native COO；变胞 FIRE/FIRE2 和实测优化分别后续验收 |
 | 完成 | HIP 邻居 M3：变胞 FIRE/FIRE2 | CPU16+48/HCU4 16测试；真实MPA-0两精度/两优化器五步和三结构预算补位；无新增产品kernel；收口实现 `6b1680a` | 长作业、大Batch、物理收敛、性能准入未新增 |

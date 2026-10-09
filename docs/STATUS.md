@@ -48,7 +48,7 @@
   导入因缺 Warp 退出1。候选三个原样独立模块（GroupLayout/HookContext/Protocol）
   CPU/HCU4 各11项 probe checks 通过；使用 ProbeBatch 最小夹具，非真实 Batch/grouped
   工作流、Hook 引擎时序、全包或原生 Warp gate。没有改变当前产品能力契约。
-  结论为暂不整体升级，候选仍 Candidate；用户已确认 D 签名收口及 A–D 工程化成果 PR 整理。
+  结论为暂不整体升级，候选仍 Candidate；D 已签名收口 `a0a3763`。
 
 ## 2026-10-09：HIP 邻居 FIRE2 完整弛豫补测
 
@@ -61,8 +61,16 @@ HCU4 上 FP64/FP32 × HIP/Torch reference邻居四作业均退出0，三个Li/Na
 12个结构运行（其中HIP6个）均满足fmax<=0.01 eV/Å且max(abs(stress))<=0.1 GPa；
 终态同几何完整E/F/stress及CIF重读CPU/HCU重算通过。
 优化器仍Torch reference；不新增任意材料/大Batch收敛、性能、Warp、compile或DD支持。
-产品/上游锁/环境未变；用户已确认以本签名提交收口补测，并与 D 整理独立集成 PR。
-尚未合并或推送 develop。
+产品/上游锁/环境未变；补测已签名收口 `8306b7f`。
+
+## 2026-10-09：A–D 与补测集成 PR 准备
+
+独立分支 `wangleping/integration-g2-upstream-sync-v1` 已保留 A–D 与补测的签名提交，
+以 `8623517` 合并两条成果支线；三个文档冲突均保留双方证据。
+CPU 复跑：工作流59 passed/16设备skip、Delta夹具14 passed、官方科学案例6 passed、
+补测夹具4 passed、候选独立模块11 checks；均退出0。
+[收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)包含 PR 范围、证据复用和交付确认点。
+尚未向远端推送源分支或建立在线 PR；develop 仍为 `2e211ab`，候选保持 Candidate。
 
 ## 当前能力摘要
 
