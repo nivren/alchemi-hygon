@@ -7,6 +7,7 @@
 
 | 主题 | 当前摘要 | 主要限制 |
 |---|---|---|
+| G2 集成基线验收 A（2026-10-09） | [`g2-integration-a-2026-10-09.md`](g2-integration-a-2026-10-09.md) | `2e211ab` 指定 CPU/HCU4 与真实MPA-0八组通过；非全上游/Warp/长收敛；长期跟踪流程见 docs/UPSTREAM_SYNC.md |
 | 项目环境 | [`probe-environment-freeze.txt`](probe-environment-freeze.txt) | 机器事实和历史资源快照；新机器需重新确认 |
 | Torch reference 基线 | [`g2-torch-reference-pbc-cell-list-core.md`](g2-torch-reference-pbc-cell-list-core.md) | 不代表生产性能后端 |
 | HIP 邻居阶段二收口 | [`g2-framework-hip-neighbor-compatibility-gate.md`](g2-framework-hip-neighbor-compatibility-gate.md) | 当时覆盖 periodic/fixed-cell/Batch/full-list/MATRIX 窄范围 |

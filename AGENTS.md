@@ -103,6 +103,9 @@
 根目录 `AGENTS.md` 是唯一的项目级 Agent 入口；不要另建内容重复的 `Agent.md`。
 完整的环境操作见 [`docs/DEVELOPMENT_ENVIRONMENT.md`](docs/DEVELOPMENT_ENVIRONMENT.md)，
 算子、后端、功能和 Git 协作规则见 [`docs/DEVELOPMENT_GUIDE.md`](docs/DEVELOPMENT_GUIDE.md)。
+稳定基线、上游变化跟踪、补丁对齐和隔离升级按
+[`docs/UPSTREAM_SYNC.md`](docs/UPSTREAM_SYNC.md) 执行；启动相关任务时读取该流程。
+本轮 A–D 每阶段完成后总结结果并提出下一阶段目标，等待用户确认；不自动推送或集成。
 
 会修改仓库的任务开始时按以下顺序执行；纯问答和局部只读审查只读取直接相关内容：
 

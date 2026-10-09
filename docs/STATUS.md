@@ -6,12 +6,29 @@
 ## 当前基线
 
 - 当前交付基线：`develop`，在既有基线 `fb05b61` 上以 fast-forward 集成 HIP 邻居 M1–M9 提交链（阶段末提交 `b549558`）及本次交接文档更新。既有 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和应用分离收口均保留。
-- 本次合并前 CPU 聚焦回归：ops `110 passed/34 skipped`，framework 独立进程 `54 passed/28 skipped/1 xfailed`，probe 比较器 `3 passed`；skips 为 HIP 设备项，xfail 为既有 `WARP-DEFAULT-001`。特性契约解析与 diff 检查通过；本次未重跑 HCU，原数值/性能证据仍以各阶段报告为准，不代表全库 gate。
+- 集成前 CPU 聚焦回归：ops `110 passed/34 skipped`，framework 独立进程 `54 passed/28 skipped/1 xfailed`，probe 比较器 `3 passed`；当时未重跑 HCU。集成后 A 阶段指定 CPU/HCU 验收见下一节，各历史阶段性能结论不扩大为全库 gate。
 - toolkit 应用分离提交为 `730a848`，由 `codex/fix-fire-zero-dt-min` 合入；LOCAL-004 实现提交为 `0e354f4`。完整移植审查见[报告](../reports/g2-relaxation-port-closure-review.md)。
 - 独立应用工程 `/home/wangleping/codes/alchemi-app` 已在本地 `develop` 创建首提交 `9ae235c`；此工程拥有 MPA-0 CIF 应用入口和专属测试。
 - 首轮 remote refs 核验已通过：toolkit 三个 remote 的 `develop` 均包含集成状态提交 `9552588`，应用工程三个 remote 的 `develop` 均包含首提交 `9ae235c`；本条状态记录随其后的 toolkit commit 继续同步。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
+
+## G2 集成验收 A 与上游跟踪（2026-10-09）
+
+- 固定已集成的源码 `2e211ab93a4f1ad0c8c720eecb22129d846c7792`，在个人分支
+  `wangleping/test-g2-integration-a` 完成指定验收；不改产品源码、探针、锁定版本或生产环境。
+- CPU reference 脚本 `425 passed/3 skipped`；补充 HIP ops `67 passed/34 skipped`、
+  framework `49 passed/28 skipped/1 xfailed`、比较器 `3 passed`。各组存在重叠，非全上游测试。
+- HCU4 ops `101 passed`、framework `77 passed/1 xfailed`；固定晶胞公共 gate、COO/MPA-0
+  两精度单点/FP64 差分、两精度 FIRE/FIRE2 短步/补位通过；较大真实 1029/2030 原子
+  ×两精度×两优化器共 8/8 通过。共 14 个 HCU 任务均退出 0，结束后设备空闲。
+- 保持 full-PBC/full-list/MATRIX+Torch COO/skin=0、当前晶胞完整重建、显式 HIP 选择的
+  窄边界；实际 Warp/NVIDIA、长物理收敛、完整 compile 与其他未准入能力没有新增验证。
+  FP32 FIRE2 两组分别 46/47、99/100 晶胞移动；未移动结构两后端晶胞相同，逐结构比较通过。
+- [A 报告](../reports/g2-integration-a-2026-10-09.md)包含 SHA、环境、命令、退出码、数值和限制；
+  长期开发流程写入 [UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)，AGENTS/开发指南提供入口。
+- 用户已确认 A 验收与收口提交，并授权启动 B：只读 Upstream Delta 工具、冻结候选记录和
+  首次差异报告；本轮未推送/合并，C/D 尚未启动。
 
 ## 当前能力摘要
 
@@ -45,7 +62,7 @@
 
 ## HIP 当前晶胞重建 M1（2026-10-05）
 
-- 起点 `fb05b61`，分支 `codex/feat-hip-current-cell-neighbors`；已收口实现 `fecbc39`，本地阶段分支；未合并或推送。
+- 起点 `fb05b61`，分支 `codex/feat-hip-current-cell-neighbors`；已收口实现 `fecbc39`，已随 M1–M9 提交链合入 `develop` 并同步三个目标 remote。
 - CPU：ops `87 passed, 6 skipped`；framework `33 passed, 4 skipped, 1 xfailed`。
   skip 为 HCU 专属用例；既有 xfail 为 `WARP-DEFAULT-001`，不是新增豁免。
 - HCU4 BW1000 64G/gfx936：ops `22 passed`，framework `4 passed`；46×32 既有
@@ -59,7 +76,7 @@
 
 ## HIP COO 与 MPA-0 单点 M2（2026-10-05）
 
-- 起点 `8120282`，分支 `codex/feat-hip-coo-mace-snapshot`；已收口实现 `3e394d7`，本地阶段分支，未合并或推送。
+- 起点 `8120282`，分支 `codex/feat-hip-coo-mace-snapshot`；已收口实现 `3e394d7`，已随 M1–M9 提交链合入 `develop` 并同步三个目标 remote。
 - COO 为 HIP MATRIX 核心加设备内 Torch 打包；直接 ops、framework、Hook 均准入。
   修正 Hook 对自动过量分配 MATRIX 的容量适配，只裁 padding、有效 counts 超容量则报错。
 - CPU ops `88 passed, 10 skipped`；framework `38 passed, 12 skipped, 1 xfailed`。
@@ -74,7 +91,7 @@
 ## HIP 邻居变胞 FIRE/FIRE2 工作流 M3（2026-10-05）
 
 - 起点 M2 `3e394d7`/`4136f0f`，分支 `codex/test-hip-variable-cell-workflow`；窄 gate 已通过，
-  实现已收口 `6b1680a`，未合并或推送；M4 已获确认。无新增产品 kernel 或优化器修改。
+  实现已收口 `6b1680a`，已随 M1–M9 提交链合入 `develop` 并同步三个目标 remote。无新增产品 kernel 或优化器修改。
 - Torch reference 优化器/stress/align + 显式 HIP full-PBC/full/COO/skin=0；共享
   NeighborListHook 登记在 FusedStage BEFORE_COMPUTE，run 显式传入设备 Batch。
 - CPU 新工作流16 passed/16 skipped、相关回归48 passed/12 skipped；HCU4 新工作流
@@ -91,7 +108,7 @@
 ## HIP 邻居性能与 workspace M4（2026-10-06）
 
 - 用户确认后，M3 已收口 `6b1680a`/`47cf259`；M4 分支
-  `codex/perf-hip-neighbor-workspace`，已收口实现 `95f2ef6`，未合并或推送；M5已获确认。
+  `codex/perf-hip-neighbor-workspace`，已收口实现 `95f2ef6`，已随 M1–M9 提交链集成到 `develop`。
 - 完成基线/hipprof和workspace候选；候选CPU规则+真实HIP回归30 passed。
   同进程AB/BA配对每项45样本，46×32 FP32邻居median `17.903→17.672ms`（下降1.29%），
   真实18原子MPA-0邻居+模型 `36.662→36.428ms`（下降0.64%）。未达预设5%门槛，
@@ -106,7 +123,7 @@
 
 - 分支 `codex/perf-hip-batch-metadata`；M4已收口 `95f2ef6`/`88b6b2f`。
   M5仅修改ops当前晶胞metadata批量推导，每调用仍完整重建；无新native query/COO。
-  产品只有一个注册HIP后端，修改前源码仅作探针比较；实现已收口 `e2d569c`；未合并或推送。
+  产品只有一个注册HIP后端，修改前源码仅作探针比较；实现已收口 `e2d569c`，已随 M1–M9 提交链集成到 `develop`。
 - CPU ops45 passed/28 skipped、framework21 passed/28 skipped；HCU4 ops73和framework49 passed。
   真实MPA-0两精度/两优化器五步及FusedStage预算补位回归通过；不是长步物理收敛。
 - 约20,000原子异构Batch的200/40/10结构：均FP32/64，包含压缩/膨胀/剪切、N/B/ptr补位及

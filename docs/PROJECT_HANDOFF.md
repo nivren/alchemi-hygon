@@ -114,6 +114,15 @@ compile/opcheck、DomainParallel、`auto` 和生产默认性能。Torch geometry
 
 ## 6. 当前任务和暂停点
 
+用户已确认 G2 集成收口与 Upstream Sync V1，长期规则见
+[UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)。A 已在集成源码 `2e211ab` 完成指定 CPU/HCU4 验收：
+CPU reference `425 passed/3 skipped`，HCU ops `101 passed`、framework `77 passed/1 xfailed`；
+两精度/两优化器/两规模真实 MPA-0 Batch 共 8/8 通过，状态/预算补位和窄范围限制详见
+[A 报告](../reports/g2-integration-a-2026-10-09.md)。实际 Warp/NVIDIA 和完整生产能力未验证。
+用户已确认 A 验收，文档在 `wangleping/test-g2-integration-a` 收口提交，本轮未推送/合并。
+B 只读差异工具/候选记录/报告已获启动授权；C 的 UBF 对齐、D 的隔离升级未启动。
+A–C 完成后恢复正常功能开发，D 可单独确认并行；不升级当前锁或 Torch/DTK。
+
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。
 `TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
 state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。

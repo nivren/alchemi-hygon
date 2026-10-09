@@ -1433,6 +1433,8 @@
           "probes/hip_cooperative_query_benchmark.py"
         ],
         "evidence": [
+          "reports/g2-integration-a-2026-10-09.md",
+          "artifacts/g2-integration-a-2026-10-09/",
           "docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md",
           "reports/g2-hip-real-batch-validation-m7.md",
           "artifacts/hip-real-batch-m7/",
@@ -1494,7 +1496,7 @@
           "probes/framework_neighbor_hip_contract.py",
           "probes/hip_coo_mace_snapshot.py"
         ],
-        "evidence": ["docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "reports/g2-hip-fp32-fire2-cell-movement-m9.md", "docs/HIP_COO_MACE_SNAPSHOT_CONTRACT.md", "reports/g2-hip-coo-mace-snapshot-m2.md", "artifacts/hip-coo-mace-snapshot-m2/"],
+        "evidence": ["reports/g2-integration-a-2026-10-09.md", "artifacts/g2-integration-a-2026-10-09/", "docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "reports/g2-hip-fp32-fire2-cell-movement-m9.md", "docs/HIP_COO_MACE_SNAPSHOT_CONTRACT.md", "reports/g2-hip-coo-mace-snapshot-m2.md", "artifacts/hip-coo-mace-snapshot-m2/"],
         "environments": ["DTK26.04/Torch2.9.0/HIP6.3.26093/HCU4 BW1000 64G gfx936; MACE0.3.15/e3nn0.4.4"]
       },
       "limitations": [
@@ -1531,7 +1533,7 @@
         "dcu_status": "partial",
         "upstream_tests": [],
         "dcu_tests": ["probes/hip_real_batch_validation.py", "probes/mace_fp32_state_control.py", "packages/framework/test/compatibility/test_hip_variable_cell_workflow.py", "probes/hip_variable_cell_mace_workflow.py"],
-        "evidence": ["docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "reports/g2-hip-fp32-fire2-cell-movement-m9.md", "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
+        "evidence": ["reports/g2-integration-a-2026-10-09.md", "artifacts/g2-integration-a-2026-10-09/", "docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "reports/g2-hip-fp32-fire2-cell-movement-m9.md", "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
         "environments": ["DTK26.04/Torch2.9.0/HIP6.3.26093/HCU4 BW1000 64G gfx936; locked MPA-0 checkpoint"]
       },
       "limitations": [

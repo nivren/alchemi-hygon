@@ -34,4 +34,6 @@ FP32 FIRE2 在该重复比较失败；独立纯 Torch/Torch FIRE2 对照也曾�
 优化器私有状态比较均通过，最后仅触发既有“所有输入结构的晶胞都必须改变”检查。加上失败
 计数诊断后，1000原子FP32 FIRE2为46/47个晶胞变化，2000原子FP32 FIRE2为99/100；不改变该
 验收条件。所有八组的初始/step3邻居拓扑与模型物理输出比较通过。详情见
-[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)。M8结果完成，待用户确认收口。
+[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)。M8已由 `04f80bd` 收口并随提交链合入 `develop`；
+后续 M9 以 `fa1259b` 修正额外移动条件并完成两组复验，详见
+[M9报告](../reports/g2-hip-fp32-fire2-cell-movement-m9.md)。

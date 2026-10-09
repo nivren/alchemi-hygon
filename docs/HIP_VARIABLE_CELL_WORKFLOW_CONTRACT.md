@@ -51,7 +51,7 @@ FP64 rtol2e-8/atol2e-9，FP32 rtol2e-4/atol2e-5，功率分支的整数控制状
 compile/opcheck、DD、native dynamics kernel、skin/selective rebuild 或性能准入。
 先完成正确性，性能测量与 workspace/query 优化留给后续里程碑。
 
-实施状态：窄 gate 通过，已收口实现 `6b1680a`、文档 `47cf259`，未合并/推送。CPU 新测试16 passed/16 skipped，
+实施状态：窄 gate 通过，已收口实现 `6b1680a`、文档 `47cf259`，已随 M1–M9 提交链集成到 `develop`。CPU 新测试16 passed/16 skipped，
 相关回归48 passed/12 skipped；HCU4 新测试16 passed/16 deselected；真实模型两优化器
 ×两精度各五步及三结构容量2预算补位通过。真实预算退出不等于物理收敛。
 SizeAwareSampler 返回 host 数据，FusedStage.run 显式传入设备 Batch；共享邻居 Hook
