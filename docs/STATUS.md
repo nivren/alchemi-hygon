@@ -79,7 +79,11 @@ packages/产品版本锁/生产环境保持原值，候选仍 Candidate；本次
 ## 2026-10-09：Upstream Sync V1 最小维护收口（4/4）
 
 维护分支 `wangleping/fix-upstream-sync-v1-closure` 从 develop `82f7841` 建立；
-修复已签名提交 `34dcf9f`，本阶段完成，等待用户确认集成/推送。
+修复已签名提交 `34dcf9f`、文档提交 `4daed66`，4/4 验收完成。
+用户已明确授权直接合并并推送三处；本地 develop 已快进集成到 `4daed66`。
+交付状态文档提交随成果推送至 `github-origin`、`gitee-origin`、`local-origin` 的 develop；
+实际交付 SHA、退出码及远端核验见
+`artifacts/upstream-sync-v1-maintenance-2026-10-09/delivery/verification.json`。
 
 - [x] 历史 Candidate 恢复 B 原始字节并匹配报告输入哈希；D 结构化结果移至
   [独立验证记录](../reports/upstream-sync-2026-10-validation.json)，原 D 报告不变。

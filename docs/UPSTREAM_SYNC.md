@@ -135,12 +135,15 @@ cmp reports/upstream-delta-2026-10.md \
 本轮环境为 Python3.12.13 / Git2.34.1，与原报告记录一致。新路径保留原证据；
 只恢复 Candidate 后用当前补丁文档或修改后的工具生成，不能保证与原报告字节相同。
 
-2026-10-09 最小维护收口完成（修复提交 `34dcf9f`，待用户确认集成/推送）：
+2026-10-09 最小维护收口完成（修复提交 `34dcf9f`、文档提交 `4daed66`）：
 21项 unittest 通过（原14项保留、新增7项）；原 B Markdown 字节一致，SHA256 均为
 `64074a979847a0db07395f93287bc8104ee96e88bfddccd1623eebd47f0ed817`。
 当前工具用相同冻结输入生成的 Markdown/JSON 仅工具哈希不同；实际历史报告覆盖被拒绝，exit2。
 D 的结构化结果完整迁移，原报告/UBF/产品源码/版本锁/生产环境控制及两套缓存引用保持原值。
 原始命令、退出码、哈希和日志位于 `artifacts/upstream-sync-v1-maintenance-2026-10-09/`。
+用户已明确授权直接合并并推送三处；成果 `4daed66` 已快进集成本地 develop。
+交付状态文档随成果同步 `github-origin`、`gitee-origin`、`local-origin` 的 develop；
+实际 SHA/退出码核验见该目录的 `delivery/verification.json`。
 本轮只验收工具和记录；沿用既有 HCU 证据，后续正常功能移植在新 session 单独确认范围。
 
 [UPSTREAM.md](UPSTREAM.md) 保留全部 LP 适配索引；

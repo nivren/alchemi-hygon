@@ -52,7 +52,8 @@ D 已在 `sync/upstream-2026-10` 完成 [独立评估](../reports/upstream-sync-
 A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移植。
 
 Upstream Sync V1 最小维护已在 `wangleping/fix-upstream-sync-v1-closure` 完成4/4验收，
-修复提交 `34dcf9f`（基于 develop `82f7841`，待用户确认集成/推送）：
+修复提交 `34dcf9f`（基于 develop `82f7841`），成果 `4daed66` 已快进集成本地 develop；
+用户已授权向 `github-origin`、`gitee-origin`、`local-origin` 同步 develop：
 Candidate 恢复B快照、D结果独立保存、输出保护及21项测试通过、历史报告字节复现通过。
 流程和证据见 [STATUS](STATUS.md)与
 [UPSTREAM_SYNC](UPSTREAM_SYNC.md#42-历史报告复现与-v1-维护收口)。
@@ -61,7 +62,7 @@ Candidate 恢复B快照、D结果独立保存、输出保护及21项测试通过
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
-| 维护验收完成，待交付确认 | Upstream Sync V1 最小收口 | 冻结输入/原工具历史复现、默认输出保护、21项轻量测试与文档，4/4完成 | 无产品/版本/环境变化；既有HCU证据复用；本轮停止 |
+| 已验收并集成本地 develop | Upstream Sync V1 最小收口 | 冻结输入/原工具历史复现、默认输出保护、21项轻量测试与文档，4/4完成；三处交付核验见 STATUS | 无产品/版本/环境变化；既有HCU证据复用；本轮停止 |
 | 已确认并收口 | A：G2 集成基线验收 | 固定 `2e211ab`，CPU reference 425 passed/3 skipped；HCU ops101/framework77+既有xfail；真实MPA-0八组通过；流程/证据已写入 | 指定 gate，非全上游/NVIDIA/长收敛 |
 | 已确认并收口 | B：Upstream Delta V1 | 工具/候选/报告；14 项夹具验证通过；467/322 文件变化、40/8 潜在交集；候选运行未验证 | 不修改 packages/锁/生产环境，不自动解决冲突 |
 | 已确认并收口 | C：UBF 上游对齐 | 16 项官方对照；核心 equivalent 3/partial 5/different 1/unknown 7；全部 retain；PR194 案例 6 passed，本地定向回归与原 MACE 收集失败分别记录 | 未运行候选/HCU/Warp；无补丁删除、产品同步或环境升级 |
