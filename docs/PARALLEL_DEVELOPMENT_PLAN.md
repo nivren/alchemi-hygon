@@ -51,8 +51,17 @@ D 已在 `sync/upstream-2026-10` 完成 [独立评估](../reports/upstream-sync-
 两条成果以 `8623517` 汇合到独立集成分支；[集成收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)记录复验与交付确认点。
 A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移植。
 
+Upstream Sync V1 最小维护已在 `wangleping/fix-upstream-sync-v1-closure` 完成4/4验收，
+修复提交 `34dcf9f`（基于 develop `82f7841`，待用户确认集成/推送）：
+Candidate 恢复B快照、D结果独立保存、输出保护及21项测试通过、历史报告字节复现通过。
+流程和证据见 [STATUS](STATUS.md)与
+[UPSTREAM_SYNC](UPSTREAM_SYNC.md#42-历史报告复现与-v1-维护收口)。
+上游工程化阶段结束；后续每两周手工观察及相关变化定向审查。
+用户新开 session 恢复正常移植开发，先确认 BFGS-M1 范围；本轮不启动该功能。
+
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
+| 维护验收完成，待交付确认 | Upstream Sync V1 最小收口 | 冻结输入/原工具历史复现、默认输出保护、21项轻量测试与文档，4/4完成 | 无产品/版本/环境变化；既有HCU证据复用；本轮停止 |
 | 已确认并收口 | A：G2 集成基线验收 | 固定 `2e211ab`，CPU reference 425 passed/3 skipped；HCU ops101/framework77+既有xfail；真实MPA-0八组通过；流程/证据已写入 | 指定 gate，非全上游/NVIDIA/长收敛 |
 | 已确认并收口 | B：Upstream Delta V1 | 工具/候选/报告；14 项夹具验证通过；467/322 文件变化、40/8 潜在交集；候选运行未验证 | 不修改 packages/锁/生产环境，不自动解决冲突 |
 | 已确认并收口 | C：UBF 上游对齐 | 16 项官方对照；核心 equivalent 3/partial 5/different 1/unknown 7；全部 retain；PR194 案例 6 passed，本地定向回归与原 MACE 收集失败分别记录 | 未运行候选/HCU/Warp；无补丁删除、产品同步或环境升级 |
@@ -78,7 +87,7 @@ A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移
 | 完成 | FIRE参数兼容修正 | LOCAL-004提交0e354f4恢复dt_min=0，CPU回归和HCU4 FP64 NumPy/解析势/三CIF十步通过 | 本地移植bug，非上游bug；不代表零下限完整Batch收敛/性能 |
 | 完成并集成 | 弛豫移植收口审查 | M1–M5、运行入口、实际参数、HCU/CPU证据边界和未覆盖项已核对；merge `620a485` | 应用参数/H100 停止度量由下游工程负责 |
 | 完成 | MPA-0 应用分离 | CIF 应用入口及应用专属测试移入同级独立工程 `alchemi-app`；toolkit 保留原生 API、通用生命周期测试和迁移证据 | 应用参数/H100 停止度量属于下游应用，不加入 toolkit 公共 API；全目录作业另行安排 |
-| 后续队列 | 固定晶胞 ASE-compatible BFGS | 对齐固定晶胞的 `3N` 优化状态、收敛和 checkpoint 语义 | 变胞 `3N+9` 与并行 planner |
+| 下一功能（新 session 确认 M1 范围） | 固定晶胞 ASE-compatible BFGS | M1单体系/FP64/ASE3.29逐步状态、步长与最小状态恢复对照；M2异构独立状态，M3补位/收敛/restart/MACE，M4按profiling决定eigh优化 | 变胞 `3N+9`、L-BFGS与并行planner独立；本轮未启动 |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。

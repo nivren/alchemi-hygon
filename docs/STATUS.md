@@ -76,6 +76,28 @@ CPU 复跑：工作流59 passed/16设备skip、Delta夹具14 passed、官方科�
 `artifacts/g2-upstream-sync-delivery-2026-10-09/verification.json`。
 packages/产品版本锁/生产环境保持原值，候选仍 Candidate；本次未新增测试或 HCU 作业。
 
+## 2026-10-09：Upstream Sync V1 最小维护收口（4/4）
+
+维护分支 `wangleping/fix-upstream-sync-v1-closure` 从 develop `82f7841` 建立；
+修复已签名提交 `34dcf9f`，本阶段完成，等待用户确认集成/推送。
+
+- [x] 历史 Candidate 恢复 B 原始字节并匹配报告输入哈希；D 结构化结果移至
+  [独立验证记录](../reports/upstream-sync-2026-10-validation.json)，原 D 报告不变。
+- [x] Markdown/JSON 默认覆盖保护、显式 `--overwrite`、输入与路径冲突保护通过。
+- [x] 原14项+新增7项 unittest 全部通过，exit0；B 完整输入/原工具复现 Markdown 字节一致，
+  SHA256 `64074a979847a0db07395f93287bc8104ee96e88bfddccd1623eebd47f0ed817`。
+  当前工具相同输入生成结果仅工具哈希不同；实际历史报告覆盖拒绝 exit2。
+- [x] 冻结规则、复现方法、限制及下一任务已写入
+  [长期流程](UPSTREAM_SYNC.md#42-历史报告复现与-v1-维护收口)与任务队列。
+
+packages/版本锁/生产环境控制、原报告及 UBF 保持不变，两套缓存引用不变；
+本轮未新增 HCU 测试或产品能力。候选仍 Candidate，整包升级继续 defer。
+原始验证位于 `artifacts/upstream-sync-v1-maintenance-2026-10-09/`，含测试日志、
+复现命令与 `reproduction-validation.json`；历史输入和原工具由 B 提交保存。
+V1 工程化阶段到此收口，后续每两周手工观察，相关变化再定向审查。
+用户将新开 session 开展后续开发；下一功能为固定晶胞 ASE-compatible BFGS-M1，
+先单独确认单体系/FP64/ASE3.29逐步对照和 CPU/HCU 验收范围。
+
 ## 当前能力摘要
 
 | 功能 | 当前状态 | 已验证范围 | 明确限制 |

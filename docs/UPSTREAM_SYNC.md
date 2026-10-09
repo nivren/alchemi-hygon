@@ -66,6 +66,14 @@ external 或版本锁。上游对象获取放在独立缓存中，显式 fetch �
 锁提供基线 SHA/URL/子树路径；候选记录提供两个目标完整 SHA、本地产品完整 SHA、观察日期和
 人工审阅线索。更换候选时新增一份记录，通过 `--candidate` 指定；不覆盖产品版本锁。
 
+Candidate 一旦用于生成报告，其原始字节即冻结。来源 SHA、本地产品 SHA 或审阅输入需要
+变化时，创建带日期或 ID 的新文件，通过已有 `--candidate` 指定；不更新历史 Candidate。
+`UPSTREAM_CANDIDATES.yaml` 保存 B 阶段快照，SHA256 为
+`9ba1fc4e8804d2b0c15d43ce9d22314f5a6911295ab70cccacd4ee27e9520ef7`。
+其中 `not_run` 是 B 当时的观察；D 的后续状态保存在
+[独立验证记录](../reports/upstream-sync-2026-10-validation.json)及
+[D 报告](../reports/upstream-sync-2026-10.md)，不据历史输入判断当前运行状态。
+
 本轮 Git 对象来自 2026-10-09 官方上游审阅，已复制到忽略的独立缓存。
 在没有缓存的新 checkout 中先显式获取对象（完整可达历史，不使用 `--depth`）：
 
@@ -91,15 +99,49 @@ git -C artifacts/upstream-delta-cache/ops.git fetch --no-tags \
 .venv/bin/python scripts/upstream_delta.py \
   --framework-repo artifacts/upstream-delta-cache/framework.git \
   --ops-repo artifacts/upstream-delta-cache/ops.git \
-  --output reports/upstream-delta-2026-10.md \
-  --json-output artifacts/upstream-delta-v1/analysis.json
+  --output reports/upstream-delta-2026-10-new.md \
+  --json-output artifacts/upstream-delta-v1/analysis-new.json
 .venv/bin/python -m unittest discover -s scripts -p test_upstream_delta.py -v
 ```
 
 可用 `--lock`、`--candidate`、`--local-ref` 指定其他明确输入；输出只准写到本工程的
 `reports/` 或 `artifacts/`，不得覆盖输入。保留原报告时先选择新的输出文件名。
+Markdown 或 JSON 任一输出已存在时，默认在分析和写入前报错（exit 2）。
+明确允许替换输出时使用 `--overwrite`；输入文件保护及输出路径冲突检查始终有效。
 同一输入、工具与 Python/Git 版本重复生成的 Markdown/JSON 字节一致；报告保存输入/工具哈希及分析环境，
 JSON 保存同签名实现变化和完整依赖配置。文件交集和 AST 条目计数都不是已确认冲突/正式 API 数量。
+以上命令使用当前补丁文档和工具生成新的报告；原 B 报告的字节复现见第4.2节。
+
+### 4.2 历史报告复现与 V1 维护收口
+
+原 B 报告依赖完整输入：Candidate、版本锁、`UPSTREAM.md`、`UPSTREAM_BUGFIXES.md`、
+本地产品 SHA、上游 Git 对象、工具版本及 Python/Git 版本。工具自身哈希写入报告，
+历史字节复现使用原工具；当前补丁文档继续维护后续审查结果。
+
+在项目根目录，用一个尚不存在的 worktree 路径复现 B；复用第4.1节的独立对象缓存：
+
+```bash
+git worktree add --detach artifacts/upstream-delta-history-b \
+  84b4ba95ac008d4022acfcff6ea076a5d7793a55
+.venv/bin/python artifacts/upstream-delta-history-b/scripts/upstream_delta.py \
+  --framework-repo "$PWD/artifacts/upstream-delta-cache/framework.git" \
+  --ops-repo "$PWD/artifacts/upstream-delta-cache/ops.git" \
+  --output "$PWD/artifacts/upstream-delta-history-b/artifacts/reproduced-delta.md" \
+  --json-output "$PWD/artifacts/upstream-delta-history-b/artifacts/reproduced-delta.json"
+cmp reports/upstream-delta-2026-10.md \
+  artifacts/upstream-delta-history-b/artifacts/reproduced-delta.md
+```
+
+本轮环境为 Python3.12.13 / Git2.34.1，与原报告记录一致。新路径保留原证据；
+只恢复 Candidate 后用当前补丁文档或修改后的工具生成，不能保证与原报告字节相同。
+
+2026-10-09 最小维护收口完成（修复提交 `34dcf9f`，待用户确认集成/推送）：
+21项 unittest 通过（原14项保留、新增7项）；原 B Markdown 字节一致，SHA256 均为
+`64074a979847a0db07395f93287bc8104ee96e88bfddccd1623eebd47f0ed817`。
+当前工具用相同冻结输入生成的 Markdown/JSON 仅工具哈希不同；实际历史报告覆盖被拒绝，exit2。
+D 的结构化结果完整迁移，原报告/UBF/产品源码/版本锁/生产环境控制及两套缓存引用保持原值。
+原始命令、退出码、哈希和日志位于 `artifacts/upstream-sync-v1-maintenance-2026-10-09/`。
+本轮只验收工具和记录；沿用既有 HCU 证据，后续正常功能移植在新 session 单独确认范围。
 
 [UPSTREAM.md](UPSTREAM.md) 保留全部 LP 适配索引；
 [UPSTREAM_BUGFIXES.md](UPSTREAM_BUGFIXES.md) 保留科学原因、本地/fork 来源和验证边界。
