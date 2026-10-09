@@ -132,6 +132,15 @@ checkpoint 隔离断言 1 passed，原 MACE 测试模块收集失败独立记录
 A–C 完成后恢复正常功能开发，D 可单独确认并行；不升级当前锁或 Torch/DTK。
 
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。
+
+用户随后确认补充 FIRE2 变胞 + HIP 邻居小规模完整弛豫；已在独立验证 worktree 完成，
+见[补测报告](../reports/g2-hip-fire2-convergence-2026-10-09.md)。HCU4两精度/两邻居分支四作业
+均退出0，固定三个Li/Na CIF全部双阈值收敛，真实补位、终态同几何和导出CPU/HCU核验通过。
+CPU定向59 passed/16设备skip、探针4 passed；产品/锁/环境保持原值。
+这是本地稳定基线的三样本证据，与另一个sync worktree中的候选评估分别保存；
+不提升上游候选版本状态。用户已确认补测和 D 签名收口，下一目标是整理独立集成 PR；
+尚未合并或推送 develop。
+
 `TORCH-NVT-LANGEVIN` 的固定晶胞 BAOAB 窄 reference、短统计和最小 integrator continuation
 state 已完成；它不等于完整上游 Langevin/NVT，剩余限制已在 STATUS 和 Feature Contract 中列明。
 固定晶胞 NHC Torch reference 已完成窄范围，实现提交 `b4050ec`；

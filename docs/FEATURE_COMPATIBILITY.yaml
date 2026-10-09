@@ -1513,7 +1513,7 @@
       "category": "B",
       "status": "implemented",
       "implementation_scope": "现有 Torch reference 变胞优化器与显式 HIP COO Hook 组合；不新增 native optimizer kernel",
-      "scenario": "MPA-0/MACE Li/Na 异构 Batch 短步变胞 FIRE/FIRE2 与退出补位",
+      "scenario": "MPA-0/MACE Li/Na 异构 Batch 短步变胞 FIRE/FIRE2 与退出补位；固定三样本 FIRE2 完整联合收敛",
       "source": {
         "repository": "framework",
         "commit": "4dfe3723def34df3fadb245981081ccf8c94c257",
@@ -1523,7 +1523,7 @@
       "contract": {
         "api": "Torch reference FIREVariableCell/FIRE2VariableCell; HIP NeighborListHook at shared BEFORE_COMPUTE; explicit device Batch passed to FusedStage.run",
         "data": "FP32/64 full-PBC/full-list/COO/skin=0; current r/H complete topology rebuild; native six lower-triangular FIRE2 and fork full-matrix FIRE; positive volume; E/F/stress current-geometry priming; survivor state reorder, fresh arrival state, inactive freeze",
-        "details": "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md; analytic joint convergence and real model budget exit are reported separately",
+        "details": "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md; docs/HIP_FIRE2_CONVERGENCE_VALIDATION.md; analytic convergence, finite real-model budgets and three-sample full FIRE2 convergence are reported separately",
         "fallback": "explicit_only_no_silent_cpu_or_precision_change"
       },
       "dependencies": ["neighbors.hip_coo_adapter", "TORCH-VARIABLE-CELL-FIRE", "mace-torch/e3nn"],
@@ -1532,14 +1532,15 @@
       "verification": {
         "dcu_status": "partial",
         "upstream_tests": [],
-        "dcu_tests": ["probes/hip_real_batch_validation.py", "probes/mace_fp32_state_control.py", "packages/framework/test/compatibility/test_hip_variable_cell_workflow.py", "probes/hip_variable_cell_mace_workflow.py"],
-        "evidence": ["reports/g2-integration-a-2026-10-09.md", "artifacts/g2-integration-a-2026-10-09/", "docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "reports/g2-hip-fp32-fire2-cell-movement-m9.md", "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
+        "dcu_tests": ["probes/hip_fire2_convergence.py", "probes/test_hip_fire2_convergence.py", "probes/hip_real_batch_validation.py", "probes/mace_fp32_state_control.py", "packages/framework/test/compatibility/test_hip_variable_cell_workflow.py", "probes/hip_variable_cell_mace_workflow.py"],
+        "evidence": ["docs/HIP_FIRE2_CONVERGENCE_VALIDATION.md", "reports/g2-hip-fire2-convergence-2026-10-09.md", "artifacts/hip-fire2-convergence-2026-10-09/", "reports/g2-integration-a-2026-10-09.md", "artifacts/g2-integration-a-2026-10-09/", "docs/HIP_REAL_BATCH_VALIDATION_CONTRACT.md", "reports/g2-hip-real-batch-validation-m7.md", "artifacts/hip-real-batch-m7/", "docs/HIP_MPA0_FP32_STATE_VALIDATION_M8.md", "reports/g2-hip-mpa0-state-validation-m8.md", "artifacts/hip-mpa0-state-m8/", "reports/g2-hip-fp32-fire2-cell-movement-m9.md", "docs/HIP_VARIABLE_CELL_WORKFLOW_CONTRACT.md", "reports/g2-hip-variable-cell-workflow-m3.md", "artifacts/hip-variable-cell-workflow-m3/"],
         "environments": ["DTK26.04/Torch2.9.0/HIP6.3.26093/HCU4 BW1000 64G gfx936; locked MPA-0 checkpoint"]
       },
       "limitations": [
         "M7 FP64 1029原子/39结构和2030原子/92结构，两优化器三轮三步/真实预算补位通过，完整step相对Torch reference cell-list约2.04-2.37倍；M7 FP32 forces曾因缓存模型输出重复套用一般状态门失败，纯Torch/Torch对照也可触发。M8分层比较后，八组拓扑、E/F/stress物理量和轨迹状态比较均通过。M9定位source 36 Li3Ge3(MoO6)2的低应力未移动晶胞在HIP/Torch reference完全一致，将probe条件修正为批次至少一个晶胞移动；两组FP32 FIRE2重跑通过，逐结构backend/state比较仍保留。详见reports/g2-hip-mpa0-state-validation-m8.md及reports/g2-hip-fp32-fire2-cell-movement-m9.md",
         "M3真实模型证据为三个 CIF、两精度、两优化器各五步；另三结构容量2预算退出/补位，预算不是物理收敛",
-        "解析势生命周期验证私有状态与联合力/绝对应力退出；不代表真实 MPA-0 长步收敛或完整 HCU gate",
+        "2026-10-09补测：固定三个Li/Na CIF，FIRE2 + HIP/Torch reference邻居、两精度四作业，全部双阈值收敛和真实补位；HIP两精度共6个结构运行，终态同几何/导出CPU-HCU核验通过；不保证其他材料/大Batch收敛或完整HCU gate",
+        "解析势生命周期直接验证私有状态与联合力/绝对应力退出；真实模型补测观察ID/status/priming，不另宣称私有状态逐元素验证",
         "M3未新增query并行或性能，后续M5/M6/M7证据另列；skin/selective rebuild、旧plan复用、no-PBC/half、native COO、workspace复用或auto仍未准入",
         "不含其他 MLIP、compile/opcheck、训练力损失、checkpoint、DomainParallel、NPT/NPH 或 native HIP dynamics"
       ],

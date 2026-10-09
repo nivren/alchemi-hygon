@@ -41,6 +41,20 @@
   用户已确认 C 收口并授权 D 隔离评估。日常移植可恢复，D 独立开展。
   未修改 packages/版本锁/生产环境，未推送或合并 develop。
 
+## 2026-10-09：HIP 邻居 FIRE2 完整弛豫补测
+
+用户确认的小规模完整弛豫已在 `wangleping/test-hip-fire2-convergence` 独立 worktree 完成，
+产品起点 `ad18998`，packages 与 develop `2e211ab` 相同。见
+[验收报告](../reports/g2-hip-fire2-convergence-2026-10-09.md)及
+[契约](HIP_FIRE2_CONVERGENCE_VALIDATION.md)。CPU 定向59 passed/16既有设备skip，探针夹具4 passed；
+HCU4 上 FP64/FP32 × HIP/Torch reference邻居四作业均退出0，三个Li/Na CIF各自双阈值收敛，
+更新77/153/53次，实际容量2/14原子补位、来源/ID/status及priming核验通过。
+12个结构运行（其中HIP6个）均满足fmax<=0.01 eV/Å且max(abs(stress))<=0.1 GPa；
+终态同几何完整E/F/stress及CIF重读CPU/HCU重算通过。
+优化器仍Torch reference；不新增任意材料/大Batch收敛、性能、Warp、compile或DD支持。
+产品/上游锁/环境未变；用户已确认以本签名提交收口补测，并与 D 整理独立集成 PR。
+尚未合并或推送 develop。
+
 ## 当前能力摘要
 
 | 功能 | 当前状态 | 已验证范围 | 明确限制 |
