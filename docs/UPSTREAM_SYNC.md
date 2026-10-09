@@ -167,7 +167,10 @@ framework/ops pytest 使用独立进程。共享设备先只读检查，每项�
 忽略的 artifacts，报告记录具体 SHA、命令、夹具哈希、设备/环境、退出码和已知限制。
 Warp 默认选择/导入边界可在当前环境审查；Warp 数值验证需要实际 NVIDIA/Warp 环境。
 
-后续变更通过 PR 审查后集成 develop；每阶段确认不等于自动授权推送/合并。
+后续变更默认通过 PR 审查后集成 develop；每阶段确认不等于自动授权推送/合并。
+2026-10-09 本轮用户明确取消 PR，授权 A–D 与补测直接集成本地 develop，
+并同步 github-origin/gitee-origin/local-origin；该次例外按用户新指令执行，
+保留成果提交和授权记录，见[集成收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)。
 用户明确授权外部交付后，将相同 develop SHA 同步到指定远端并逐处核验。
 每两周开展一次上游变化观察；正式 release、相关 bugfix 或新功能开发前追加定向审查。
 每次记录观察日期、冻结 SHA、报告和决策；定期跟踪不表示自动运行任务或自动升级。

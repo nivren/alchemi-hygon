@@ -11,10 +11,11 @@ C 已签名收口 `ad189987b94b8b97b3332ee8982c960a3ce6a5e6`。D 在
 
 结论暂不整体升级，16项 UBF 仍 retain。当前 packages、UPSTREAM_LOCK、Torch/DTK
 保持稳定基线；能力契约保留 A–C 已确认的证据记录，D 没有新增生产支持或修改契约。
-没有补丁删除或外部推送。
+D 评估阶段没有补丁删除或外部推送。
 D 已签名收口 `a0a37635c8cb35814099cace8b2fc6cdb94b4e27`；
-工程化成果与稳定基线 FIRE2 补测整理到独立分支，见
-[PR 收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)。完整运行边界见 D 报告。
+工程化成果与稳定基线 FIRE2 补测汇合为 `68ceb00`，后续获用户直接交付授权并快进集成本地 develop，
+见[集成收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)。
+本次签名文档记录随同一 develop 提交同步三个指定远端；原测试身份/候选边界保持原记录。
 
 ## 2026-10-09：C 阶段 UBF 对齐
 

@@ -1,28 +1,30 @@
 # G2 / Upstream Sync V1 — A–D 与 FIRE2 补测集成收口
 
-日期：2026-10-09。用户已确认签名收口 D 和补测，并整理可审阅的独立集成 PR。
-本地成果整理完成；在线 PR 尚未建立，源分支推送与后续集成等待明确授权。
+日期：2026-10-09。A–D 与补测已完成签名收口和独立集成审阅准备。
+用户随后明确取消本轮 PR，授权直接合并本地 develop 并推送三处；
+成果 `68ceb00` 已快进集成本地 develop，随后带入本次签名文档交付记录。
 
 ## 1. 分支与提交身份
 
 | 对象 | 精确提交 / 分支 |
 |---|---|
-| 稳定 develop / PR base | `2e211ab93a4f1ad0c8c720eecb22129d846c7792` |
+| 合入前稳定 develop / 原 PR base | `2e211ab93a4f1ad0c8c720eecb22129d846c7792` |
 | A：指定集成基线 gate / 流程 | `132ff32d90e4cf56b422a34674a5a93c596490af` |
 | B：只读 Delta 工具 | `84b4ba95ac008d4022acfcff6ea076a5d7793a55` |
 | C：16 项 UBF 审查 | `ad189987b94b8b97b3332ee8982c960a3ce6a5e6` |
 | D：隔离升级评估 | `a0a37635c8cb35814099cace8b2fc6cdb94b4e27` |
 | 稳定基线 FIRE2 完整弛豫补测 | `8306b7f569f5993bb5e73a18a0cf574373615a7d` |
 | 两成果支线汇合 | `86235170cde14d07739d807ce52166fe1c687aab` |
-| 独立 PR head 分支 | `wangleping/integration-g2-upstream-sync-v1` |
-| 本地 PR worktree | `artifacts/g2-upstream-sync-pr-2026-10-09/worktree` |
+| 已收口成果分支 | `wangleping/integration-g2-upstream-sync-v1` |
+| 成果整理 worktree | `artifacts/g2-upstream-sync-pr-2026-10-09/worktree` |
 
 A–C 提交链原样保留；D 与补测分别从 C 开展，汇合使用合并提交并保留双方历史。
 冲突仅在 STATUS、PARALLEL_DEVELOPMENT_PLAN 和 reports/README 三个文档中；
 逐处保留 D 与补测记录，没有产品源码冲突。提交均带 Signed-off-by，不改写共享历史。
-本报告的文档提交位于汇合提交之后；最终 head 和 diff 清单保存于原始收口证据。
+成果审阅准备提交为 `68ceb002478e0e6253177513012b8e444fe14b67`；其原始 head/diff 清单
+保存在 PR 准备证据。后续直接交付的最终 develop 身份见第5节与交付核验记录。
 
-## 2. PR 交付范围
+## 2. 交付范围
 
 - A：已集成 HIP Neighbor M1–M9 的指定 CPU/HCU4 gate、状态修正和长期流程入口。
   此前已授权的 M1–M9 fast-forward 保留，不补造历史 PR。
@@ -34,7 +36,7 @@ A–C 提交链原样保留；D 与补测分别从 C 开展，汇合使用合并
   能力矩阵仅补充这一小范围的真实证据，仍保留 implemented/partial 状态。
 - 工程交接：本收口报告、STATUS、PROJECT_HANDOFF、任务队列和报告索引。
 
-PR diff 不包含 `packages/`、产品版本锁、生产环境配置、上游源码导出、独立 venv、
+本轮 diff 不包含 `packages/`、产品版本锁、生产环境配置、上游源码导出、独立 venv、
 checkpoint、CIF 数据或原始轨迹。Framework `4dfe3723def34df3fadb245981081ccf8c94c257`
 和 Ops `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1` 继续为 Baseline。
 候选 Framework `f59e28dc6701583a13bb294e536076c2a7379e98` / Ops
@@ -89,8 +91,15 @@ C 记录的原 MACE 模块收集失败继续保留；本轮定向通过不覆盖
 其他声明依赖、API适配闭包和历史分叉仍需独立处理。16项UBF全部保留，不升级Torch/DTK。
 日常功能移植可在稳定版本继续，上游观察按 [长期流程](../docs/UPSTREAM_SYNC.md) 独立开展。
 
-下一步是明确授权将本 PR 源分支推送到 github-origin 并建立以 develop 为 base 的 draft PR。
-理由来自用户确认的规则6及 UPSTREAM_SYNC 第6节：阶段确认不自动授权推送/合并。
-在线PR经审阅后再确认合并与指定远端同步，逐处核验同一 develop SHA。
+用户的新指令为“不创建pr了，直接本地和develop合并，然后推送”。
+该指令明确授权本轮直接交付，并优先于此前默认 PR 流程；本轮没有创建在线 PR。
+
+本地 develop 已从 `2e211ab` 快进到成果提交 `68ceb00`，随后新增本次签名文档记录。
+同一最终 develop 提交交付到 github-origin、gitee-origin、local-origin，使用普通
+`git push <remote> <完整SHA>:refs/heads/develop`，保留已共享历史。
+实际命令、时间、退出码、服务端提示和三处 SHA 核验保存于
+`artifacts/g2-upstream-sync-delivery-2026-10-09/verification.json` 及对应日志。
+本次只调整交付状态/流程例外记录，产品文件/锁/生产环境/探针内容保持原值；
+复用已有 CPU/HCU 证据，未重新运行测试。
 正常移植任务（固定晶胞BFGS、L-BFGS评估、HIP邻居扩展/优化或DomainParallel）随后单独选择，
 不因上游新增特性自动改变优先级。

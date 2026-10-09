@@ -39,7 +39,7 @@
   checkpoint 隔离断言 1 passed；原 MACE 模块收集失败单列于
   [C 报告](../reports/upstream-bugfix-alignment-2026-10.md)。候选/HCU/Warp 本轮未运行。
   C 已签名收口 `ad18998`。日常移植可恢复，D 独立开展。
-  未修改 packages/版本锁/生产环境，未推送或合并 develop。
+  A–C 阶段未修改 packages/版本锁/生产环境；后续本地集成和三处交付见下节。
 
 - D 在 `sync/upstream-2026-10` 独立 worktree 完成，见
   [隔离升级决策](../reports/upstream-sync-2026-10.md)。完整候选原样导出、依赖与 API 审查完成，
@@ -63,14 +63,18 @@ HCU4 上 FP64/FP32 × HIP/Torch reference邻居四作业均退出0，三个Li/Na
 优化器仍Torch reference；不新增任意材料/大Batch收敛、性能、Warp、compile或DD支持。
 产品/上游锁/环境未变；补测已签名收口 `8306b7f`。
 
-## 2026-10-09：A–D 与补测集成 PR 准备
+## 2026-10-09：A–D 与补测集成和三处交付
 
 独立分支 `wangleping/integration-g2-upstream-sync-v1` 已保留 A–D 与补测的签名提交，
 以 `8623517` 合并两条成果支线；三个文档冲突均保留双方证据。
 CPU 复跑：工作流59 passed/16设备skip、Delta夹具14 passed、官方科学案例6 passed、
 补测夹具4 passed、候选独立模块11 checks；均退出0。
-[收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)包含 PR 范围、证据复用和交付确认点。
-尚未向远端推送源分支或建立在线 PR；develop 仍为 `2e211ab`，候选保持 Candidate。
+[收口报告](../reports/g2-upstream-sync-v1-closure-2026-10-09.md)包含交付范围、证据复用和用户授权记录。
+用户随后明确取消本轮 PR，授权直接合并本地 develop 并推送三处。
+本地 develop 已从 `2e211ab` 快进集成到成果提交 `68ceb00`，本节签名文档提交随后交付至
+`github-origin`、`gitee-origin`、`local-origin` 的 develop；实际 SHA/退出码核验保存于
+`artifacts/g2-upstream-sync-delivery-2026-10-09/verification.json`。
+packages/产品版本锁/生产环境保持原值，候选仍 Candidate；本次未新增测试或 HCU 作业。
 
 ## 当前能力摘要
 
