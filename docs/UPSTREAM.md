@@ -1,5 +1,19 @@
 # 上游锁定与导入依据
 
+## 2026-10-09：D 阶段隔离升级评估
+
+C 已签名收口 `ad189987b94b8b97b3332ee8982c960a3ce6a5e6`。D 在
+`sync/upstream-2026-10` 独立 worktree 完成 [决策报告](../reports/upstream-sync-2026-10.md)。
+冻结候选两包不变；完整源码/API/依赖与交集文件三方文本审查完成，24个文件出现文本冲突。
+当前环境不满足全部候选声明，stock data 和 Ops L-BFGS 导入因缺 Warp 失败；
+候选 GroupLayout/HookContext/Protocol 三原样模块 CPU/HCU4 各11项 probe checks 通过。
+最小夹具与按路径导入不代表公开 Batch/引擎/整个候选组合已兼容，候选继续 Candidate。
+
+结论暂不整体升级，16项 UBF 仍 retain。当前 packages、UPSTREAM_LOCK、Torch/DTK
+保持稳定基线；能力契约保留 A–C 已确认的证据记录，D 没有新增生产支持或修改契约。
+没有补丁删除或外部推送。
+用户已确认 D 以本签名提交收口，工程化成果整理为单独 PR；完整运行边界见报告。
+
 ## 2026-10-09：C 阶段 UBF 对齐
 
 B 已签名收口为 `84b4ba95ac008d4022acfcff6ea076a5d7793a55`。C 在独立分支

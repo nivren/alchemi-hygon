@@ -128,7 +128,12 @@ different 1、unknown 7；全部 retain。PR194 本地科学案例 6 passed，�
 111 passed/3 skipped、framework compatibility 87 passed、storage 两节点通过；
 checkpoint 隔离断言 1 passed，原 MACE 测试模块收集失败独立记录。
 45 份源码快照和 912 份产品/夹具哈希核验通过；没有新增候选/HCU/Warp 运行证据。
-[C 报告](../reports/upstream-bugfix-alignment-2026-10.md)已获用户确认收口；D 隔离升级评估已获启动授权。
+[C 报告](../reports/upstream-bugfix-alignment-2026-10.md)已签名收口 `ad18998`。
+D 在 `sync/upstream-2026-10` 独立 worktree 完成
+[隔离升级评估](../reports/upstream-sync-2026-10.md)：候选三原样模块 CPU/HCU4 各11项检查通过，
+stock Batch/L-BFGS 导入因缺 Warp 失败；依赖/API/三方文本冲突尚有阻塞，结论暂不整体升级。
+这不是候选整包或 grouped 生命周期验收，现有产品/版本锁/环境/能力契约保持原值。
+用户已确认 D 以本签名提交收口，下一目标为独立 A–D 工程化成果 PR；尚未合并或推送 develop。
 A–C 完成后恢复正常功能开发，D 可单独确认并行；不升级当前锁或 Torch/DTK。
 
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。

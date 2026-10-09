@@ -38,8 +38,17 @@
   111 passed/3 skipped、framework compatibility 87 passed、storage 两节点通过，
   checkpoint 隔离断言 1 passed；原 MACE 模块收集失败单列于
   [C 报告](../reports/upstream-bugfix-alignment-2026-10.md)。候选/HCU/Warp 本轮未运行。
-  用户已确认 C 收口并授权 D 隔离评估。日常移植可恢复，D 独立开展。
+  C 已签名收口 `ad18998`。日常移植可恢复，D 独立开展。
   未修改 packages/版本锁/生产环境，未推送或合并 develop。
+
+- D 在 `sync/upstream-2026-10` 独立 worktree 完成，见
+  [隔离升级决策](../reports/upstream-sync-2026-10.md)。完整候选原样导出、依赖与 API 审查完成，
+  48 个交集文件的三方文本试验出现 Framework21/Ops3 冲突；text clean 不代表语义兼容。
+  未满足 Torch/NumPy/plotext 等声明，Warp/PhysicsNeMo/click 缺失；实际 stock data/L-BFGS
+  导入因缺 Warp 退出1。候选三个原样独立模块（GroupLayout/HookContext/Protocol）
+  CPU/HCU4 各11项 probe checks 通过；使用 ProbeBatch 最小夹具，非真实 Batch/grouped
+  工作流、Hook 引擎时序、全包或原生 Warp gate。没有改变当前产品能力契约。
+  结论为暂不整体升级，候选仍 Candidate；用户已确认 D 签名收口及 A–D 工程化成果 PR 整理。
 
 ## 当前能力摘要
 
