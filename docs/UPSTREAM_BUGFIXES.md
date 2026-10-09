@@ -1,10 +1,26 @@
 # 上游缺陷、实现补齐与逻辑修正记录
 
-更新日期：2026-10-05。
+更新日期：2026-10-09。缺陷原因登记主要保留 2026-10-05 审查记录；官方状态以本节新核验为准。
 
 本文件记录移植中发现的上游计算逻辑、状态管理和接口行为缺陷，以及本项目如何修正。
 每项记录须能回答：原来哪里错、为什么判定有问题、修改了什么、如何验证、同步上游时如何处理。
 问题判断以记录中的上游 SHA 为准，不能据此断言官方最新版本仍有同一问题。
+
+## 2026-10-09：C 阶段官方对齐
+
+[结构化状态表](UPSTREAM_BUGFIX_STATUS.yaml) 已登记 UBF-001～016 的完整本地提交、
+官方 issue/PR、fix SHA、冻结分支、equivalence/action/verification 和额外本地边界。
+核验 Framework `f59e28dc` 与 Ops `5fffc072`；候选未运行，产品仍使用原锁定版本。
+UBF-008/009/011 的核心语义 equivalent，003/005/014/015/016 partial，012 different；
+001/002/004/006/007/010/013 unknown。全部 retain，没有可直接删除的补丁。
+
+官方状态与科学回归的具体范围见 [C 报告](../reports/upstream-bugfix-alignment-2026-10.md)。
+新增 PR194 本地 reference 案例 6 passed；既有 ops 111 passed/3 skipped、framework
+compatibility 87 passed、storage 两节点通过；checkpoint 隔离断言 1 passed。
+原完整 MACE 模块因缺 PhysicsNeMo 收集失败，不计为该模块通过。未新增 HCU/Warp 数值证据。
+
+以下正文中“本次”“未核验官方”等措辞属于 2026-10-05 的来源审查和当时验证范围；
+不能用它覆盖本节和结构化表的新核验，也不能将本轮 partial/equivalent 扩大为整实现等价。
 
 ## 1. 文档与记录规则
 
@@ -25,7 +41,7 @@
 issue/PR、官方修复 SHA 和核验日期缺失时写明，不由本地测试通过推断官方状态。
 同步上游时按问题逐项判断补丁可否移除；移除后保留记录和回归测试。
 
-## 2. 当前索引
+## 2. 本地修复索引（历史验证摘要）
 
 | 编号 | 问题 | 包 | 源码标记 | LP 记录 | 当前状态 |
 |---|---|---|---|---|---|
@@ -249,7 +265,9 @@ FIRE/FIRE2、归一化、仿射映射或 DomainParallel 修复。reference 后�
 及 [framework 4bf8bc8084a2](http://10.208.16.64:3000/wangleping/nvalchemi-toolkit/commit/4bf8bc8084a2f588c332e0bf090978ba4ba76c4b)。
 不更改上游锁定，不整体同步 develop；fork 已修正不代表 NVIDIA 官方修复状态。
 
-**本地状态**：`codex/feat-cell-stress-force` 实现与测试提交 `a76107e`，未合并、未推送。
+**本地状态**：`codex/feat-cell-stress-force` 实现与测试提交 `a76107e` 已包含于当前
+`develop` 集成基线；当时的未合并/未推送记录已过期。官方 PR194 核心公式对应和
+继续 retain 的额外边界见结构化状态表。
 CPU 一二阶/有限差分、公共接线、小模型 stress loss 参数反向、真实周期 MACE 和
 HCU4 窄 smoke 见 [报告](../reports/g2-torch-cell-stress-force.md)。Warp 缺失，legacy
 kernel 未执行；不能把 Torch 通过当作 Warp/NVIDIA parity。本轮未向 NVIDIA 提交
@@ -424,7 +442,7 @@ CPU NumPy 正/负/零/纯晶胞功率及公共解析势回归、HCU4 FP64 同类
 本次仅静态确认，未执行 DomainParallel；后续应在独立适配任务中修正并补回归。
 当前 DomainParallel 仍未验收，本次不改变其支持状态。
 
-## 5. 审阅范围与追踪
+## 5. 2026-10-05 来源审阅范围与追踪
 
 - 复核 LP-001–068（NHC 前LP-001–063），并补登记历史行为变化 LP-069–071。
 - 比较锁定 framework `nvalchemi` 与 HEAD `packages/framework/nvalchemi`：43个变更/新增文件。

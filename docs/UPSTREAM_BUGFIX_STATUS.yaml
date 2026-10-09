@@ -1,0 +1,831 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-10-09",
+  "candidate_id": "upstream-2026-10-v1",
+  "local_product_commit": "84b4ba95ac008d4022acfcff6ea076a5d7793a55",
+  "candidate_status": "Candidate",
+  "format": "JSON-compatible YAML; stdlib json.load is sufficient",
+  "scope": "C source and patch audit; no product synchronization, retirement, lock or production environment change",
+  "policy": {
+    "equivalence_values": [
+      "identical",
+      "equivalent",
+      "partial",
+      "different",
+      "unknown"
+    ],
+    "action_values": [
+      "retain",
+      "backport",
+      "retire",
+      "defer"
+    ],
+    "unknown": "No established official equivalent fix evidence; does not mean fixed or proven absence of every possible official fix",
+    "equivalent": "Only the explicit equivalence_scope; not whole implementation, API, hardware or runtime equivalence",
+    "upstream_fix_commit": "Exact official commit implementing at least the reviewed scoped fix; null for unestablished/related-only/deprecation evidence",
+    "verification": "Source review and local tests are separate from unexecuted candidate/Warp/HCU paths",
+    "retirement": "Requires all extra boundaries and platform regressions verified; preserve history and tests"
+  },
+  "upstream": {
+    "framework": {
+      "baseline": "4dfe3723def34df3fadb245981081ccf8c94c257",
+      "candidate": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "branch": "main"
+    },
+    "ops": {
+      "baseline": "26dbceb61e30cca80e1a5805eebeb51d7dc68fd1",
+      "candidate": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+      "branch": "0.5.0-rc"
+    }
+  },
+  "records": [
+    {
+      "id": "UBF-001",
+      "title": "Yoshida 参数未传递",
+      "local_commit": "b4050ec036c3697c75111d6a3962889d2dee2495",
+      "upstream_repository": "framework",
+      "upstream_issue": [],
+      "upstream_fix_commit": null,
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选 pre/post 调用与 _ops wrapper 仍未传递 Yoshida/nloops；未建立官方等价修复证据。",
+      "extra_local_boundaries": "保留 Yoshida 3/5 参数透传及两次半步调用；Warp 数值仍未运行。",
+      "official_evidence": [],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/integrators/nvt_nose_hoover.py"
+          },
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/_ops/nose_hoover.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_dynamics_reference_nhc.py",
+          "packages/ops/test/torch/test_torch_nhc.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility",
+          "cpu-ops"
+        ]
+      }
+    },
+    {
+      "id": "UBF-002",
+      "title": "补位体系 Q/ndof 计数错误",
+      "local_commit": "b4050ec036c3697c75111d6a3962889d2dee2495",
+      "upstream_repository": "framework",
+      "upstream_issue": [],
+      "upstream_fix_commit": null,
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选 _make_new_state 仍用 dummy masses、Q.expand 和平均原子数；不是按每个到达体系实际计数。",
+      "extra_local_boundaries": "保留异构体系实际 Q/ndof；scalar refill 与 vector arrivals 的显式限制。",
+      "official_evidence": [],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/integrators/nvt_nose_hoover.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_dynamics_reference_nhc.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-003",
+      "title": "非活动体系私有温控链推进",
+      "local_commit": "b4050ec036c3697c75111d6a3962889d2dee2495",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182"
+      ],
+      "upstream_fix_commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "partial",
+      "action": "retain",
+      "equivalence_scope": "PR181 在 FusedStage masked pre/post 中保存恢复 integrator state；候选普通 NHC pre/post 与 BaseDynamics.step 尚未显示同等链状态保护。",
+      "extra_local_boundaries": "保留普通 step、_masked_update、masked pre/post 四入口及 AFTER_* observer 时序；不得将 FusedStage helper 扩大为普通 NHC 已修复。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+          "commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+          "role": "scoped_fix"
+        },
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182",
+          "commit": "a4215f450d68aaf7402391e3384a165af3f38175",
+          "role": "related_design_only"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/base.py"
+          },
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/integrators/nvt_nose_hoover.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_dynamics_reference_nhc.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-004",
+      "title": "链坐标 eta 时间推进多一倍",
+      "local_commit": "b4050ec036c3697c75111d6a3962889d2dee2495",
+      "upstream_repository": "ops",
+      "upstream_issue": [],
+      "upstream_fix_commit": null,
+      "upstream_branch": "0.5.0-rc",
+      "candidate_commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选两个传播函数仍各有两次 half_dt=dt/2 的 eta drift；未找到对应 dt/4 官方修复。",
+      "extra_local_boundaries": "保留独立标量半步导数与扩展能量收敛回归；Torch 实测不能证明 Warp 运行正确。",
+      "official_evidence": [],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "ops",
+            "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+            "path": "nvalchemiops/dynamics/integrators/nose_hoover.py"
+          }
+        ],
+        "local_tests": [
+          "packages/ops/test/torch/test_torch_nhc.py",
+          "packages/framework/test/compatibility/test_dynamics_reference_nhc_physics.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-ops",
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-005",
+      "title": "混合状态 Batch 输出未随坐标恢复",
+      "local_commit": "b5fd0ae580aaec92340c856675cb613b65c8e9b0",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/204"
+      ],
+      "upstream_fix_commit": "9d6147089571e842e95d4d5c62f96a6d501b03f0",
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "partial",
+      "action": "retain",
+      "equivalence_scope": "候选 _publish_model_output 按 storage level 将 outputs 写入活动行；PR204 的发布 helper 是相关实现演进，不是本地 mutable_fields 补丁的相同实现。",
+      "extra_local_boundaries": "保留冻结 E/F/stress、N=B 的 node/system 层级区分、pre/post observer 一致性；候选新输出分配和额外 level 尚未运行验证。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+          "commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+          "role": "related_design_only"
+        },
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/204",
+          "commit": "9d6147089571e842e95d4d5c62f96a6d501b03f0",
+          "role": "scoped_fix"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/base.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_inactive_dynamics_outputs.py",
+          "packages/framework/test/compatibility/test_variable_cell_workflow.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-006",
+      "title": "HostMemory 快照共享存储",
+      "local_commit": "b5fd0ae580aaec92340c856675cb613b65c8e9b0",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/190"
+      ],
+      "upstream_fix_commit": null,
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选 HostMemory.write 的 to_data_list/get_data 切片与 data.to(device) 链未提供显式所有权复制；未建立完整快照等价证据。PR190 只针对 LoggingHook allocator reuse。",
+      "extra_local_boundaries": "保留 HostMemory 写入后的深复制、异构帧回放；LoggingHook snapshots 修复不证明直接 sink.write 的所有权。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/190",
+          "commit": "e772d7732956664387a568b99ddf06adc44757f7",
+          "role": "related_design_only"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/sinks.py"
+          },
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/data/batch.py"
+          },
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/data/atomic_data.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_heterogeneous_trajectory_reference.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-007",
+      "title": "MACE 本地 checkpoint 被交给下载器",
+      "local_commit": "3f5b5443c207a614a576e1a0f827962d2a23bd19",
+      "upstream_repository": "framework",
+      "upstream_issue": [],
+      "upstream_fix_commit": null,
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选 from_checkpoint 仍无条件调用 download_mace_mp_checkpoint(checkpoint_path)；没有确认官方等价修复。",
+      "extra_local_boundaries": "保留已存在本地文件直读与 named-model 下载路径；本轮仅 mock 路径断言，真实模型证据另引 A。",
+      "official_evidence": [],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/models/mace.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/models/test_mace.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-checkpoint-probe"
+        ],
+        "collection_limitation": "Original test_mace.py imports unrelated training classes requiring absent PhysicsNeMo; full module was not accepted as passing."
+      }
+    },
+    {
+      "id": "UBF-008",
+      "title": "Uniform storage 多属性目标槽位不一致",
+      "local_commit": "3f89f6be675f9c20785edc2878bf83cbf7b0f921",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/194"
+      ],
+      "upstream_fix_commit": "bcc43f55748b6d1bbd928c660c1eaeb109fa604c",
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "equivalent",
+      "action": "retain",
+      "equivalence_scope": "PR194 初始 dest_mask 快照、首字段映射、其余字段复用该映射：与本地 UBF-008 的核心槽位/占用语义等价。",
+      "extra_local_boundaries": "保留 storage backend 选择与本地 Torch 路径；segmented 原始 offsets/mask 复用另须验证，不能据 uniform 核心等价删除整块适配。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/194",
+          "commit": "bcc43f55748b6d1bbd928c660c1eaeb109fa604c",
+          "role": "scoped_fix"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/data/level_storage.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/data/test_storage_backend.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-storage"
+        ]
+      }
+    },
+    {
+      "id": "UBF-009",
+      "title": "行晶格 stress-to-cell-force 乘法顺序",
+      "local_commit": "a76107eb12dd6ac1d61943ede2a06f660233bcd7",
+      "upstream_repository": "ops",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit-ops/pull/194"
+      ],
+      "upstream_fix_commit": "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0",
+      "upstream_branch": "0.5.0-rc",
+      "candidate_commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+      "equivalence": "equivalent",
+      "action": "retain",
+      "equivalence_scope": "PR194 的 F_H=-V H^{-T} sigma 与本地 CELL-STRESS-ROW 核心公式相同；equivalent 仅指核心行晶格公式。",
+      "extra_local_boundaries": "保留 Torch reference、完整/下三角模式、FP32/64、alias/strides、梯度及 wrapper 后端；官方 Warp 回归未运行。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit-ops/pull/194",
+          "commit": "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0",
+          "role": "scoped_fix"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "ops",
+            "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+            "path": "nvalchemiops/dynamics/utils/cell_filter.py"
+          }
+        ],
+        "local_tests": [
+          "packages/ops/test/torch/test_torch_stress.py",
+          "packages/framework/test/compatibility/test_cell_stress_force_reference.py",
+          "scripts/test_upstream_bugfix_regressions.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-ops",
+          "cpu-framework-compatibility",
+          "cpu-official-regression-cases"
+        ]
+      }
+    },
+    {
+      "id": "UBF-010",
+      "title": "左手晶胞与非连续坐标写回",
+      "local_commit": "036827eba34fc4ae0004e40903fb8330cee40a2c",
+      "upstream_repository": "ops",
+      "upstream_issue": [],
+      "upstream_fix_commit": null,
+      "upstream_branch": "0.5.0-rc",
+      "candidate_commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选 ops 仍在负 determinant 时先对 H 取负再构造 transform；framework wrapper 仍把 positions.contiguous 临时张量交给 kernel 而未显式写回原 strides。未建立两子问题均解决的官方证据。",
+      "extra_local_boundaries": "保留原 H 到右手 L 的正确分数坐标变换及 strided positions 写回；offenders 检测不是这两个公式/写回问题的修复。",
+      "official_evidence": [],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "ops",
+            "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+            "path": "nvalchemiops/dynamics/utils/cell_filter.py"
+          },
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/_ops/cell_align.py"
+          }
+        ],
+        "local_tests": [
+          "packages/ops/test/torch/test_torch_cell_tools.py",
+          "packages/framework/test/compatibility/test_cell_tools_reference.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-ops",
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-011",
+      "title": "FIRE2 仿射运动采用列晶格公式",
+      "local_commit": "29a70f3af01304a77a65131c123d965469ddab24",
+      "upstream_repository": "ops",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit-ops/pull/194"
+      ],
+      "upstream_fix_commit": "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0",
+      "upstream_branch": "0.5.0-rc",
+      "candidate_commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+      "equivalence": "equivalent",
+      "action": "retain",
+      "equivalence_scope": "PR194 transpose(H^{-1} cell_raw) 映射与本地行晶格仿射更新数学等价；只确认核心仿射公式。",
+      "extra_local_boundaries": "保留本地 Torch functional/reference、空输入/容量/alias 与联合状态规则；PR194 还改变 maxstep 限幅，整实现不能据核心公式判 identical。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit-ops/pull/194",
+          "commit": "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0",
+          "role": "scoped_fix"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "ops",
+            "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+            "path": "nvalchemiops/dynamics/utils/cell_filter.py"
+          }
+        ],
+        "local_tests": [
+          "packages/ops/test/torch/test_variable_cell_fire.py",
+          "packages/framework/test/compatibility/test_variable_cell_fire_reference.py",
+          "scripts/test_upstream_bugfix_regressions.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-ops",
+          "cpu-framework-compatibility",
+          "cpu-official-regression-cases"
+        ]
+      }
+    },
+    {
+      "id": "UBF-012",
+      "title": "传统完整晶胞 FIRE 联合控制",
+      "local_commit": "29a70f3af01304a77a65131c123d965469ddab24",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/218"
+      ],
+      "upstream_fix_commit": null,
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "different",
+      "action": "retain",
+      "equivalence_scope": "PR218 弃用 FIRE/FIREVariableCell 并保留源码；未采用本地应力 half-kick 与九晶胞自由度联合 FIRE 算法。弃用属于不同处理策略。",
+      "extra_local_boundaries": "保留原公共 API 和兼容算法；迁移默认优化器另行评估，不把弃用提交记为算法 fix。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/218",
+          "commit": "3b512c7758a74bf97637b89865d1eefb0786af47",
+          "role": "related_design_only"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/optimizers/fire.py"
+          }
+        ],
+        "local_tests": [
+          "packages/ops/test/torch/test_variable_cell_fire.py",
+          "packages/framework/test/compatibility/test_variable_cell_fire_reference.py",
+          "packages/framework/test/compatibility/test_variable_cell_workflow.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-ops",
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-013",
+      "title": "Warp FIRE 参数更新与混合竞态",
+      "local_commit": "29a70f3af01304a77a65131c123d965469ddab24",
+      "upstream_repository": "ops",
+      "upstream_issue": [],
+      "upstream_fix_commit": null,
+      "upstream_branch": "0.5.0-rc",
+      "candidate_commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+      "equivalence": "unknown",
+      "action": "retain",
+      "equivalence_scope": "候选 batch_idx kernel 仍在同一 launch 中读取共享 dt/alpha/n_steps_positive 并由首原子写回；未找到官方两阶段分离修复。这里只审查源码风险，没有执行 Warp。",
+      "extra_local_boundaries": "保留分离控制更新和速度混合的两次 launch；Torch reference 通过不验证 Warp 并行竞态。",
+      "official_evidence": [],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "ops",
+            "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b",
+            "path": "nvalchemiops/dynamics/optimizers/fire.py"
+          }
+        ],
+        "local_tests": [
+          "packages/ops/test/torch/test_variable_cell_fire.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-ops"
+        ]
+      }
+    },
+    {
+      "id": "UBF-014",
+      "title": "AlignCellHook 子集与坐标系一致性",
+      "local_commit": "29a70f3af01304a77a65131c123d965469ddab24",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182",
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/206"
+      ],
+      "upstream_fix_commit": "9862eccb68cc544753d0f7075c309acd460e3002",
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "partial",
+      "action": "retain",
+      "equivalence_scope": "PR206 的 _aligned_periodic 按 active/periodic/offenders 过滤并旋转 forces/stress；候选 Hook 未对应旋转 velocities，未证明运动后 optimizer cell state 的完整保护。",
+      "extra_local_boundaries": "保留速度协变、已对齐跳过与活跃 cell state 的 realign 拒绝；候选 L-BFGS 支持属于升级闭包评估。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182",
+          "commit": "a4215f450d68aaf7402391e3384a165af3f38175",
+          "role": "related_design_only"
+        },
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/206",
+          "commit": "9862eccb68cc544753d0f7075c309acd460e3002",
+          "role": "scoped_fix"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/hooks/cell_align.py"
+          },
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/_ops/cell_align.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_variable_cell_fire_reference.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-015",
+      "title": "优化器私有状态 mask 与观察者时序",
+      "local_commit": "7a8af505cc55b3c3a51faf538201280c7a0e58a5",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182",
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/204"
+      ],
+      "upstream_fix_commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "partial",
+      "action": "retain",
+      "equivalence_scope": "PR181/182 的通用 state restore 与 FusedStage Hooks 改进覆盖部分阶段私有状态；新 Batch/group/segmented state 契约不同，尚无全部本地四入口和观察者边界等价证明。",
+      "extra_local_boundaries": "保留 full clones、字段 level 和 shape ambiguity 保护、原 tensor 身份、AFTER_* 前恢复及补位/migration 对齐。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+          "commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+          "role": "scoped_fix"
+        },
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182",
+          "commit": "a4215f450d68aaf7402391e3384a165af3f38175",
+          "role": "related_design_only"
+        },
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/204",
+          "commit": "9d6147089571e842e95d4d5c62f96a6d501b03f0",
+          "role": "related_design_only"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/base.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_variable_cell_workflow.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    },
+    {
+      "id": "UBF-016",
+      "title": "补位到达者首次更新前输出 prime",
+      "local_commit": "7a8af505cc55b3c3a51faf538201280c7a0e58a5",
+      "upstream_repository": "framework",
+      "upstream_issue": [
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+        "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182"
+      ],
+      "upstream_fix_commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+      "upstream_branch": "main",
+      "candidate_commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+      "equivalence": "partial",
+      "action": "retain",
+      "equivalence_scope": "PR181 引入 forces_primed/_prime_forces 与 refill 失效，PR182 扩展 admit/runner lifecycle；核心首次 kick 前模型求值目标对应，整条到达者/Hook/共享计算序列尚未验证等价。",
+      "extra_local_boundaries": "保留本地 E/F/stress priming、active_batch 语义与首 kick 的直接断言；不逐文件替换 BaseDynamics。",
+      "official_evidence": [
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/181",
+          "commit": "a51139165780efda51f361d76a8b3da48c6e05d1",
+          "role": "scoped_fix"
+        },
+        {
+          "url": "https://github.com/NVIDIA/nvalchemi-toolkit/pull/182",
+          "commit": "a4215f450d68aaf7402391e3384a165af3f38175",
+          "role": "related_design_only"
+        }
+      ],
+      "verification": {
+        "method": "Exact frozen source/diff review; local CPU regression only",
+        "upstream_sources": [
+          {
+            "repository": "framework",
+            "commit": "f59e28dc6701583a13bb294e536076c2a7379e98",
+            "path": "nvalchemi/dynamics/base.py"
+          }
+        ],
+        "local_tests": [
+          "packages/framework/test/compatibility/test_variable_cell_workflow.py"
+        ],
+        "candidate_runtime": "not_run",
+        "native_warp_runtime": "not_run",
+        "hardware_this_stage": "not_run",
+        "report": "reports/upstream-bugfix-alignment-2026-10.md",
+        "run_ids": [
+          "cpu-framework-compatibility"
+        ]
+      }
+    }
+  ],
+  "validation": {
+    "local_runs": {
+      "cpu-ops": {
+        "exit_code": 0,
+        "passed": 111,
+        "skipped": 3,
+        "log": "artifacts/upstream-bugfix-alignment-2026-10-09/cpu-ops.log",
+        "scope": "Local Torch NHC/stress/cell tools/variable-cell FIRE; three native Warp parity tests skipped"
+      },
+      "cpu-framework-compatibility": {
+        "exit_code": 0,
+        "passed": 87,
+        "skipped": 0,
+        "log": "artifacts/upstream-bugfix-alignment-2026-10-09/cpu-framework-compatibility.log",
+        "scope": "Eight selected compatibility modules/nodes; heterogeneous snapshot CPU parameter only"
+      },
+      "cpu-framework-storage": {
+        "exit_code": 0,
+        "passed": 2,
+        "skipped": 0,
+        "log": "artifacts/upstream-bugfix-alignment-2026-10-09/cpu-framework-storage.log",
+        "scope": "Two selected uniform and segmented multi-attribute regression nodes"
+      },
+      "cpu-checkpoint-probe": {
+        "exit_code": 0,
+        "passed": 1,
+        "skipped": 0,
+        "log": "artifacts/upstream-bugfix-alignment-2026-10-09/cpu-checkpoint-probe.log",
+        "scope": "Existing local-checkpoint assertion body and MockMACEModel extracted to an isolated artifact; full original test module collection failed"
+      },
+      "cpu-official-regression-cases": {
+        "exit_code": 0,
+        "passed": 6,
+        "skipped": 0,
+        "log": "artifacts/upstream-bugfix-alignment-2026-10-09/cpu-official-regression-cases.log",
+        "scope": "PR194 bond finite differences (dtype x full/lower-triangle) and ragged capped affine FIRE2 cases (dtype), adapted to retained local APIs"
+      }
+    },
+    "failed_attempts": [
+      {
+        "exit_code": 4,
+        "log": "artifacts/upstream-bugfix-alignment-2026-10-09/cpu-framework.log",
+        "reason": "Combined framework collection imported test_mace.py training dependencies; PhysicsNeMo absent. No tests completed in that attempt."
+      }
+    ],
+    "environment": {
+      "python": "3.12.13",
+      "torch": "2.9.0+das.opt1.dtk2604",
+      "numpy": "1.26.4",
+      "pytest": "8.4.2",
+      "device": "CPU",
+      "HIP_VISIBLE_DEVICES": "",
+      "NVALCHEMI_TEST_BACKEND": "torch_reference (framework and new cases)",
+      "OMP_NUM_THREADS": 1,
+      "activation": "source scripts/activate_hygon_env.sh project; /opt/dtk-26.04/env.zsh"
+    },
+    "source_index": "artifacts/upstream-bugfix-alignment-2026-10-09/source-index.json",
+    "integrity": "artifacts/upstream-bugfix-alignment-2026-10-09/validation-status.json",
+    "historical_hcu_report": "reports/g2-integration-a-2026-10-09.md",
+    "candidate_runtime": "not_run",
+    "native_warp_runtime": "not_run",
+    "hardware_this_stage": "not_run"
+  }
+}

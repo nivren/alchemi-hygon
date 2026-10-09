@@ -31,7 +31,14 @@
   [差异工具](../scripts/upstream_delta.py)、[候选记录](UPSTREAM_CANDIDATES.yaml)和
   [首次报告](../reports/upstream-delta-2026-10.md)。14 项 CPU Git/AST 夹具验证通过。
   Framework/Ops 历史均分叉，467/322 个文件变化、40/8 个潜在交集；未运行候选源码或 HCU，
-  尚非 Validated。用户已确认 B 收口提交和 C 的 16 项 UBF 对齐；D 未启动。
+  尚非 Validated。B 已签名收口 `84b4ba9`。
+  C 在 `wangleping/docs-upstream-bugfix-alignment` 完成
+  [16 项 UBF 对照](UPSTREAM_BUGFIX_STATUS.yaml)：3 项核心 equivalent、5 partial、
+  1 different、7 unknown；全部 retain。官方 PR194 科学案例 6 passed；本地 ops
+  111 passed/3 skipped、framework compatibility 87 passed、storage 两节点通过，
+  checkpoint 隔离断言 1 passed；原 MACE 模块收集失败单列于
+  [C 报告](../reports/upstream-bugfix-alignment-2026-10.md)。候选/HCU/Warp 本轮未运行。
+  用户已确认 C 收口并授权 D 隔离评估。日常移植可恢复，D 独立开展。
   未修改 packages/版本锁/生产环境，未推送或合并 develop。
 
 ## 当前能力摘要

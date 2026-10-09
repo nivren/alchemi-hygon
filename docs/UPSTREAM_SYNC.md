@@ -102,11 +102,23 @@ JSON 保存同签名实现变化和完整依赖配置。文件交集和 AST 条�
 
 [UPSTREAM.md](UPSTREAM.md) 保留全部 LP 适配索引；
 [UPSTREAM_BUGFIXES.md](UPSTREAM_BUGFIXES.md) 保留科学原因、本地/fork 来源和验证边界。
-C 阶段计划新增 `docs/UPSTREAM_BUGFIX_STATUS.yaml` 作为上游对齐状态来源，原因和本地实现
-仍由现有 Markdown 记录解释；当前尚未实施。结构化对照维护 local commit、official issue/PR、fix commit、observed branch、
+[UPSTREAM_BUGFIX_STATUS.yaml](UPSTREAM_BUGFIX_STATUS.yaml) 已由 C 建立，作为上游对齐状态来源；
+原因和本地实现仍由现有 Markdown 记录解释。结构化对照维护 local commit、official issue/PR、fix commit、observed branch、
 equivalence、action、核验日期、源码路径和 verification，并注明等价判断的具体范围。
 核心公式等价不等于整个实现等价。官方修复后仍需检查额外的边界处理、兼容逻辑和测试价值。
 移除补丁须验证边界已被覆盖，回归测试和平台适配仍保留。反馈上游需另获发送授权。
+
+首轮 16 项结论、官方回归吸收和验证缺口见
+[C 报告](../reports/upstream-bugfix-alignment-2026-10.md)。状态文件使用 JSON-compatible YAML，
+可用 Python stdlib `json.load` 读取；equivalence 和 action 枚举及 unknown 的含义写在 policy 中。
+`upstream_fix_commit` 仅证明明示范围的具体修复；partial 仍需保留额外边界。
+
+每次新候选先生成 Delta，再人工复核该表：核对 candidate SHA，检查已登记官方 fix 的
+包含性、源码变化和额外边界，更新日期、作用范围与 verification。旧 SHA 的等价结论
+不得直接套到新 SHA。B 工具报告保留生成时的 UBF 线索，C 表独立记录人工等价判断；
+不从 Delta 的文件交集或提交主题自动更新 equivalence，不覆盖历史报告。
+独立科学案例可运行 `scripts/test_upstream_bugfix_regressions.py`，它验证当前本地
+Torch reference，不能据此宣称候选或原生 Warp 已通过。
 
 ## 5. 隔离升级与正式接受
 

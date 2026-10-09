@@ -1,5 +1,19 @@
 # 上游锁定与导入依据
 
+## 2026-10-09：C 阶段 UBF 对齐
+
+B 已签名收口为 `84b4ba95ac008d4022acfcff6ea076a5d7793a55`。C 在独立分支
+`wangleping/docs-upstream-bugfix-alignment` 完成 16 项
+[结构化官方对照](UPSTREAM_BUGFIX_STATUS.yaml)，详见
+[对齐报告](../reports/upstream-bugfix-alignment-2026-10.md)。当前冻结候选不变；
+UBF-008/009/011 核心语义 equivalent，5 项 partial、1 项 different、7 项 unknown，
+16 项全部 retain。官方相关设计不自动成为完整修复，候选未运行，不提升为 Validated。
+
+Ops PR194 科学案例已适配到本地 Torch reference，6 项 CPU 通过；已有定向回归与
+MACE 原模块收集失败/隔离断言分开记录。packages、版本锁、生产环境及稳定 develop
+未改动；未删除补丁、合并或推送。以下 B 的“留给 C”描述是其生成时的历史快照，
+当前官方状态以 C 表为准。用户已确认 C 收口并授权 D 独立评估。
+
 ## 2026-10-09：Upstream Delta V1 静态观察
 
 产品仍采用锁定 Framework `4dfe3723def34df3fadb245981081ccf8c94c257` 与 Ops
@@ -48,7 +62,8 @@ framework 0.2.0 要求 Python >=3.11,<3.14、torch>=2.8、ops>=0.4.1；ops 0.4.1
 
 上游计算逻辑和状态管理缺陷的详细原因、影响与反馈状态见
 [`UPSTREAM_BUGFIXES.md`](UPSTREAM_BUGFIXES.md)。本表继续维护全部本地补丁索引；
-缺陷记录通过 LP 编号和源码注释标记与本表关联。
+缺陷记录通过 LP 编号和源码注释标记与本表关联。当前官方对齐状态另见
+[UPSTREAM_BUGFIX_STATUS.yaml](UPSTREAM_BUGFIX_STATUS.yaml)，不由 LP 历史快照推断。
 
 本节登记导入到 `packages/framework` 和 `packages/ops` 后对上游文件的修改。
 新增的 reference 模块、兼容性测试和探针属于产品侧新增文件，不冒充上游补丁；

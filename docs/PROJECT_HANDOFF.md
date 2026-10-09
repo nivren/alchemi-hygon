@@ -122,7 +122,13 @@ CPU reference `425 passed/3 skipped`，HCU ops `101 passed`、framework `77 pass
 用户确认后 A 以 `132ff32` 签名收口；B 在 `wangleping/feat-upstream-delta-v1` 完成只读
 差异工具/候选记录/[报告](../reports/upstream-delta-2026-10.md)，14 项 CPU Git/AST 夹具验证通过。
 B 尚未运行候选源码/HCU，候选仍为 Candidate；产品源码/锁/环境未改变，未推送/合并。
-用户已确认 B 收口提交，并授权 C 的 UBF-001～016 等价与额外边界审查；D 未启动。
+B 已签名收口 `84b4ba9`；C 在 `wangleping/docs-upstream-bugfix-alignment` 完成
+[UBF-001～016 官方对照](UPSTREAM_BUGFIX_STATUS.yaml)：核心 equivalent 3、partial 5、
+different 1、unknown 7；全部 retain。PR194 本地科学案例 6 passed，既有 ops
+111 passed/3 skipped、framework compatibility 87 passed、storage 两节点通过；
+checkpoint 隔离断言 1 passed，原 MACE 测试模块收集失败独立记录。
+45 份源码快照和 912 份产品/夹具哈希核验通过；没有新增候选/HCU/Warp 运行证据。
+[C 报告](../reports/upstream-bugfix-alignment-2026-10.md)已获用户确认收口；D 隔离升级评估已获启动授权。
 A–C 完成后恢复正常功能开发，D 可单独确认并行；不升级当前锁或 Torch/DTK。
 
 当前任务队列和 owner 确认入口见 [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)。
