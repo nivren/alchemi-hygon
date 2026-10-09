@@ -1,0 +1,91 @@
+{
+  "candidate_id": "upstream-2026-10-v1",
+  "candidate_status": "Candidate",
+  "repositories": {
+    "nvalchemi-toolkit": {
+      "url": "https://github.com/NVIDIA/nvalchemi-toolkit.git",
+      "observed_ref": "main",
+      "commit": "f59e28dc6701583a13bb294e536076c2a7379e98"
+    },
+    "nvalchemi-toolkit-ops": {
+      "url": "https://github.com/NVIDIA/nvalchemi-toolkit-ops.git",
+      "observed_ref": "0.5.0-rc",
+      "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b"
+    }
+  },
+  "source_commit": "82f7841eefb6f17db9f973368f8e114ce7058df5",
+  "report": "reports/upstream-sync-2026-10.md",
+  "validation": {
+    "static_delta": "B",
+    "candidate_runtime": "blocked_at_public_import",
+    "hardware": "not_validated_as_package_pair",
+    "baseline_promotion": "not_authorized"
+  },
+  "isolated_evaluation": {
+    "stage": "D",
+    "date": "2026-10-09",
+    "local_commit": "ad189987b94b8b97b3332ee8982c960a3ce6a5e6",
+    "branch": "sync/upstream-2026-10",
+    "worktree": "artifacts/upstream-sync-2026-10/worktree",
+    "report": "reports/upstream-sync-2026-10.md",
+    "probe": "probes/upstream_sync_v1.py",
+    "decision": "defer_full_upgrade",
+    "baseline_changed": false,
+    "production_environment_changed": false,
+    "package_pair_validated": false,
+    "scope": "Three unmodified candidate modules imported by explicit file path: GroupLayout, HookContext and Hook protocol. ProbeBatch is a minimal fixture, not the public candidate Batch. Earlier review_notes preserve B observations; this D record supplies subsequent evidence without rewriting the frozen B comparison.",
+    "isolated_modules": {
+      "source_paths": [
+        "nvalchemi/data/group_layout.py",
+        "nvalchemi/hooks/_context.py",
+        "nvalchemi/hooks/_protocol.py"
+      ],
+      "cpu": {
+        "checks_passed": 11,
+        "exit_code": 0
+      },
+      "hcu4": {
+        "checks_passed": 11,
+        "exit_code": 0,
+        "device": "BW1000 64G / gfx936"
+      },
+      "dtypes": [
+        "float32",
+        "float64"
+      ],
+      "limitations": "No public Batch, grouped engine lifecycle, registry dispatch, model, checkpoint, compile, Warp or performance validation; does not promote current product capabilities."
+    },
+    "stock_imports": {
+      "framework_batch_group_layout": {
+        "exit_code": 1,
+        "blocker": "missing warp"
+      },
+      "ops_lbfgs": {
+        "exit_code": 1,
+        "blocker": "missing warp"
+      }
+    },
+    "dependency_blockers": [
+      "Ops Torch extras require >=2.10; current Hygon Torch is 2.9.0+das.opt1.dtk2604",
+      "Framework NumPy requires >=2,<3; current version is 1.26.4",
+      "Framework plotext requires <6; current version is 6.0.0",
+      "Candidate stock dependencies Warp, nvidia-physicsnemo and click are missing"
+    ],
+    "history": "Both repositories diverged from Baseline; review Baseline-exclusive commits before subtree synchronization.",
+    "per_file_three_way": {
+      "base": "locked Baseline, not merge-base",
+      "framework": {
+        "overlap_files": 40,
+        "text_conflicts": 21,
+        "text_clean": 19
+      },
+      "ops": {
+        "overlap_files": 8,
+        "text_conflicts": 3,
+        "text_clean": 5
+      },
+      "limitation": "git merge-file text experiment only; not a complete subtree merge or semantic compatibility result"
+    },
+    "raw_evidence": "artifacts/upstream-sync-2026-10/validation-status.json"
+  }
+}

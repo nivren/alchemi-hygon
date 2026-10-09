@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Small offline Git fixtures for Upstream Delta V1; no product/DCU imports."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("upstream_delta", Path(__file__).with_name("upstream_delta.py"))
 delta = importlib.util.module_from_spec(SPEC)
@@ -89,6 +91,19 @@ class StaticTests(unittest.TestCase):
             with self.assertRaises(delta.DeltaError):
                 delta.load_input(path)
 
+    def test_historical_candidate_matches_report_hash(self):
+        root = Path(delta.__file__).resolve().parents[1]
+        frozen = root / "docs/UPSTREAM_CANDIDATES.yaml"
+        expected = "9ba1fc4e8804d2b0c15d43ce9d22314f5a6911295ab70cccacd4ee27e9520ef7"
+        self.assertEqual(hashlib.sha256(frozen.read_bytes()).hexdigest(), expected)
+        self.assertIn("| candidate | " + expected + " |", (root / "reports/upstream-delta-2026-10.md").read_text())
+        candidate = delta.load_input(frozen)
+        self.assertNotIn("isolated_evaluation", candidate)
+        record = json.loads((root / "reports/upstream-sync-2026-10-validation.json").read_text())
+        self.assertEqual(record["candidate_id"], candidate["candidate_id"])
+        self.assertEqual(record["repositories"], candidate["repositories"])
+        self.assertEqual(record["isolated_evaluation"]["decision"], "defer_full_upgrade")
+
 
 class GitTests(unittest.TestCase):
     @classmethod
@@ -142,6 +157,13 @@ class GitTests(unittest.TestCase):
         return delta.build_report(self.product, self.repos["framework"], self.repos["ops"],
                                   self.product / "docs/UPSTREAM_LOCK.yaml",
                                   self.product / "docs/UPSTREAM_CANDIDATES.yaml")
+
+    def cli_args(self, output, json_output=None):
+        argv = ["--root", str(self.product), "--framework-repo", str(self.repos["framework"]),
+                "--ops-repo", str(self.repos["ops"]), "--output", str(output)]
+        if json_output:
+            argv += ["--json-output", str(json_output)]
+        return argv
 
     def test_diverged_and_ancestor_history(self):
         baseline, target, common = self.refs["framework"]
@@ -199,16 +221,78 @@ class GitTests(unittest.TestCase):
     def test_cli_deterministic_and_only_outputs_written(self):
         files_before = {p.relative_to(self.product): p.read_bytes() for p in self.product.rglob("*")
                         if p.is_file() and ".git" not in p.parts and "reports" not in p.parts}
-        argv = ["--root", str(self.product), "--framework-repo", str(self.repos["framework"]),
-                "--ops-repo", str(self.repos["ops"]), "--output", str(self.product / "reports/delta.md")]
+        argv = self.cli_args(self.product / "reports/delta.md")
         refs_before = {key: git(repo, "show-ref") for key, repo in self.repos.items()}
         self.assertEqual(delta.main(argv), 0)
         first = (self.product / "reports/delta.md").read_bytes()
-        self.assertEqual(delta.main(argv), 0)
-        self.assertEqual(first, (self.product / "reports/delta.md").read_bytes())
+        self.assertEqual(delta.main(self.cli_args(self.product / "reports/delta-repeat.md")), 0)
+        self.assertEqual(first, (self.product / "reports/delta-repeat.md").read_bytes())
         for path, value in files_before.items():
             self.assertEqual((self.product / path).read_bytes(), value)
         self.assertEqual(refs_before, {key: git(repo, "show-ref") for key, repo in self.repos.items()})
+
+    def test_existing_report_rejected_before_writes(self):
+        output, json_output = self.product / "reports/existing.md", self.product / "artifacts/not-created.json"
+        write(self.product, "reports/existing.md", "historical evidence\n")
+        before = output.read_bytes()
+        with patch.object(delta, "build_report", side_effect=AssertionError("must reject before analysis")):
+            self.assertEqual(delta.main(self.cli_args(output, json_output)), 2)
+        self.assertEqual(output.read_bytes(), before)
+        self.assertFalse(json_output.exists())
+
+    def test_existing_json_rejected_before_markdown_write(self):
+        output, json_output = self.product / "reports/not-created.md", self.product / "artifacts/existing.json"
+        write(self.product, "artifacts/existing.json", '{"historical": true}\n')
+        before = json_output.read_bytes()
+        with patch.object(delta, "build_report", side_effect=AssertionError("must reject before analysis")):
+            self.assertEqual(delta.main(self.cli_args(output, json_output)), 2)
+        self.assertFalse(output.exists())
+        self.assertEqual(json_output.read_bytes(), before)
+
+    def test_explicit_overwrite_replaces_both_outputs(self):
+        output, json_output = self.product / "reports/overwrite.md", self.product / "artifacts/overwrite.json"
+        write(self.product, "reports/overwrite.md", "old report\n")
+        write(self.product, "artifacts/overwrite.json", "old JSON\n")
+        self.assertEqual(delta.main(self.cli_args(output, json_output) + ["--overwrite"]), 0)
+        result = json.loads(json_output.read_text())
+        self.assertEqual(output.read_text(), delta.render_report(result))
+        self.assertEqual(result["local_commit"], self.candidate["local_commit"])
+
+    def test_overwrite_cannot_replace_inputs(self):
+        lock = self.product / "artifacts/protected-lock.yaml"
+        candidate = self.product / "artifacts/protected-candidate.yaml"
+        write(self.product, "artifacts/protected-lock.yaml", json.dumps(self.lock))
+        write(self.product, "artifacts/protected-candidate.yaml", json.dumps(self.candidate))
+        for destination in (lock, candidate, self.product / "docs/UPSTREAM.md", self.product / "docs/UPSTREAM_BUGFIXES.md"):
+            for option in ("--output", "--json-output"):
+                with self.subTest(destination=destination, option=option):
+                    before = destination.read_bytes()
+                    output = destination if option == "--output" else self.product / "reports/input-protection.md"
+                    json_output = destination if option == "--json-output" else None
+                    argv = self.cli_args(output, json_output) + ["--lock", str(lock), "--candidate", str(candidate), "--overwrite"]
+                    with patch.object(delta, "build_report", side_effect=AssertionError("input protection precedes analysis")):
+                        self.assertEqual(delta.main(argv), 2)
+                    self.assertEqual(destination.read_bytes(), before)
+                    self.assertFalse((self.product / "reports/input-protection.md").exists())
+
+    def test_output_alias_rejected_even_with_overwrite(self):
+        output = self.product / "reports/alias.md"
+        alias = self.product / "reports/../reports/alias.md"
+        self.assertEqual(delta.main(self.cli_args(output, alias) + ["--overwrite"]), 2)
+        self.assertFalse(output.exists())
+
+    def test_frozen_candidate_reproduces_report_after_later_record(self):
+        original_path = self.product / "docs/UPSTREAM_CANDIDATES.yaml"
+        frozen = self.product / "artifacts/frozen-candidate.yaml"
+        write(self.product, "artifacts/frozen-candidate.yaml", original_path.read_text())
+        original = delta.render_report(self.report())
+        later = json.loads(original_path.read_text())
+        later["validation"] = {"candidate_runtime": "blocked_at_public_import"}
+        write(self.product, "artifacts/later-candidate.yaml", json.dumps(later))
+        reproduced = delta.build_report(self.product, self.repos["framework"], self.repos["ops"],
+                                        self.product / "docs/UPSTREAM_LOCK.yaml", frozen)
+        self.assertEqual(delta.render_report(reproduced), original)
+        self.assertEqual(frozen.read_bytes(), original_path.read_bytes())
 
     def test_protected_and_outside_outputs_rejected(self):
         for dest in (self.product / "packages/framework/no.py", self.product / "docs/UPSTREAM_LOCK.yaml",

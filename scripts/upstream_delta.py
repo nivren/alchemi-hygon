@@ -461,6 +461,7 @@ def main(argv=None):
     parser.add_argument("--local-ref", help="Optional complete local product SHA override")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--json-output", type=Path)
+    parser.add_argument("--overwrite", action="store_true", help="Explicitly allow replacing existing report outputs; inputs remain protected")
     args = parser.parse_args(argv)
     try:
         root = args.root.resolve()
@@ -471,13 +472,20 @@ def main(argv=None):
         protected = {p.resolve() for p in (lock, candidate, root / "docs/UPSTREAM.md", root / "docs/UPSTREAM_BUGFIXES.md")}
         if output in protected or json_output in protected or output == json_output:
             raise DeltaError("Report destinations overlap inputs or each other")
+        destinations = [output] + ([json_output] if json_output else [])
+        if not args.overwrite:
+            for destination in destinations:
+                if destination.exists():
+                    raise DeltaError(f"Output already exists: {destination}; choose a new path or use --overwrite")
         result = build_report(root, args.framework_repo, args.ops_repo, lock, candidate, args.local_ref)
         report = render_report(result)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(report)
+        outputs = [(output, report)]
         if json_output:
-            json_output.parent.mkdir(parents=True, exist_ok=True)
-            json_output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+            outputs.append((json_output, json.dumps(result, ensure_ascii=False, indent=2) + "\n"))
+        for destination, content in outputs:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("w" if args.overwrite else "x", encoding="utf-8") as handle:
+                handle.write(content)
         print(f"Report: {output}; risks: {len(result['risks'])}; Candidate remains unvalidated")
         return 0
     except (DeltaError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
