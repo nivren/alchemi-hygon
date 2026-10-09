@@ -44,8 +44,10 @@ HCU4 不可用时不等待、不占用其他卡，记录未运行项；A 的 HCU
 
 ## 4. 差异分析及补丁审查
 
-B 阶段计划交付 `scripts/upstream_delta.py`、`docs/UPSTREAM_CANDIDATES.yaml` 和
-`reports/upstream-delta-2026-10.md`，当前尚未实施。
+B 阶段已交付 [只读工具](../scripts/upstream_delta.py)、
+[冻结候选记录](UPSTREAM_CANDIDATES.yaml) 和
+[首次报告](../reports/upstream-delta-2026-10.md)，工具 Git/AST 夹具验证 14 项通过。
+候选仍为 Candidate，尚未运行候选源码或取得硬件兼容性证明。
 工具以明确的 Git 对象为输入，默认不获取网络更新、不执行上游代码、不修改产品源码、
 external 或版本锁。上游对象获取放在独立缓存中，显式 fetch 与分析分开记录。
 报告至少比较锁定上游→候选上游、锁定上游→本地产品子树，以及两组变更的交集。
@@ -55,6 +57,48 @@ external 或版本锁。上游对象获取放在独立缓存中，显式 fetch �
   需要人工复核。文件交集属于潜在冲突，不能直接写成已确认合并冲突。
 - 依赖按基础、extras、平台 marker、跨包导入和实际 API 使用分别检查。
 - 同时盘点新增、删除、弃用的特性，人工决定保留、backport、延期或整版本升级评估。
+
+### 4.1 获取对象与重复生成
+
+工具使用 Python >=3.11 的标准库；本机用项目 `.venv/bin/python`。输入 `.yaml` 遵循
+本工程的 JSON 兼容 YAML 格式，不需要安装 PyYAML 或运行候选包。
+锁提供基线 SHA/URL/子树路径；候选记录提供两个目标完整 SHA、本地产品完整 SHA、观察日期和
+人工审阅线索。更换候选时新增一份记录，通过 `--candidate` 指定；不覆盖产品版本锁。
+
+本轮 Git 对象来自 2026-10-09 官方上游审阅，已复制到忽略的独立缓存。
+在没有缓存的新 checkout 中先显式获取对象（完整可达历史，不使用 `--depth`）：
+
+```bash
+mkdir -p artifacts/upstream-delta-cache
+git init --bare artifacts/upstream-delta-cache/framework.git
+git -C artifacts/upstream-delta-cache/framework.git fetch --no-tags \
+  https://github.com/NVIDIA/nvalchemi-toolkit.git \
+  4dfe3723def34df3fadb245981081ccf8c94c257 f59e28dc6701583a13bb294e536076c2a7379e98
+git init --bare artifacts/upstream-delta-cache/ops.git
+git -C artifacts/upstream-delta-cache/ops.git fetch --no-tags \
+  https://github.com/NVIDIA/nvalchemi-toolkit-ops.git \
+  26dbceb61e30cca80e1a5805eebeb51d7dc68fd1 5fffc0726b1e71bb8b68e10b5f87942064759f5b
+```
+
+候选输入若登记额外官方 fix SHA，也需显式获取该对象；本轮 PR194 的 fix 已可从 Ops 候选到达。
+工具拒绝短 SHA、ref 漂移、缺失对象和浅历史；本地仓库须保留完整 subtree 导入基线提交。
+它分析冻结的本地产品 Git 子树，另列未提交的产品差异，不将工作树内容伪装为该提交证据。
+
+从项目根目录执行：
+
+```bash
+.venv/bin/python scripts/upstream_delta.py \
+  --framework-repo artifacts/upstream-delta-cache/framework.git \
+  --ops-repo artifacts/upstream-delta-cache/ops.git \
+  --output reports/upstream-delta-2026-10.md \
+  --json-output artifacts/upstream-delta-v1/analysis.json
+.venv/bin/python -m unittest discover -s scripts -p test_upstream_delta.py -v
+```
+
+可用 `--lock`、`--candidate`、`--local-ref` 指定其他明确输入；输出只准写到本工程的
+`reports/` 或 `artifacts/`，不得覆盖输入。保留原报告时先选择新的输出文件名。
+同一输入、工具与 Python/Git 版本重复生成的 Markdown/JSON 字节一致；报告保存输入/工具哈希及分析环境，
+JSON 保存同签名实现变化和完整依赖配置。文件交集和 AST 条目计数都不是已确认冲突/正式 API 数量。
 
 [UPSTREAM.md](UPSTREAM.md) 保留全部 LP 适配索引；
 [UPSTREAM_BUGFIXES.md](UPSTREAM_BUGFIXES.md) 保留科学原因、本地/fork 来源和验证边界。

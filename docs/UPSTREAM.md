@@ -1,5 +1,25 @@
 # 上游锁定与导入依据
 
+## 2026-10-09：Upstream Delta V1 静态观察
+
+产品仍采用锁定 Framework `4dfe3723def34df3fadb245981081ccf8c94c257` 与 Ops
+`26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`。首次冻结候选 Framework
+`f59e28dc6701583a13bb294e536076c2a7379e98`、Ops
+`5fffc0726b1e71bb8b68e10b5f87942064759f5b`，记录见
+[UPSTREAM_CANDIDATES.yaml](UPSTREAM_CANDIDATES.yaml)，流程/复现见
+[UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)，差异和风险见
+[首次报告](../reports/upstream-delta-2026-10.md)。
+
+两套历史均分叉：基线/候选独有提交分别为 24/41、4/42。只读 tree/AST/TOML 分析列出
+Framework/Ops 467/322 个文件变化和 40/8 个本地修改交集；交集不是已确认合并冲突。
+候选 Framework NumPy>=2,<3 与 Ops Torch extras>=2.10 是当前环境的声明阻塞；候选依赖
+求解/运行未验证，不改变生产 Torch/DTK。官方 Ops PR194 的 fix
+`6967a46d39418cfeb0ea962fa7b85daaaa49a0d0` 包含于候选，UBF-009/011 核心公式有对应线索，
+额外边界/完整等价留给 C；不删除本地补丁。UBF-001～016 状态仍需逐项核验。
+本轮仅增加跟踪工具和文档，未同步上游产品源码、修改版本锁或向官方提交消息。
+
+## 2026-09-05：初始导入依据
+
 2026-09-05，按用户指定的两个完整 SHA 锁定，见 UPSTREAM_LOCK.yaml。
 指令来源为本次用户指令、根 AGENTS.md、PROJECT_HANDOFF.md 和 START_HERE.md；历史路线文档与外部探索仅供参考。
 初始主仓库 master 无提交，仅有未跟踪的交接文档和 .gitignore，无 packages 产品代码。已有真实 Git 身份 Wang, Leping / wangleping@dcu2。

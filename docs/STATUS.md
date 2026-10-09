@@ -27,8 +27,12 @@
   FP32 FIRE2 两组分别 46/47、99/100 晶胞移动；未移动结构两后端晶胞相同，逐结构比较通过。
 - [A 报告](../reports/g2-integration-a-2026-10-09.md)包含 SHA、环境、命令、退出码、数值和限制；
   长期开发流程写入 [UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)，AGENTS/开发指南提供入口。
-- 用户已确认 A 验收与收口提交，并授权启动 B：只读 Upstream Delta 工具、冻结候选记录和
-  首次差异报告；本轮未推送/合并，C/D 尚未启动。
+- 用户确认后 A 已签名收口 `132ff32`；B 已在 `wangleping/feat-upstream-delta-v1` 完成只读
+  [差异工具](../scripts/upstream_delta.py)、[候选记录](UPSTREAM_CANDIDATES.yaml)和
+  [首次报告](../reports/upstream-delta-2026-10.md)。14 项 CPU Git/AST 夹具验证通过。
+  Framework/Ops 历史均分叉，467/322 个文件变化、40/8 个潜在交集；未运行候选源码或 HCU，
+  尚非 Validated。用户已确认 B 收口提交和 C 的 16 项 UBF 对齐；D 未启动。
+  未修改 packages/版本锁/生产环境，未推送或合并 develop。
 
 ## 当前能力摘要
 

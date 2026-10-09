@@ -42,14 +42,16 @@ Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_
 用户已确认 G2 集成收口与 Upstream Sync V1，长期执行规则见
 [UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)。A 已固定 `2e211ab` 完成指定 CPU/HCU4 集成基线验收，
 真实 MPA-0 八组通过；[报告](../reports/g2-integration-a-2026-10-09.md)和流程文档已获确认并收口提交。
-B 差异工具/报告已获启动授权；C UBF 对齐、D 隔离升级在前一阶段总结后另行确认启动。
+B 已完成只读差异工具/冻结候选记录/[首轮报告](../reports/upstream-delta-2026-10.md)，
+14 项 Git/AST CPU 夹具验证通过，用户已确认收口提交。
+C UBF 对齐已获启动授权；D 隔离升级另行确认启动。
 A–C 完成后恢复正常功能开发；D 可独立并行，不阻塞日常移植。
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
 | 已确认并收口 | A：G2 集成基线验收 | 固定 `2e211ab`，CPU reference 425 passed/3 skipped；HCU ops101/framework77+既有xfail；真实MPA-0八组通过；流程/证据已写入 | 指定 gate，非全上游/NVIDIA/长收敛；未推送 |
-| 已获启动授权 | B：Upstream Delta V1 | 最小只读差异工具、冻结候选记录、首轮报告及 Git 夹具测试 | 不修改 packages/锁/生产环境，不自动解决冲突 |
-| 等待后续确认 | C：UBF 上游对齐 | UBF-001～016 官方证据、额外本地边界、equivalence/action/verification | 无证据 unknown；不直接删除补丁 |
+| 已确认并收口 | B：Upstream Delta V1 | 工具/候选/报告；14 项夹具验证通过；467/322 文件变化、40/8 潜在交集；候选运行未验证 | 不修改 packages/锁/生产环境，不自动解决冲突 |
+| 已获启动授权 | C：UBF 上游对齐 | UBF-001～016 官方证据、额外本地边界、equivalence/action/verification | 无证据 unknown；不直接删除补丁 |
 | 等待独立确认 | D：隔离升级评估 | 独立候选源码组合/API依赖闭包、CPU/HCU验证与接受/暂缓决策 | 不作为长期功能主线；不强制追上 main |
 | 完成 | HIP 邻居 M1：当前晶胞 | 显式 full-PBC/Batch/full/MATRIX/FP32/64，每次完整重建；CPU/HCU4 gate；实现 `fecbc39`、分支 `codex/feat-hip-current-cell-neighbors` | 不含 COO/MACE/FIRE 工作流、skin、旧 plan 复用或性能结论 |
 | 完成 | HIP 邻居 M2：COO + MACE 单点 | 实现 `3e394d7`；设备内 Torch 适配、ops/framework/Hook CPU/HCU4；真实MPA-0两精度/三快照E/F/stress与FP64差分 | 不直接实现 native COO；变胞 FIRE/FIRE2 和实测优化分别后续验收 |

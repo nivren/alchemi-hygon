@@ -7,6 +7,7 @@
 
 | 主题 | 当前摘要 | 主要限制 |
 |---|---|---|
+| Upstream Delta V1（2026-10） | [`upstream-delta-2026-10.md`](upstream-delta-2026-10.md) | 冻结两包SHA、分叉、API/依赖/特性和本地交集；14项工具夹具通过，候选源码/HCU未运行；UBF完整对齐待C |
 | G2 集成基线验收 A（2026-10-09） | [`g2-integration-a-2026-10-09.md`](g2-integration-a-2026-10-09.md) | `2e211ab` 指定 CPU/HCU4 与真实MPA-0八组通过；非全上游/Warp/长收敛；长期跟踪流程见 docs/UPSTREAM_SYNC.md |
 | 项目环境 | [`probe-environment-freeze.txt`](probe-environment-freeze.txt) | 机器事实和历史资源快照；新机器需重新确认 |
 | Torch reference 基线 | [`g2-torch-reference-pbc-cell-list-core.md`](g2-torch-reference-pbc-cell-list-core.md) | 不代表生产性能后端 |

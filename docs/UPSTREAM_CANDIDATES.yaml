@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "candidate_id": "upstream-2026-10-v1",
+  "status": "Candidate",
+  "observed_date": "2026-10-09",
+  "local_commit": "132ff32d90e4cf56b422a34674a5a93c596490af",
+  "source_acquisition": "Official Git objects acquired during the 2026-10-09 review; copied into ignored artifacts/upstream-delta-cache. No ref refresh during report generation.",
+  "validation": {
+    "static_delta": "B",
+    "candidate_runtime": "not_run",
+    "hardware": "not_run",
+    "baseline_promotion": "not_authorized"
+  },
+  "repositories": {
+    "nvalchemi-toolkit": {
+      "url": "https://github.com/NVIDIA/nvalchemi-toolkit.git",
+      "observed_ref": "main",
+      "commit": "f59e28dc6701583a13bb294e536076c2a7379e98"
+    },
+    "nvalchemi-toolkit-ops": {
+      "url": "https://github.com/NVIDIA/nvalchemi-toolkit-ops.git",
+      "observed_ref": "0.5.0-rc",
+      "commit": "5fffc0726b1e71bb8b68e10b5f87942064759f5b"
+    }
+  },
+  "bugfix_hints": [
+    {
+      "id": "UBF-009",
+      "repository": "ops",
+      "fix_commit": "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0",
+      "upstream_pr": "https://github.com/NVIDIA/nvalchemi-toolkit-ops/pull/194",
+      "review_scope": "核心 stress-to-cell-force 公式对应；retain，本地额外边界和官方回归待 C 完整核验，未验证 Warp 数值"
+    },
+    {
+      "id": "UBF-011",
+      "repository": "ops",
+      "fix_commit": "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0",
+      "upstream_pr": "https://github.com/NVIDIA/nvalchemi-toolkit-ops/pull/194",
+      "review_scope": "行晶格仿射运动核心数学对应；retain，官方位移限制等同时变化，整实现等价待 C 核验"
+    }
+  ],
+  "review_notes": [
+    {
+      "area": "依赖组合与环境",
+      "evidence": [
+        "Framework f59e28dc:pyproject.toml",
+        "Ops 5fffc072:pyproject.toml",
+        "reports/g2-integration-a-2026-10-09.md"
+      ],
+      "assessment": "Framework Python 扩展到 <3.15，要求 Ops>=0.5.0、NumPy>=2,<3、PhysicsNeMo>=2.2；Ops Torch/torch-cu12/torch-cu13 extras 从>=2.8提高到>=2.10，Warp>=1.16。当前 Python3.12/Torch2.9/NumPy1.26.4：Python范围满足，NumPy及Torch路径声明有阻塞；不意味着不用Torch extra就证明Torch2.9兼容。Framework uv source指向0.5.0-rc分支；候选Ops源码声明__version__=0.5.0，分支名并非PEP440预发布版本。未验证PyPI当前发布状态或依赖求解。 候选Framework仍声明0.2.0，必须按SHA识别源码组合。",
+      "action": "defer；D 隔离评估，不升级生产 Torch/DTK/NumPy"
+    },
+    {
+      "area": "Batch / Storage / 生命周期",
+      "evidence": [
+        "Framework nvalchemi/data/batch.py",
+        "nvalchemi/data/level_storage.py",
+        "nvalchemi/data/group_layout.py",
+        "nvalchemi/dynamics/base.py",
+        "nvalchemi/_checkpoint.py",
+        "bcc43f55748b6d1bbd928c660c1eaeb109fa604c",
+        "a51139165780efda51f361d76a8b3da48c6e05d1",
+        "a4215f450d68aaf7402391e3384a165af3f38175"
+      ],
+      "assessment": "可扩展层级schema、group layout、状态感知Hooks及checkpoint机制影响Batch边界、inactive恢复、私有状态和补位。UBF-014～016仅登记设计相关线索，尚未确认具体边界等价；需按依赖闭包评估，不能逐文件替换。",
+      "action": "retain 当前实现；进入 D 完整升级评估，C 先核对补丁边界"
+    },
+    {
+      "area": "传统 FIRE / FIREVariableCell",
+      "evidence": [
+        "Framework nvalchemi/dynamics/optimizers/fire.py",
+        "3b512c7758a74bf97637b89865d1eefb0786af47"
+      ],
+      "assessment": "候选保留源码但弃用FIRE和FIREVariableCell；弃用不等于采用UBF-012完整晶胞联合算法，不据此删除本地兼容实现。",
+      "action": "retain；记录差异，延期迁移默认优化器"
+    },
+    {
+      "area": "行晶格科学修复",
+      "evidence": [
+        "Ops nvalchemiops/dynamics/utils/cell_filter.py",
+        "Ops test/dynamics/test_fire.py",
+        "Ops test/dynamics/test_fire2.py",
+        "6967a46d39418cfeb0ea962fa7b85daaaa49a0d0"
+      ],
+      "assessment": "PR194的stress转换与FIRE2仿射运动核心对应UBF-009/011；同一提交还处理FIRE2 displacement limiting。只确认源码修复包含性和核心对应，不将其扩大成完整数值/边界等价。",
+      "action": "retain；C 列官方回归 backport 候选，不在 B 改源码"
+    },
+    {
+      "area": "左手晶胞与非连续写回",
+      "evidence": [
+        "Ops nvalchemiops/dynamics/utils/cell_filter.py",
+        "Framework nvalchemi/dynamics/_ops/cell_align.py",
+        "docs/UPSTREAM_BUGFIXES.md UBF-010"
+      ],
+      "assessment": "候选仍需复核负determinant取负分支和positions.contiguous临时buffer写回；本轮没有UBF-010已完全解决的证据。",
+      "action": "retain；C 按两包具体调用和边界测试核验"
+    },
+    {
+      "area": "Neighbors / prepared / compile",
+      "evidence": [
+        "Ops nvalchemiops/torch/neighbors/prepared_neighbor_list.py",
+        "nvalchemiops/torch/neighbors/_cell_grid.py",
+        "nvalchemiops/neighbors/base_dispatch.py",
+        "9caa51bd367be5d9a7e878960fdc19affdab5a12",
+        "16e2361f651de078d8b6e997f177fb6d715bc0c5"
+      ],
+      "assessment": "候选新增共享prepared Torch/JAX邻居状态、pair-centric网格选择/复用和编译接口；Torch包装仍可能launch Warp，不是海光native后端。与本地HIP当前晶胞完整重建、Torch COO打包、registry明确选择须分别审阅。",
+      "action": "retain 本地HIP；defer prepared/compile全移植，D 评估API和依赖闭包"
+    },
+    {
+      "area": "Model Wrapper / 训练",
+      "evidence": [
+        "Framework nvalchemi/models",
+        "nvalchemi/training",
+        "ff7441b68ad572c8d62a163496708729e4ccd6d1",
+        "38d178a1c3d6eba0bf384f96eb8b4f7edf940f15",
+        "ab0b4adb94db8b98322d0d3f398e186e3a182855"
+      ],
+      "assessment": "position Hessian、OMol周期应力/UMA动态编译、LoRA与蒸馏扩展尚未在HCU验证；模型输出、stress约定、设备/dtype和训练梯度链需独立gate。",
+      "action": "defer 新特性；D 选择代表性Wrapper闭包，保留现有MACE接口"
+    },
+    {
+      "area": "新功能队列",
+      "evidence": [
+        "Framework nvalchemi/dynamics/optimizers/lbfgs.py",
+        "nvalchemi/dynamics/mep/neb.py",
+        "nvalchemi/enhanced_sampling/biases",
+        "nvalchemi/gen",
+        "nvalchemi/csp",
+        "nvalchemi/training/distillation",
+        "Ops nvalchemiops/torch/lbfgs.py"
+      ],
+      "assessment": "新增L-BFGS与grouped updates、NEB、ABF、生成模型、分子CSP、蒸馏，以及Ops Fourier DFT-D3/电静力相关扩展；均为候选新增范围，尚非HCU支持。是否优先移植由实际需求决定。",
+      "action": "defer；进入功能队列，不混入本轮Delta/UBF工作"
+    }
+  ],
+  "tool_validation": {
+    "date": "2026-10-09",
+    "command": ".venv/bin/python -m unittest discover -s scripts -p test_upstream_delta.py -v",
+    "exit_code": 0,
+    "tests_passed": 14,
+    "log": "artifacts/upstream-delta-v1/tool-tests.log",
+    "scope": "Isolated CPU Git/AST fixtures: divergence/ancestry/unrelated history, rename/add/delete, API/defaults/returns/exports, markers, patch IDs, duplicate keys, missing SHA/shallow history, fix ancestry, protected outputs, deterministic rerun and read-only inputs/refs. No candidate runtime or HCU validation."
+  }
+}
