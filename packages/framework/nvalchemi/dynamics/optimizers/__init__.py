@@ -17,6 +17,14 @@
 from importlib import import_module
 
 _EXPORTS = {
+    "ASECompatibleBFGSVariableCell": (
+        "nvalchemi.dynamics.optimizers.bfgs_ase_cell",
+        "ASECompatibleBFGSVariableCell",
+    ),
+    "ASECompatibleBFGS": (
+        "nvalchemi.dynamics.optimizers.bfgs_ase",
+        "ASECompatibleBFGS",
+    ),
     "FIRE": ("nvalchemi.dynamics.optimizers.fire", "FIRE"),
     "FIREVariableCell": ("nvalchemi.dynamics.optimizers.fire", "FIREVariableCell"),
     "FIRE2": ("nvalchemi.dynamics.optimizers.fire2", "FIRE2"),
@@ -24,6 +32,8 @@ _EXPORTS = {
 }
 
 __all__ = [
+    "ASECompatibleBFGS",
+    "ASECompatibleBFGSVariableCell",
     "FIRE",
     "FIREVariableCell",
     "FIRE2",

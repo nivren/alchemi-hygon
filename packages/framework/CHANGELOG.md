@@ -4,6 +4,30 @@
 
 ### Added
 
+- Local alchemi-hygon `ASECompatibleBFGS`: ASE 3.29.0 dense-Hessian semantics,
+  initial force evaluation, strict force stopping and tensor restart for one
+  fixed-cell FP64 system on CPU/CUDA-HIP. This is absent from the reviewed
+  NVIDIA baseline. An explicit `backend="hip"` uses an independently implemented
+  rocSOLVER eigensolver on the verified HCU/DTK26.04 build, retaining the Torch
+  reference and unchanged BFGS mathematics. The Torch reference library can
+  use host LAPACK. ``ASECompatibleBFGSVariableCell`` now provides one FP64
+  system's ASE UnitCellFilter 3N+9 coordinates and all Filter parameters,
+  joint generalized-force stopping and reference-cell/paired-geometry restart.
+  M4 adds heterogeneous Batch, ID-keyed histories/Filters, grouped batched
+  arithmetic/eigh, convergence freezing, reorder/refill and Batch restart.
+  Native Jacobi is used at all widths after a real CSP Hessian exposed a
+  fault/incorrect spectrum in this DTK's batched DC path. Device-local solver
+  validity checks reject finite but invalid eigensystems before commit.
+  Real FP64 MPA-0 FIRE2→variable-cell BFGS and inflight molecular-crystal
+  workflows are validated on the admitted single HCU build; NVIDIA hardware,
+  other builds, compile and production throughput remain unverified.
+  An additional explicit `hip.bfgs-ase-jacobi-streams-v1` implementation uses
+  the local dynamic FP64 HIP Jacobi kernel and two bounded workers/streams
+  across heterogeneous width groups. It shares the ASE numerical core and
+  atomic all-group commit, has no empirical matrix-width or Batch-size cap,
+  and leaves existing backend defaults unchanged. See the M5-4 contract and
+  validation report for the qualified device/build and measured scope.
+
 - Domain decomposition for distributed inference and dynamics: a spatial halo
   strategy and a graph-parallel strategy, both driven by a declarative
   `MLIPSpec` a model wrapper publishes as `distribution_spec`. Ewald, PME,

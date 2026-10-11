@@ -25,8 +25,12 @@ from __future__ import annotations
 
 from importlib import import_module
 
-
 _EXPORTS = {
+    "ASECompatibleBFGSVariableCell": (
+        "nvalchemi.dynamics.optimizers.bfgs_ase_cell",
+        "ASECompatibleBFGSVariableCell",
+    ),
+    "ASECompatibleBFGS": ("nvalchemi.dynamics.optimizers", "ASECompatibleBFGS"),
     "BaseDynamics": ("nvalchemi.dynamics.base", "BaseDynamics"),
     "ConvergenceHook": ("nvalchemi.dynamics.base", "ConvergenceHook"),
     "DistributedPipeline": ("nvalchemi.dynamics.base", "DistributedPipeline"),
@@ -60,6 +64,8 @@ _MODULE_EXPORTS = {
 }
 
 __all__ = [
+    "ASECompatibleBFGS",
+    "ASECompatibleBFGSVariableCell",
     "BaseDynamics",
     "ConvergenceHook",
     "DataSink",

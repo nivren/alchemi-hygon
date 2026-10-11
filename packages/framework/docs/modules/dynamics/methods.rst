@@ -14,6 +14,9 @@ wrapper (a :func:`torch.library.custom_op` for ``torch.compile`` / autograd
 compatibility) around a GPU kernel in :mod:`nvalchemiops`; the kernels that
 realise each method are collected in a collapsible panel at the end of every
 section, so the implemented equations can be inspected directly.
+The local ASE-compatible BFGS extension described below has an Ops tensor
+reference and explicit HIP eigensolver implementations; its optimizer API is
+validated for eager inference.
 
 .. note::
 
@@ -228,3 +231,84 @@ evaluation.
 
    .. autofunction:: fire2_step_coord
    .. autofunction:: fire2_step_coord_cell
+
+Local ASE-compatible BFGS
+------------------------
+
+``ASECompatibleBFGS`` is an alchemi-hygon extension absent from the reviewed
+NVIDIA baseline. It uses ASE 3.29.0 dense-Hessian updates, absolute eigenvalues
+and per-system ``maxstep`` scaling. It supports nonempty heterogeneous
+fixed-cell FP64 systems in a ``Batch`` on CPU or CUDA/HIP, with initial force
+evaluation, strict ``max_force_norm < fmax`` stopping and tensor restart.
+Model/Batch/Hooks use the existing APIs; models requiring neighbors need a
+``NeighborListHook`` at ``BEFORE_COMPUTE``.
+
+The optimizer defaults to explicit ``backend="torch_reference"``; there is
+no upstream legacy BFGS for ``None``/``warp`` to select. Explicit ``backend="hip"`` selects
+the local rocSOLVER eigensolver on the verified HCU Torch/DTK26.04 build; other
+builds fail until requalified. It retains the same BFGS mathematics and does
+not enable automatic selection. The Torch reference library was observed
+calling host LAPACK. On the admitted build the native solver uses checked
+batched Jacobi at all widths: a real CSP Hessian exposed incorrect output and
+a VMFault in strided-batched divide-and-conquer. No spectrum modification or
+failure-triggered solver switching is applied.
+
+An additional explicit implementation,
+``backend="hip.bfgs-ase-jacobi-streams-v1"``, uses the local dynamic FP64
+HIP Jacobi kernel. One equal-width group is solved as a batch on the caller's
+stream; multiple widths use two host workers and two HIP streams on the same
+device. The worker count does not restrict the number of structures or the
+matrix widths. There is no 147/285 dimension whitelist or four-matrix limit;
+memory and integer representation determine capacity. All candidate groups
+must pass the existing eigensystem guards before any state is committed.
+The implementation is an explicit opt-in; ``hip`` and the optimizer default
+remain unchanged. Only the qualified HCU Torch/DTK26.04 gfx936 environment
+is admitted. Matrix arithmetic stays on-device, while sweep checks still
+involve scalar host synchronization. Eager FP64 is the validated scope;
+fake metadata registration does not establish compile or autograd support.
+
+For example, using an already configured model and list of neighbor hooks::
+
+    optimizer = ASECompatibleBFGSVariableCell(
+        model=model, hooks=neighbor_hooks,
+        backend="hip.bfgs-ase-jacobi-streams-v1", fmax=0.05
+    )
+    relaxed = optimizer.run(batch, n_steps=500)
+
+The fixed-cell class accepts the same backend value. Filter parameters,
+system IDs, Batch force sharing and restart formats are unchanged.
+
+Multiple systems require unique integer ``system_id``. State follows these IDs
+through reordering and native sampler/FusedStage refill. Equal DOFs are stacked
+for batched arithmetic/eigh; heterogeneous DOFs are grouped without padding.
+Use ``bfgs_states`` and ``last_steps`` for per-ID access. Native masked stages
+consume shared, already primed forces without a separate model evaluation.
+Save the Batch, model and pipeline/sampler state separately from optimizer
+``state_dict()``. Single-system snapshot formats remain compatible.
+
+.. currentmodule:: nvalchemi.dynamics.optimizers.bfgs_ase
+
+.. autoclass:: ASECompatibleBFGS
+   :members: state_dict, load_state_dict, bfgs_state, bfgs_states, last_steps
+
+``ASECompatibleBFGSVariableCell`` adds ASE ``UnitCellFilter``'s complete
+``3N+9`` coordinates, with ``mask``, ``cell_factor``, ``hydrostatic_strain``,
+``constant_volume``, ``orig_cell`` and ``scalar_pressure`` parameters. It uses
+the same Ops mathematics and explicit backends. An FP64 ``Batch`` needs
+independent energy/force/cell/stress slots and a stress-producing model. The
+stress input uses ASE's tensile-positive convention, in eV/angstrom cubed.
+neighbor hook must rebuild using the current cell; omit native cell-alignment
+hooks to preserve the ASE chart. ``maxstep`` and strict ``fmax`` apply to all
+``N+3`` generalized rows. Constant volume follows ASE's trace projection and
+does not exactly constrain volume at each step. Batch energy remains physical;
+``get_enthalpy(batch)`` returns ``E+pV``. Atoms constraints, other ASE Filters,
+autograd through the optimizer and compile are outside this contract.
+Filter parameters apply independently to each system; default ``cell_factor``
+is its atom count. ``filter_states`` exposes reference cells/parameters by ID.
+Generalized force stopping can accept a structure whose physical Cartesian
+force norm exceeds ``fmax``; this is the ASE UnitCellFilter criterion.
+
+.. currentmodule:: nvalchemi.dynamics.optimizers.bfgs_ase_cell
+
+.. autoclass:: ASECompatibleBFGSVariableCell
+   :members: state_dict, load_state_dict, bfgs_state, bfgs_states, filter_state, filter_states, get_enthalpy
