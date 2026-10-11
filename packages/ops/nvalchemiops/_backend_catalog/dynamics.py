@@ -7,6 +7,78 @@ from nvalchemiops._backend_types import Implementation
 
 IMPLEMENTATIONS: tuple[Implementation, ...] = (
     Implementation(
+        implementation_id="torch_reference.bfgs-ase-v1",
+        operation="bfgs_ase_compat",
+        family="torch_reference",
+        executor="nvalchemiops.bfgs_ase_reference",
+        entrypoints=("bfgs_ase_prepare_state", "bfgs_ase_step", "bfgs_ase_batch_step"),
+        executor_owner="ops",
+        features=frozenset(
+            {
+                "single_system",
+                "batch",
+                "heterogeneous",
+                "fixed_cell",
+                "variable_cell",
+                "ase_unitcell",
+            }
+        ),
+        dtypes=frozenset({"float64"}),
+        max_gradient_order=0,
+        evidence="docs/TORCH_ASE_BFGS_CONTRACT.md",
+        default_strategy=True,
+        auto_enabled=False,
+    ),
+    Implementation(
+        implementation_id="hip.bfgs-ase-rocsolver-v1",
+        operation="bfgs_ase_compat",
+        family="hip",
+        executor="nvalchemiops.bfgs_ase_hip",
+        entrypoints=("bfgs_ase_prepare_state", "bfgs_ase_step", "bfgs_ase_batch_step"),
+        executor_owner="ops",
+        features=frozenset(
+            {
+                "single_system",
+                "batch",
+                "heterogeneous",
+                "fixed_cell",
+                "variable_cell",
+                "ase_unitcell",
+            }
+        ),
+        dtypes=frozenset({"float64"}),
+        devices=frozenset({"cuda"}),
+        max_gradient_order=0,
+        evidence="docs/HIP_BFGS_EIGH_CONTRACT.md",
+        default_strategy=True,
+        auto_enabled=False,
+    ),
+    Implementation(
+        implementation_id="hip.bfgs-ase-jacobi-streams-v1",
+        operation="bfgs_ase_compat",
+        family="hip",
+        strategy="jacobi_streams",
+        executor="nvalchemiops.bfgs_ase_jacobi_hip",
+        entrypoints=("bfgs_ase_prepare_state", "bfgs_ase_step", "bfgs_ase_batch_step"),
+        executor_owner="ops",
+        features=frozenset(
+            {
+                "single_system",
+                "batch",
+                "heterogeneous",
+                "fixed_cell",
+                "variable_cell",
+                "ase_unitcell",
+            }
+        ),
+        dtypes=frozenset({"float64"}),
+        devices=frozenset({"cuda"}),
+        max_gradient_order=0,
+        evidence="docs/HIP_BFGS_JACOBI_STREAMS_CONTRACT.md",
+        default_strategy=False,
+        auto_enabled=False,
+    ),
+    Implementation(
         implementation_id="torch_reference.cell_tools-v1",
         operation="cell_tools",
         family="torch_reference",

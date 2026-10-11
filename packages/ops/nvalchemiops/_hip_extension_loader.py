@@ -26,6 +26,7 @@ def load_hip_extension(
     source_names: tuple[str, str],
     build_env_var: str,
     verbose_env_var: str,
+    extra_ldflags: tuple[str, ...] = (),
 ) -> ModuleType:
     """Build and load one native HIP extension into an explicit cache.
 
@@ -54,6 +55,7 @@ def load_hip_extension(
         build_directory=str(build_root),
         extra_cflags=["-O2"],
         extra_cuda_cflags=["-O2"],
+        extra_ldflags=list(extra_ldflags),
         verbose=os.environ.get(verbose_env_var) == "1",
     )
 

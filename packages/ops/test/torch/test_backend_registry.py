@@ -386,12 +386,20 @@ assert 'warp' not in sys.modules
 assert 'nvalchemiops.torch_reference' not in sys.modules
 assert 'nvalchemiops.stress_reference' not in sys.modules
 assert 'nvalchemiops.cell_reference' not in sys.modules
+assert 'nvalchemiops.bfgs_ase_reference' not in sys.modules
+assert 'nvalchemiops.bfgs_ase_hip' not in sys.modules
+assert 'nvalchemiops._bfgs_eigh_hip' not in sys.modules
+assert 'nvalchemiops.bfgs_ase_jacobi_hip' not in sys.modules
+assert 'nvalchemiops._bfgs_jacobi_hip' not in sys.modules
 assert [item.implementation_id for item in catalog.default_implementations()] == [
     'warp.legacy-upstream-v1',
     'torch_reference.neighbor.dense-v1',
     'torch_reference.neighbor.cell_list-v1',
     'hip.neighbor.cell_list-v1',
     'torch_reference.lj_energy_forces-v1',
+    'torch_reference.bfgs-ase-v1',
+    'hip.bfgs-ase-rocsolver-v1',
+    'hip.bfgs-ase-jacobi-streams-v1',
     'torch_reference.cell_tools-v1',
     'torch_reference.stress_to_cell_force-v1',
     'torch_reference.velocity_verlet-v1',
