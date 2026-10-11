@@ -12,8 +12,19 @@
 
 当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
 Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、device、dtype、梯度等级和
-特性集合登记已验证宽度；Triton 尚无生产 capability，HIP 目前只登记了邻居
-`hip.neighbor.cell_list-v1` 的 periodic/Batch/full/MATRIX+COO 窄 capability；当前晶胞的逐次
+特性集合登记已验证宽度；Triton 尚无生产 capability。共享基线 HIP 登记邻居
+`hip.neighbor.cell_list-v1` 的 periodic/Batch/full/MATRIX+COO 窄 capability；
+BFGS E1 个人分支新增显式 rocSOLVER，见 [合同](HIP_BFGS_EIGH_CONTRACT.md)；M3已完成
+单体系ASE UnitCellFilter 3N+9，见 [Filter合同](TORCH_ASE_UNITCELL_FILTER_CONTRACT.md)，
+M4已完成异构Batch/refill及真实分子晶体CSP窄验收；当前私有HIP统一Jacobi修正
+真实简并DC故障，见[M4报告](../reports/g2-ase-bfgs-m4.md)。现已四组本地提交收口，尚未合入develop，
+M5-1性能定位、M5-2隔离原型验收已完成，三轮同步CSP中位数耗时下降18.466%，
+见[配对报告](../reports/g2-ase-bfgs-m5-2-e2e.md)。M5-3A/3B隔离比选随后已完成；
+M5-4新增显式动态 `hip.bfgs-ase-jacobi-streams-v1` 产品实现，多宽双stream、
+单宽batched，无经验n/B白名单，CPU668/3skip、目标HCU门通过，默认/hip不变。
+源版本、真实工作流和输入相关性能见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)与
+[产品合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)；最终审阅与本地提交见
+[交付记录](ASE_BFGS_DELIVERY_PLAN.md)，生产/auto/其他构建未验收。当前晶胞的逐次
 完整重建见 [M1 契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)。默认
 Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
 

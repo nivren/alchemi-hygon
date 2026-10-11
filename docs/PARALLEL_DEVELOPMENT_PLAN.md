@@ -58,7 +58,8 @@ Candidate 恢复B快照、D结果独立保存、输出保护及21项测试通过
 流程和证据见 [STATUS](STATUS.md)与
 [UPSTREAM_SYNC](UPSTREAM_SYNC.md#42-历史报告复现与-v1-维护收口)。
 上游工程化阶段结束；后续每两周手工观察及相关变化定向审查。
-用户新开 session 恢复正常移植开发，先确认 BFGS-M1 范围；本轮不启动该功能。
+该维护阶段之后，用户已逐阶段确认 BFGS M1–M4，均已完成个人分支窄验收；
+编号与范围以[已确认计划](ASE_BFGS_DEVELOPMENT_PLAN.md)为准。
 
 | 顺序 | 任务 | 当前目标 | 暂不扩展 |
 |---|---|---|---|
@@ -88,7 +89,7 @@ Candidate 恢复B快照、D结果独立保存、输出保护及21项测试通过
 | 完成 | FIRE参数兼容修正 | LOCAL-004提交0e354f4恢复dt_min=0，CPU回归和HCU4 FP64 NumPy/解析势/三CIF十步通过 | 本地移植bug，非上游bug；不代表零下限完整Batch收敛/性能 |
 | 完成并集成 | 弛豫移植收口审查 | M1–M5、运行入口、实际参数、HCU/CPU证据边界和未覆盖项已核对；merge `620a485` | 应用参数/H100 停止度量由下游工程负责 |
 | 完成 | MPA-0 应用分离 | CIF 应用入口及应用专属测试移入同级独立工程 `alchemi-app`；toolkit 保留原生 API、通用生命周期测试和迁移证据 | 应用参数/H100 停止度量属于下游应用，不加入 toolkit 公共 API；全目录作业另行安排 |
-| 下一功能（新 session 确认 M1 范围） | 固定晶胞 ASE-compatible BFGS | M1单体系/FP64/ASE3.29逐步状态、步长与最小状态恢复对照；M2异构独立状态，M3补位/收敛/restart/MACE，M4按profiling决定eigh优化 | 变胞 `3N+9`、L-BFGS与并行planner独立；本轮未启动 |
+| M1–M4及M5-4目标验收 | 本地新增 ASE-compatible BFGS | FP64固定/UnitCellFilter 3N+9异构Batch、共享模型、独立ID/冻结/重排/退出/补位/restart；最终审阅CPU669/5skip，HCU Framework24/native7及原rocSOLVER39；动态尺寸和逐步ASE通过 | 已本地提交；未合入develop/推送；M5-4新显式HIP动态Jacobi，无147/285/B4门，多宽双stream/单宽batched，默认和hip保持；真实CSP/性能/未覆盖范围见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[本地交付](ASE_BFGS_DELIVERY_PLAN.md)和[合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)。不代表生产规模、其他构建或auto准入 |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。
@@ -141,7 +142,8 @@ generic executor binding、公共 `NVTLangevin(backend="torch_reference")` 接�
 - NHC 主要修改 `packages/ops` 的 dynamics reference、测试和对应报告。
 - stress 基础 reference 与后续 FIRE/FIRE2 晶胞耦合分开验收；后者主要修改
   `packages/ops` 的 cell/dynamics 和 framework wrapper，需要单独的状态与数值契约。
-- BFGS 主要修改 dynamics optimizer 与固定晶胞测试；不要顺带引入变胞状态。
+- BFGS 按已确认阶段拆分：M1 Ops/固定晶胞，M2 Framework，M3独立 `3N+9` Filter
+  适配，M4异构Batch/CSP；每阶段仅触及该阶段合同，不提前建设未来状态框架。
 - 共享文件 `docs/STATUS.md`、`docs/PROJECT_HANDOFF.md`、`docs/FEATURE_COMPATIBILITY.yaml`
   和能力矩阵由集成者在 slice 完成后统一更新，避免多个分支同时重写当前状态。
 

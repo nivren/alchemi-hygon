@@ -233,6 +233,15 @@ metadata 驱动，否则每增加一个 implementation 都要同时修改 catalo
    契约与可信 stress，不能与现有原生 `3N+6` cell filter 混称。HIP eigensolver 仅在实测显示
    `eigh` 为目标规模的稳定瓶颈后评估，不能预设为首版后端。
 
+2026-10-09更新：BFGS 是本地新增功能；用户确认 M1–M4，阶段编号以
+[开发计划](ASE_BFGS_DEVELOPMENT_PLAN.md)为准，不与本文 registry/planner 的 M2
+混用。M1单体系固定晶胞FP64 Ops完成个人分支 CPU/HCU4 窄验收，见
+[报告](../reports/g2-ase-bfgs-m1.md)；尚未集成。后续已确认的 M2 Framework 窄验收
+见[M2报告](../reports/g2-ase-bfgs-m2.md)：eigh host路径已证实；E1已确认并完成显式HIP求解器窄验收，见[E1报告](../reports/g2-ase-bfgs-e1.md)；M3 UnitCellFilter已确认并完成单体系CPU/HCU窄验收，见[M3报告](../reports/g2-ase-bfgs-m3.md)；
+M4异构Batch/refill/CSP已确认并完成个人分支窄验收，CPU650/3skip、HCU Framework14/
+solver39；当前HIP统一Jacobi修正真实简并DC故障，见[M4报告](../reports/g2-ase-bfgs-m4.md)。
+四组已本地提交，尚未合入develop/推送；执行记录见[交付方案](ASE_BFGS_DELIVERY_PLAN.md)。M5-1定位、M5-2隔离HIP原型验收完成，三轮同步CSP中位数耗时下降18.466%，见[配对报告](../reports/g2-ase-bfgs-m5-2-e2e.md)；M5-3A/3B隔离比选随后完成；M5-4新增显式产品ID hip.bfgs-ase-jacobi-streams-v1，无经验n/B门，单宽batched/多宽双stream，默认/hip保持。最终CPU668/3skip及目标HCU数值门通过；真实CSP/性能与未覆盖范围见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)。未集成、未准入auto/生产规模/其他构建；通用planner继续沿用原触发条件。
+
 每项均先完成 CPU contract，再获得 HCU 批证据；variable-cell 的正确性阶段可使用现有 periodic
 dense reference，不阻塞于周期 cell-list 性能任务。任何 feature/profile/planner 跨项设计必须另立
 小计划。M2 的启动条件是出现多个已验证实现、需要可复现实验策略或必须冻结 pipeline 选择，

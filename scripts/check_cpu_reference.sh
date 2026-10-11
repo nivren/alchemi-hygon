@@ -26,7 +26,12 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/ops/test/torch/test_torch_stress.py \
   packages/ops/test/torch/test_torch_cell_tools.py \
   packages/ops/test/torch/test_variable_cell_fire.py \
-  packages/ops/test/torch/test_torch_nhc.py
+  packages/ops/test/torch/test_torch_nhc.py \
+  packages/ops/test/torch/test_ase_bfgs.py \
+  packages/ops/test/torch/test_ase_bfgs_batch.py \
+  packages/ops/test/torch/test_ase_unitcell_filter.py \
+  packages/ops/test/torch/test_bfgs_eigh_hip_contract.py \
+  packages/ops/test/torch/test_bfgs_jacobi_hip_contract.py
 
 "$_baseline_python" -m pytest -q \
   packages/framework/test/models/test_lj_torch_reference.py::test_reference_model_builds_neighbor_hook_without_eager_dynamics_import
@@ -40,6 +45,9 @@ export NVALCHEMI_TEST_BACKEND=torch_reference
   packages/framework/test/compatibility/test_variable_cell_fire_reference.py \
   packages/framework/test/compatibility/test_variable_cell_workflow.py \
   packages/framework/test/compatibility/test_inactive_dynamics_outputs.py \
+  packages/framework/test/compatibility/test_ase_bfgs.py \
+  packages/framework/test/compatibility/test_ase_bfgs_cell.py \
+  packages/framework/test/compatibility/test_ase_bfgs_batch.py \
   packages/framework/test/compatibility/test_dynamics_reference_velocity_verlet.py \
   packages/framework/test/compatibility/test_dynamics_reference_langevin.py \
   packages/framework/test/compatibility/test_dynamics_reference_nhc.py \

@@ -2085,16 +2085,18 @@
     {
       "id": "dynamics.bfgs_ase_compat",
       "category": "B",
-      "status": "planned",
-      "implementation_scope": "计划实现与项目 .venv 中 ASE 3.29 无 line-search BFGS 数值兼容的固定晶胞 reference；变胞 ASE UnitCellFilter 兼容、HIP eigensolver、异构 Batch/inflight 和 DomainParallel 尚未实现",
-      "scenario": "分子与分子晶体的 BFGS 结构弛豫；首版为单体系固定晶胞，后续变胞路径要求 ASE UnitCellFilter deformation-gradient 语义",
+      "status": "verified",
+      "implementation_scope": "本地新增功能，非NVIDIA BFGS移植；M1–M4已完成本文明确范围的CPU/HCU窄验收：FP64固定/UnitCellFilter 3N+9异构Batch、共享模型、独立ID state/冻结/重排/退出/补位/配对restart与真实小样本CSP。四组已在个人功能分支本地提交收口，尚未合入develop或推送，不代表全项目HCU门或生产规模；DomainParallel未实现; M5-4新增显式动态HIP Jacobi/双stream产品实现，最终数值门已通过，最终14限时作业/真实小样本CSP复验全部通过，性能随输入分化，见阶段报告",
+      "scenario": "分子与分子晶体固定/ASE UnitCellFilter变胞BFGS；异构Batch和原生inflight FIRE2→BFGS小样本CSP完整链路",
       "source": {
-        "repository": "ASE project environment oracle",
-        "commit": "ase==3.29.0; source revision must be frozen in the implementation contract",
+        "repository": "ASE project environment numerical oracle; independently written alchemi-hygon extension absent from NVIDIA upstream",
+        "commit": "ase==3.29.0; source SHA256 frozen in docs/TORCH_ASE_BFGS_CONTRACT.md; architecture only: framework 0353b85f489b5f6863952a0c4441a0dd04e62ee8 / ops 5fffc0726b1e71bb8b68e10b5f87942064759f5b",
         "paths": [
           "ase/optimize/bfgs.py",
           "ase/_4/optimize/bfgs.py",
-          "ase/filters.py"
+          "ase/filters.py",
+          "ase/_4/optimize/cellutil.py",
+          "ase/stress.py"
         ],
         "symbols": {
           "ase.optimize.BFGS": [
@@ -2115,42 +2117,119 @@
         }
       },
       "contract": {
-        "api": "new public BFGS API must follow BaseDynamics lifecycle while preserving ASE 3.29 BFGS numerical semantics within the declared slice",
-        "data": "fixed-cell state contains a dense Hessian, previous position and previous force; alpha*I initial Hessian, symmetric eigh(H), absolute eigenvalue direction correction and global maxstep scaling are required",
+        "api": "nvalchemiops.bfgs_ase: ASEBFGSState, prepare/step/bfgs_ase_batch_step, state_dict/from_state_dict; nvalchemiops.ase_unitcell_filter.ASEUnitCellFilter; nvalchemi.dynamics.ASECompatibleBFGS/ASECompatibleBFGSVariableCell with existing BaseDynamics/Hooks/FusedStage/sampler/sinks; bfgs_states/last_steps by ID, per-ID Filter snapshots and paired physical Batch continuation",
+        "data": "fixed-cell state contains a dense Hessian, previous position and previous force; alpha*I initial Hessian, symmetric eigh(H), absolute eigenvalue direction correction and global maxstep scaling are required; UnitCell mode has 3N+9 scalar dofs, [N+3,3] generalized q/f, independent reference cell/mask/parameters, physical [N,3] positions and [1,3,3] cell/stress; Batch state follows unique integer system_id through reorder/refill; equal scalar DOFs are stacked for vectorized updates/eigh, no padded Hessian; all groups/unpacked geometries validate before commit",
         "fallback": "explicit_only_no_silent_cpu_or_precision_change; non-ASE safeguards or a native 3N+6 variable-cell parameterization are distinct modes, not ASE-compatible fallback",
-        "details": "First version explicitly rejects heterogeneous Batch, inflight and DomainParallel. ASE UnitCellFilter compatibility is 3N+9 deformation-gradient plus cell_factor/mask/pressure semantics, not the existing native 3N+6 upper-triangular cell filter."
+        "details": "FP64 contiguous inference tensors, independent storage, eager forward-only. Same ASE3.29 math for Cartesian 3N and UnitCellFilter 3N+9: alpha*I, exact Hessian update/displacement guard, abs spectrum and per-system maxstep; no damping, clamp, curvature skip or dtype/device conversion. Exact singular/nonfinite candidate and invalid finite eigensystem fail atomically. Default explicit torch_reference; None/warp/auto unavailable. Explicit hip.bfgs-ase-rocsolver-v1 admitted only on verified HCU Torch/HIP/rocSOLVER build, private native FP64 [n,n]/equal [B,n,n], L/U, independent storage/current stream/RAII/API and info checks. M4 real near-alpha degenerate285-DOF Hessian exposed strided-batched DC VMFault and info=0 wrong spectrum; all native widths now directly Jacobi(absTol1e-15,maxSweeps100), not failure-triggered switching. Device-local equation residual normalized by max(||H||F,1) and orthogonality by sqrt(d) must each be <=1e-10. Torch reference retains traced library host LAPACK/numerical roundtrips; HIP147/285/147 DOF grouped three-step trace has no monitored LAPACK or numerical matrix D2H/H2D, host ID/boundary and diagnostic scalars remain. UnitCellFilter uses full F=solve(H0,H).T, exact ASE mask/hydrostatic/trace projection, E+pV and N+3 generalized fmax/maxstep rows; all parameters/defaults verified against ASE on CPU, targeted HCU default/pressure-scale/mask coverage. constant_volume is trace projection, not exact volume. No native3N+6 alignment. Shared Batch model call, strict initial convergence/freeze and eligible Fused masked updates; reorder retains states, removal releases, arrival fresh. Cartesian single schema1, unitcell schema2 and new Batch version1 paired per-ID snapshots; atomic restore, explicit whole-state device transfer; loaded legacy single restart promotion retains paired ID/geometry guard. Calling code separately saves model/Batch/status/pipeline/sampler cursor. Dense scratch adds O(d^2) memory. Contracts: docs/TORCH_ASE_BFGS_CONTRACT.md, docs/TORCH_ASE_UNITCELL_FILTER_CONTRACT.md, docs/HIP_BFGS_EIGH_CONTRACT.md, docs/TORCH_ASE_BFGS_BATCH_CONTRACT.md. E1/M3 solver benchmarks are historical and do not establish current all-Jacobi performance. M5-4 exact-ID backend uses independently written dynamic HIP Jacobi, no empirical n/B whitelist, LOWER FP64, two persistent workers/streams only for multiple widths; one width is directly batched. Registry strategy jacobi_streams is neither default nor auto. Producer/completion events, record_stream, per-device scheduler serialized entry, partial-submit drain/close/recreate protect lifetime. Zero-sweep diagonal sort preserves original tiny eigenvalues and signed zero; iterative kernels unchanged. Final native schema/fake is eager-only; compile/grad unqualified. See docs/HIP_BFGS_JACOBI_STREAMS_CONTRACT.md."
       },
       "dependencies": [
         "torch",
-        "ase==3.29.0 test oracle"
+        "ase==3.29.0 test oracle",
+        "DTK26.04 JIT toolchain for explicit HIP; rocSOLVER/rocBLAS only for original hip.bfgs-ase-rocsolver-v1"
       ],
       "backends": {
-        "upstream": "ASE NumPy dense Hessian and numpy.linalg.eigh",
+        "upstream": "NVIDIA reviewed upstream has no BFGS; ASE NumPy dense Hessian/eigh is the numerical oracle, not a runtime backend",
         "target": [
           "torch_reference",
-          "hip conditional after benchmark"
+          "hip (explicit; verified HCU build only)",
+          "hip.bfgs-ase-jacobi-streams-v1 (explicit; FP64/HCU gfx936 qualified build)"
         ]
       },
       "gradient_level": "default_forward_only",
       "verification": {
-        "dcu_status": "not_run",
+        "dcu_status": "partial",
         "upstream_tests": [],
         "dcu_tests": [
-          "planned ASE 3.29 FP64 step oracle",
-          "planned fixed-cell BFGS compatibility test",
-          "planned HCU BFGS/eigh smoke and benchmark"
+          "packages/ops/test/torch/test_ase_bfgs.py: CPU68 ASE public step/prepare, state/restart/errors/backend/import tests",
+          "scripts/check_cpu_reference.sh: CPU493 passed/3 existing Warp skips",
+          "probes/ase_bfgs_reference.py: HCU4 FP64 3/9/36 DOF x8 steps, restart, explicit device restore, nondefault stream, device/dtype guard and GPU profiler",
+          "packages/framework/test/compatibility/test_ase_bfgs.py: gate39; final41 after alias admission guard, step-level ASE, strict initial stop, Hook lifecycle, cached backend, freeze/restart/errors/import",
+          "scripts/check_cpu_reference.sh: M2 gate532 passed/3 existing Warp skips; final focused41 passed separately",
+          "probes/ase_bfgs_framework_analytic.py: CPU/HCU4 3/9/36 DOF x8 steps, four restart continuation updates bitwise equal, inactive mask/device guard",
+          "probes/ase_bfgs_framework.py: CPU/HCU4 FP64 MPA-0 water, 11 updates/12 main-trajectory evaluations, independent CPU ASE calculator; HCU real-model restart roundoff measured",
+          "probes/ase_bfgs_eigh.py and ase_bfgs_lapack_trace.c: 18 eigensolver-only cases; HIP+LAPACKE tracing confirms Torch host mathematics at n138/199; not product batched BFGS",
+          "packages/ops/test/torch/test_bfgs_eigh_hip_contract.py: CPU16 narrow admission/fake/errors/atomic failure; E1 CPU gate550 passed/3 existing skips; final registry18 passed",
+          "packages/ops/test/torch/test_bfgs_eigh_hip_hcu.py: HCU4 native31 passed, single/equal-batch L/U/spectra/current-stream/schema-fake opcheck; actual nonconvergence info=1 and atomic BFGS failure",
+          "probes/ase_bfgs_framework_analytic.py --backend hip: ASE3/9/36 DOF x8 updates, four bitwise restart continuation updates, inactive freeze/device guard",
+          "probes/ase_bfgs_framework.py --backend hip: HCU4 MPA-0 water11 updates/12 main evaluations; independent CPU ASE oracle; 9 restart continuation updates with measured roundoff",
+          "probes/ase_bfgs_eigh_native.py: product solver18 numerical/performance cases; native vs Torch positive-control LAPACK/HIP trace n138/199/200/201/552 B4; complete BFGS3 steps at DOF9/138/201/552 without monitored host math/matrix roundtrip",
+          "packages/ops/test/torch/test_ase_unitcell_filter.py: CPU28, ASE pack/unpack/forces/projected-stress/enthalpy across nontriangular and left-handed geometry, Filter parameters/combinations, full15-DOF pressure finite difference, schema/invalid-input checks",
+          "packages/framework/test/compatibility/test_ase_bfgs_cell.py: CPU43, ASE8-step parameter trajectories, joint convergence, paired Filter/geometry restart, full inactive freeze, cache invalidation/aliases/admission and singular-candidate rollback",
+          "scripts/check_cpu_reference.sh: M3 final621 passed/3 existing skips; ops268, freshLJ1, framework306, state22, ops24",
+          "packages/framework/test/compatibility/test_ase_bfgs_cell_hcu.py: HCU4 eight passed, CPU-to-HCU Filter/state restore, alternate stream and complete frozen history; native solver31 rerun passed",
+          "probes/ase_bfgs_unitcell.py: CPU/HCU4 Torch/HIP analytical default/pressure-scale/mask, ASE15/12/16 updates and bitwise restart; full15-dof FD around2e-10; CPU and HCU4 HIP periodic Al4 MPA-0 jointly converge5 updates/6 main evaluations, three restart continuation updates",
+          "probes/ase_bfgs_unitcell_trace.py and ase_bfgs_unitcell_lapack_trace.c: HCU4 full variable-cell15-DOF x3 updates; HIP no monitored LAPACK/numerical-matrix D2H, scalar1/8-byte metadata; Torch positive eig host calls and CPU3x3 LU positive control",
+          "M4 final scripts/check_cpu_reference.sh: CPU650 passed/3 existing Warp skips; ops276, freshLJ1, framework327, state22, dynamicsOps24; final paired-restart promotion guard included",
+          "packages/ops/test/torch/test_ase_bfgs_batch.py: CPU8 ASE stepwise/equal-DOF batching/all-group failure atomicity/finite invalid spectrum/input identity and alias",
+          "packages/framework/test/compatibility/test_ase_bfgs_batch.py: CPU21 fixed/variable ASE and independent trajectories, freeze/reorder/exit/arrival, native sampler/Fused budgets/shared model count, FIRE2 transition, complete snapshots/options and legacy restart promotion",
+          "M4 packages/ops/test/torch/test_bfgs_eigh_hip_hcu.py: HCU4 final39 passed; eight new repeated-alpha low-rank200/276/285/552 L/U tests, all-Jacobi product, original random tolerance retained",
+          "M4 packages/framework/test/compatibility/test_ase_bfgs_batch_hcu.py and test_ase_bfgs_cell_hcu.py: HCU4 final14 passed (Batch6+single8), CPU-to-HCU restore, grouped solver shapes/current stream, bitwise same-device continuation/frozen states and legacy-single promotion",
+          "probes/ase_bfgs_csp.py: real46/92-atom MPA-0 FIRE2 to HIP UnitCellFilter BFGS complete convergence88/213 updates, first3 per-ID ASE CPU/independent comparison; four inflight relaxations all converge/refill/exit,103.371s/470 model calls; CPU fixed paired checkpoint continuation converges90/150 updates, timing continuation only; HCU fixed88/149 converges with3 warmed profile steps",
+          "probes/ase_bfgs_batch_trace.py with HIP trace/LAPACK observer: complete147/285/147 DOF x3 updates, eig groups [2,147,147] and [1,285,285], all numeric HCU FP64; native no monitored host LAPACK/matrix return, D2H1/4byte metadata only; Torch6/9/6 positive host math and numeric-copy control",
+          "probes/ase_bfgs_heterogeneous_cpu.py / heterogeneous_test.py: CPU23 pairing-buffer cases, twelve-step adapter bitwise; four variants each32 frozen matrices+9 real groups, frozen32 five outputs serial bitwise, eleven systems ten-step ASE, actual late-group nonconvergence/invalid-vector atomicity, no hidden producer scalar sync lifetime test; CPU Ops104/Framework105 passed",
+          "probes/ase_bfgs_heterogeneous_framework.py: process-only HIP injection,24 HCU cases fixed/default-cell/pressure-scale/mask vs CPU, bitwise restart/nondefault stream/freeze/reorder/remove/arrival/native sampler refill. Initial CPU sampler fixture correctly rejected, corrected HCU fixture passes; no product changes",
+          "probes/ase_bfgs_heterogeneous_benchmark.py / heterogeneous_csp.py: three processes x7 solver/math samples; Li two-stream solver33.24 percent and mixed11.50 percent lower latency vs identical custom serial checks. Actual dual-queue overlap43.910ms. Three fresh paired Li/T2 MPA-0 variable-cell eleven-stage-step qualifications per variant,12 main model calls, three ASE checks per ID, twenty-one warm complete-update samples: Li21.43 percent lower, T2 inconclusive; all nonconverged. Independent CPU MLIP Li separately passes, T2 shared force math only. Final paired positions1.719e-8 Angstrom; no full-convergence/production-throughput claim",
+          "probes/ase_bfgs_solver_fault.py: captured285-DOF structured CSP Hessian: oldDC info0 wrong finite spectrum max79.859 and VMFault exit134; current Jacobi product passes eig/residual/orth oracle; current Torch solves same input; archived DC sources and failure artifacts retained, new archived-source replay entry not rerun",
+          "M5-4 scripts/check_cpu_reference.sh: 668 passed/3 existing Warp skips; Ops294/freshLJ1/Framework327/state22/dynamicsOps24; frozen original shared math four systems twelve steps bitwise",
+          "M5-4 test_ase_bfgs_jacobi_hcu.py plus cell/batch HCU suites: final24 passed; test_bfgs_jacobi_hip_hcu.py final7 passed including zero-sweep tiny spectrum, signed zero, genuine nonconvergence, stream allocator reuse and partial submit drain; original rocSOLVER39 passed unchanged",
+          "M5-4 ase_bfgs_product_acceptance.py: final32 frozen matrices,9 real groups,4 batched sets through1113/B32 subsets/real561 B8; eleven systems ten ASE steps and atomic/restart/single-batch gates; spectrum1.052e-12/equation4.935e-15/orthogonal2.956e-13; coordinates2.673e-14/H7.816e-14",
+          "M5-4 final queue14 bounded jobs all exit0; real Li/T2 qualification11 stages/12 model evaluations and Li independent CPU MLIP gate pass; final46/92 atom MPA-0 medium CSP233 stages/234 main calls all converged, ASE H2.546e-11; final three-process paired solver/math benchmarks preserve189 B32 regression; hipprof Li actual two-queue overlap43.133ms, only1byte diagnostic D2H in selected solver window",
+          "2026-10-10 delivery review: finite direction with overflowed step norm now rejects atomically like single-system; CPU gate669 passed/5 skips (3 existing Warp,2 HCU-only CPU-environment skips subsequently passed on HCU); HCU Ops18/Framework24/public eleven-system ten-step ASE passed; real46/92 MPA-0 medium variable-cell CSP2/2 converge233 stages/234 model calls, ASE H2.552e-11; wheel/sdist builds, extracted-wheel CPU and packaged HIP JIT smoke pass"
         ],
         "evidence": [
           "adr/0008-ase-compatible-bfgs.md",
+          "docs/TORCH_ASE_BFGS_CONTRACT.md",
+          "docs/ASE_BFGS_DEVELOPMENT_PLAN.md",
+          "reports/g2-ase-bfgs-m1.md",
           "docs/PARALLEL_DEVELOPMENT_PLAN.md",
-          "docs/PROJECT_HANDOFF.md"
+          "docs/PROJECT_HANDOFF.md",
+          "reports/g2-ase-bfgs-m2.md",
+          "docs/HIP_BFGS_EIGH_CONTRACT.md",
+          "reports/g2-ase-bfgs-e1.md",
+          "docs/TORCH_ASE_UNITCELL_FILTER_CONTRACT.md",
+          "reports/g2-ase-bfgs-m3.md",
+          "artifacts/ase-bfgs-m3-2026-10-09/acceptance-summary.json",
+          "docs/TORCH_ASE_BFGS_BATCH_CONTRACT.md",
+          "reports/g2-ase-bfgs-m4.md",
+          "artifacts/ase-bfgs-m4-2026-10-09/acceptance-summary.json",
+          "docs/HIP_BFGS_JACOBI_DYNAMIC_CONTRACT.md",
+          "reports/g2-ase-bfgs-m5-3a.md",
+          "docs/ASE_BFGS_M5_3B_PROPOSAL.md",
+          "docs/HIP_BFGS_HETEROGENEOUS_PROBE_CONTRACT.md",
+          "reports/g2-ase-bfgs-m5-3b.md",
+          "docs/ASE_BFGS_M5_4_PROPOSAL.md",
+          "docs/HIP_BFGS_JACOBI_STREAMS_CONTRACT.md",
+          "reports/g2-ase-bfgs-m5-4.md",
+          "artifacts/ase-bfgs-m5-4-2026-10-10/acceptance-summary.json",
+          "reports/g2-ase-bfgs-delivery-review.md",
+          "docs/ASE_BFGS_USAGE.md",
+          "docs/ASE_BFGS_DELIVERY_PLAN.md",
+          "artifacts/ase-bfgs-delivery-review-2026-10-10/acceptance-summary.json"
         ],
-        "environments": []
+        "environments": [
+          "project .venv; ASE3.29.0; Torch2.9.0/HIP6.3.26093; DTK26.04; CPU and BW1000 64G physical HCU4 (HIP_VISIBLE_DEVICES=4); wangleping/feat-ase-bfgs-m1 from cfd22ad, uncommitted",
+          "M2 wangleping/feat-ase-bfgs-m2 from unchanged cfd22ad HEAD with M1 uncommitted work; same Torch/DTK/ASE; CPU and physical HCU4; source hashes in M2 acceptance-summary",
+          "E1 wangleping/feat-ase-bfgs-e1, unchanged cfd22ad HEAD and uncommitted M1/M2; HCU Torch2.9.0+das.opt1.dtk2604/HIP6.3.26093/rocSOLVER3.20.0.80bb870c; CPU and physical HCU4; E1 acceptance-summary source hashes",
+          "M3 wangleping/feat-ase-bfgs-m3, unchanged cfd22ad HEAD and uncommitted M1/M2/E1 work; same admitted HCU Torch/HIP/rocSOLVER build; CPU and physical HCU4; M3 source hash/evidence manifests",
+          "M4 wangleping/feat-ase-bfgs-m4, unchanged cfd22ad HEAD and uncommitted M1–M3; admitted Torch/HIP/DTK/rocSOLVER build on physical HCU4 BW1000 64G; final code/command/input/artifact hashes in M4 acceptance-summary",
+          "M5-4 wangleping/feat-ase-bfgs-m5-4, unchanged cfd22ad HEAD; uncommitted M1-M5 work; HCU4 BW1000/gfx936 Torch2.9.0+das.opt1.dtk2604/HIP6.3.26093 DTK26.04",
+          "2026-10-11 local delivery on wangleping/feat-ase-bfgs-m5-4: Ops d68ea01, Framework bf52bca, evidence93955b0 and documentation commit containing this record; source/test/probe match delivery-review hashes; no new numerical or hardware gate"
+        ],
+        "cpu_status": "verified_delivery_review_reference_gate",
+        "hcu_bfgs_status": "verified_m5_4_targeted_current_build_and_small_sample",
+        "scope_note": "Verification is limited to stated M1-M4 behavior and M5-4 targeted qualified-build gates; dcu_status remains partial; no full project/backend/production-scale gate",
+        "local_delivery_status": "four_local_DCO_signoff_commits_no_develop_merge_or_push"
       },
       "limitations": [
-        "No implementation, CPU numerical evidence or HCU evidence exists at this planning point",
-        "HIP eigensolver is not committed; its need depends on target-size warmed FP64 profiling of eigh, Hessian update, force evaluation and end-to-end BFGS steps",
-        "The prior molecular-crystal workflow filter configuration must be confirmed before claiming variable-cell trajectory alignment"
+        "M1–M5 work is locally committed on the feature branch; no develop integration or push; current feature verification is explicitly scoped FP64 eager/forward-only, not full project HCU or production support",
+        "Torch reference retains library host mathematics/numeric roundtrips; explicit HIP all-Jacobi avoids monitored host math/matrix transfers at traced sizes only on admitted build; other builds require requalification",
+        "No ASE JSON interoperability, constraints/other Filters, DomainParallel, NVIDIA hardware, multicard or broad multithread pressure (M5-4 two-caller/worker lifetime tests passed), optimizer autograd or compile gate; callers save models/paired Batch/status/pipeline/dataset/sampler cursor separately",
+        "Real CSP evidence is two unique46/92-atom CIFs, four repeated inflight relaxations; not large-scale throughput/dataset success rate. CPU fixed numerical continuation passed, timing only resumed window and FIRE budget differs from HCU, no device speedup comparison",
+        "Captured DTK strided-batched DC VMFault/wrong spectrum and old performance are historical. M5-4 registers explicit dynamic HIP Jacobi/two-stream product after M5-3A/3B probes; no empirical147/285 or B4 cap. Single width batched, multiple widths two streams. Default/hip/auto unchanged; input-dependent regressions retained, no universal speedup guarantee.",
+        "M5-3A user-data evidence is16 independent CIFs in bounded step qualification, not complete convergence: Li8 CPU MPA-0/ASE checks passed; T2 CIFs parse to184 atoms and shared HCU force/stress ASE CPU math plus independent HCU checks passed. T2 independent CPU MLIP8-system three-step run timed out124; not a passing model-parity gate. Original rocSOLVER different-width groups remain serial; M5-4 exact-ID backend uses two streams; synthetic cases include regressions",
+        "Analytical restart bitwise same-device; real model re-evaluation has reduction roundoff and quantity-specific tolerances. HCU Filter parameter trajectories cover default/pressure-scale/mask, not every CPU combination/model/backend",
+        "No external extension import/install/copy/patch or dependency upgrade. Original rocSOLVER backend needs existing admitted rocSOLVER/rocBLAS; new dynamic Jacobi backend requires existing JIT toolchain and qualified HCU build, independently written native code.",
+        "constant_volume is ASE trace projection, not exact volume. Generalized fmax differs from raw Cartesian force/stress; O(d^2) dense Hessian/scratch and validity guards have measured cost, no performance/auto admission"
       ],
       "release_gate": "G2"
     },

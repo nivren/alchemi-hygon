@@ -233,7 +233,127 @@ toolkit 收口提交为 `730a848`，下游应用首提交为 `9ae235c`，均已�
 先总结实现、验证和限制，再给下一阶段方案；用户确认下一阶段后，才收口提交当前
 阶段并启动下一阶段，不自动推送。M4 的 `7a8af50`/`f909f52` 已在此新要求前提交，
 既有提交保留；流程文档已在 M5 启动前以 `fa74ca1` 收口；全目录长作业另行授权。
-固定晶胞 ASE-compatible BFGS 保留为后续独立队列。
+ASE-compatible BFGS 用户已于2026-10-09确认 M1–M4；这是 NVIDIA 上游没有的
+本地新增功能。M1 在 `wangleping/feat-ase-bfgs-m1` 从 develop `cfd22ad` 完成独立
+State/prepare/step/restart、FP64 固定晶胞 Torch Ops 与 metadata executor 接线；
+未提交/合并/推送。CPU reference 493 passed/3 skipped（BFGS68）；HCU4 三规模
+各八步/重启/stream/设备守卫与 GPU profiler 通过，H误差3.55e-14、坐标6.66e-16。
+M1 当时 Framework BFGS、MLIP、Filter、Batch/inflight/CSP 尚未接入；来源/命令/边界
+见[M1报告](../reports/g2-ase-bfgs-m1.md)和[合同](TORCH_ASE_BFGS_CONTRACT.md)。
+用户随后确认 M2，在 `wangleping/feat-ase-bfgs-m2` 延续未提交 M1：公共
+ASECompatibleBFGS、模型/Hooks/严格初始收敛/全历史冻结/restart 已实现并完成
+CPU/HCU4 窄验证；MPA-0 水分子11次更新收敛。最终 CPU gate、数值及实际退出码见
+[M2 报告](../reports/g2-ase-bfgs-m2.md)。未提交/合并/推送，未升级版本锁或环境。
+eigh 18组实测：批量候选有收益，小矩阵 B=1 Jacobi 更慢；Torch n=138 主机
+LAPACKE 和 D2H/H2D 已证实。随后用户确认E1，在 `wangleping/feat-ase-bfgs-e1`
+完成显式 `hip.bfgs-ase-rocsolver-v1`，共享BFGS数学、独立native求解器/current stream/
+RAII/info检查，当前HCU构建已测规模无受监测host数学/矩阵回传；CPU550/3skip、
+原生HCU31项、解析势/真实MPA-0及产品eigh18组均通过。小B1 Jacobi更慢，仍显式
+选择；求解器batch不代表BFGS batch。未提交/集成/推送，见[E1报告](../reports/g2-ase-bfgs-e1.md)
+及[合同](HIP_BFGS_EIGH_CONTRACT.md)。随后用户已确认M3。
+M3在 `wangleping/feat-ase-bfgs-m3` 完成单体系完整UnitCellFilter 3N+9 Ops与
+ASECompatibleBFGSVariableCell：全部ASE Filter参数、joint fmax、原子/晶胞更新及
+参考晶胞/配对几何restart。BFGS数学/native solver与E1不变，固定晶胞快照保留。
+最终CPU621/3既有skip；HCU变胞8/solver31回归通过，CPU/HCU解析三路径ASE
+15/12/16步收敛、含压力FD约2e-10；周期Al4 MPA-0 CPU/HCU显式HIP5步/6次求值
+联合收敛及重启；15 DOF完整变胞3步trace显示HIP无受监测host数学/矩阵回传、
+Torch有host LAPACK，ID/检查元数据允许同步。M3当时未提交/集成/推送，
+M4当时待确认；后续结果见下段。见[M3报告](../reports/g2-ase-bfgs-m3.md)与
+[UnitCellFilter合同](TORCH_ASE_UNITCELL_FILTER_CONTRACT.md)。其他构建/多卡/compile未验收。
+用户“继续”确认M4后，在 `wangleping/feat-ase-bfgs-m4` 完成异构固定/变胞Batch、
+按ID独立状态/冻结/重排/退出/补位、按DOF分组batched数学、共享模型、Batch配对
+快照与旧单体系快照提升。最终CPU650/3既有skip，HCU solver39、Batch/变胞14通过。
+真实46/92原子MPA-0 FIRE2→BFGS变胞完整收敛，各ID前3步ASE坐标/晶胞约1e-14、
+H约2.55e-11；四次inflight弛豫全部退出/补位/收敛，103.37秒、470主模型调用。
+CPU固定晶胞配对checkpoint续算通过；HCU固定晶胞完整收敛。该CPU耗时仅续算窗口。
+本机strided-batched DC在真实285DOF简并Hessian出现VMFault及info=0错误谱；当前
+HIP全部宽度直接Jacobi，并加设备内分解有效性守卫，不改变ASE数学。147/285/147
+DOF完整分组三步trace无受监测host数学/数值矩阵往返，D2H仅1/4字节诊断；默认
+Torch仍有host路径。E1旧DC性能不代表当前代码。见[M4报告](../reports/g2-ase-bfgs-m4.md)
+及[Batch合同](TORCH_ASE_BFGS_BATCH_CONTRACT.md)。M1–M4全部仍未提交/集成/推送；
+小样本、当前构建FP64 eager门，不承诺全CSP成功率、大Batch吞吐或通用采样checkpoint。
+M5可选；M4当时建议M5-1针对已测eigh瓶颈做同输入预热基准与方案选择，后续结果见下段。
+2026-10-10用户要求独立复验整个agy-eigh-test，产品源码未改。Default已走
+hipSOLVER但逐矩阵分解；当前DTK n<200 host LAPACK回退。独立无Torch HIP
+复现单矩阵/strided-batched UPPER/DC错误谱，原样外部扩展复现VMFault；当前
+Default/cuSOLVER在真实输入有界复验超时。Jacobi无host数学/矩阵往返，但库内
+有4字节收敛读取；性能不能仅按GPU驻留推断。见[调查报告](../reports/g2-ase-bfgs-eigh-investigation.md)。
+当时下一阶段建议聚焦Jacobi关键路径和安全候选，不恢复已知故障DC。
+用户追加DTK26.10复验后，独立HIP真实285维单矩阵/B1/B4 DC和LOWER均正确完成；
+n199 CPU LAPACK仍存在，285维DC实际命中私有CPU `steqr_host` 子块求解及数值
+往返，仍不满足设备内数学合同。当前26.04构建Torch在隔离26.10环境缺
+libhipblas.so.2，完整26.10 Torch/BFGS未验收；产品准入/默认DTK/全部Jacobi不变。
+见[26.10报告](../reports/g2-ase-bfgs-dtk2610-eigh.md)，该版本仅为候选，不登记支持。
+随后用户确认M5-1，在 `wangleping/perf-ase-bfgs-m5-1` 完成两测量探针与合同、
+147/285 B1/B4三进程×7样本稳态、异构组、native hipprof及三次MPA-0真实变胞CSP。
+11个BFGS/Filter产品源hash未变；没有优化/替换产品solver，版本锁/环境/默认未改。
+285/B1 raw92.16ms/checked92.64ms、GPU kernel占trace97%；三次CSP均收敛，
+233阶段步/234次模型求值，工作流窗口中位数56.88秒，checked占更新88.8%/整个
+窗口47.8%。模型为MACE MPA-0 medium，不是mace_off small；无额外ASE模型对照，
+有同步/checkpoint/冷模型首调用，不能据此声明生产吞吐或加速。全部退出0，
+本阶段不重跑M4全功能gate。见[M5-1报告](../reports/g2-ase-bfgs-m5-1.md)。
+用户随后“继续”确认[M5-2隔离HIP batched Jacobi原型](ASE_BFGS_M5_2_PROPOSAL.md)，
+在 `wangleping/perf-ase-bfgs-m5-2` 实现自写round-robin Jacobi，仅probes接入。
+FP64 LOWER147/285、B≤4：CPU oracle、HCU19例、10步ASE/重启/失败原子性，
+真实MPA-0 medium两CIF变胞ASE对照均通过；233阶段步/234主轨迹模型求值。
+三进程×7样本checked solver相对现有rocSOLVER Jacobi耗时下降28.7%–56%，
+分组数学136.715→68.556ms；11个产品源hash及版本锁未变。
+共享八卡作业随后占用HCU4，旧整段端到端CSP计时仍排除，自身driver已停止（退出143）。
+后续用户确认新窗口三轮配对，六次全部退出0并收敛，均233步/234模型求值；
+174次资源观察无其他HCU4进程。同步工作流中位数57.308→46.726秒，下降18.466%；
+92原子最大配对坐标差异3.386e-4Å，同rocSOLVER重复最大1.472e-3Å，误差与范围
+见[新配对验收](../reports/g2-ase-bfgs-m5-2-e2e.md)。原型/11产品源/版本锁hash仍不变。
+**M5-2隔离候选验收完成**；没有产品注册、M5整体完成或生产吞吐结论。
+每sweep显式标量host读取仍存在；不恢复已知真实简并DC故障路径，不引入clamp。
+原型失败/修正、参考eigh-test介绍的适用性和剩余范围见[M5-2报告](../reports/g2-ase-bfgs-m5-2.md)。
+用户随后明确要求取消147/285维与B≤4限制，原受限接入方案撤回；下一步
+[M5-3动态尺寸与Batch扩展](ASE_BFGS_M5_3_PROPOSAL.md)已由用户确认拆为A/B验收。
+M5-3A在 `wangleping/perf-ase-bfgs-m5-3a` 完成隔离原型动态n/B、64位偏移、
+完整配对launch、设备稳定排序与可选chunk；无147/285或B≤4入口限制。
+CPU oracle、HCU旧19+新32矩阵及B8/16/32、晚块失败/stream、旧原型逐位对照、
+新11体系十步ASE/restart通过；CPU专项104+105、HCU Framework14通过。
+8个含锂独立CIF（2–160原子）CPU MLIP+ASE短步通过；8个T2独立CIF解析为
+184原子/561维B8，共享HCU力的ASE CPU数学与独立HCU短步通过，未完整收敛。
+T2独立CPU MLIP三步对照超时124，保留未通过边界。三进程×7样本真实H分解
+窗口下降46.84%/47.07%；合成561 B8慢44.80%，不登记普遍加速。
+旧46/92完整CSP新配对各一次均收敛（233步/234求值）；513维trace有HCU radix
+排序，无数值矩阵D2H，标量同步仍存在。11产品源/锁不变，原型未注册，全部工作
+未提交/集成/推送。见[M5-3A报告](../reports/g2-ase-bfgs-m5-3a.md)及
+[动态合同](HIP_BFGS_JACOBI_DYNAMIC_CONTRACT.md)。M5-3A不同宽组仍串行。
+
+M5-3B随后确认并完成隔离比选：32矩阵五输出逐位、9真实组数值门，11体系10步ASE，
+Framework24组合/CPU104+105通过。三进程×7微基准Li分解2stream少33.24%，混合少
+11.50%；4stream未额外收益，原生异构未优于2stream。实际kernel双队列重叠43.910ms。
+Li/T2各三轮fresh MPA-0 medium变胞短轨迹，1FIRE+10BFGS/12主模型调用、3步ASE及
+暖机后21更新样本：Li217.380→170.806ms（少21.43%）；T2不声明加速，均非完整收敛。
+独立CPU MLIP Li门通过，T2共享力CPU数学不算模型CPU/HCU门；末态位置差1.719e-8 Å。
+11产品/原M5-3A源/锁hash不变，未产品注册/提交/集成/推送。见
+[M5-3B报告](../reports/g2-ase-bfgs-m5-3b.md)和[隔离合同](HIP_BFGS_HETEROGENEOUS_PROBE_CONTRACT.md)。
+M5-3B当时建议多宽2stream/单宽batched；随后用户确认[M5-4产品接入](ASE_BFGS_M5_4_PROPOSAL.md)。
+新增显式 `hip.bfgs-ase-jacobi-streams-v1`，无经验n/B白名单，默认和`hip`选择保持；
+单宽batched、多宽同进程双worker/双stream。最终CPU668 passed/3既有skip，HCU
+Framework24/native7及32矩阵/9真实组/11体系十步ASE门通过，既有rocSOLVER39回归通过。
+修正零轮对角谱中心化抵消极小非零值的边界，迭代kernel不变。真实CSP与性能
+复验14个限时作业均退出0；46/92原子CSP再次全收敛（233阶段步/234主调用），
+Li/T2短步及Li独立CPU MLIP通过。三进程同输入微基准Li双stream分解少33.53%/
+完整math少23.45%，单宽T2不获并行收益、合成189 B32有退化，不进auto。
+最终证据见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)和[合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)。
+本轮依然未提交/集成/推送；支持仅已准入FP64/eager HCU构建，生产全目录/auto/其他设备待另行确定。
+随后用户确认最终交付审阅：修正Batch有限方向但步长范数溢出的零步提交遗漏，
+补CPU/两个HIP后端的双宽组失败原子性。最终CPU669 passed/5 skipped（3既有Warp、
+2CPU环境HCU参数，后二项已实际HCU通过），HCU Ops18/Framework24及11体系十步
+ASE通过；46/92原子MPA-0 medium CSP再次联合收敛233阶段步/234主求值，ASE H
+2.552e-11。两个包wheel/sdist和独立解包CPU/HIP JIT smoke通过，来源/SPDX核对保持。
+见[审阅报告](../reports/g2-ase-bfgs-delivery-review.md)、[使用指南](ASE_BFGS_USAGE.md)、
+[提交方案](ASE_BFGS_DELIVERY_PLAN.md)。仍未暂存/提交/合并/推送；待确认四组本地
+DCO sign-off提交。历史性能证据和未覆盖范围不变。
+2026-10-11用户确认后完成四组本地收口：Ops `d68ea01`、Framework `bf52bca`、
+验证记录 `93955b0`，第四组为本段所在的工程文档提交。120个文件按原清单归组，
+产品/测试/probe与审阅内容一致，第四组仅更新交付状态。完整SHA及每组文件见
+[交付记录](ASE_BFGS_DELIVERY_PLAN.md)；尚未合入develop/推送/发布。支持范围保持，
+下一阶段本地develop集成待用户确认；前述“未提交”为各历史阶段当时状态。
+本轮阶段编号以[已确认计划](ASE_BFGS_DEVELOPMENT_PLAN.md)为准，覆盖历史 BFGS 队列
+编号；不改上游锁、不将本地新增功能记为 UBF、每阶段总结后再确认下一阶段。
 
 已确认 HIP 邻居分阶段任务：M1 已收口实现 `fecbc39`；M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
 M3 HIP邻居变胞 FIRE/FIRE2 短步/预算补位窄 gate 已完成，已收口实现 `6b1680a`，本次随提交链合入 `develop`。

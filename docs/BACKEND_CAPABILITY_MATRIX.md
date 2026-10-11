@@ -1,6 +1,6 @@
 # 后端能力矩阵
 
-更新时间：2026-10-04。此表是 registry 当前的真实登记，不替代 `FEATURE_COMPATIBILITY.yaml` 的完整特性契约。
+更新时间：2026-10-09。此表是 registry 当前的真实登记，不替代 `FEATURE_COMPATIBILITY.yaml` 的完整特性契约。
 
 | operation | Torch reference 已登记宽度 | 梯度 | `auto` 当前选择 | HCU 证据 |
 | --- | --- | --- | --- | --- |
@@ -11,6 +11,7 @@
 | `fire2` | 固定晶胞 reference；M3 原生下三角六项变胞 | 固定晶胞一阶；变胞 forward-only | `torch_reference` | 固定晶胞历史证据；M3 HCU4 单步/解析势，目标 MPA-0 HCU 未运行 |
 | `fire_cell` | fork 完整3×3 FIRE pre/post、联合控制、共同位移限制 | forward-only | `torch_reference` | M3 HCU4 单步/解析势；CPU MPA-0 三步；见 [报告](../reports/g2-variable-cell-fire-m3.md) |
 | `nose_hoover` | 固定晶胞 NHC，C1–8、Yoshida3/5、FP32/64 | 原地 MD forward-only；functional v输入CPU一二阶已验证 | `torch_reference` | HCU4 12组CPU/HCU对照、短真实MACE；见NHC报告 |
+| `bfgs_ase_compat` | 本地M1–M4及M5-4，FP64固定/ASE UnitCellFilter 3N+9异构Batch；独立ID/共享模型/冻结/重排/补位/配对restart；已本地提交；未合入develop/推送 | eager forward-only；模型求力/应力沿既有autograd；fake元数据已验，compile未验收 | 默认torch_reference；hip仍rocSOLVER Jacobi；新ID hip.bfgs-ase-jacobi-streams-v1显式单宽batched/多宽双stream，无经验n/B门；仅已准入gfx936构建，None/warp/auto不支持 | 最终审阅CPU669/5skip，最终HCU Framework24/native7，原rocSOLVER39；32矩阵/9真实组/11体系10步ASE门；真实CSP及profiler见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[本地交付](ASE_BFGS_DELIVERY_PLAN.md)。稠密内存/主机标量等待保留；其他构建/NVIDIA/生产全目录未验收；性能随输入分化 |
 | `stress_to_cell_force` | row-cell `[B,3,3]`、FP32/64、完整/下三角投影、strided/empty | 一阶/二阶；CPU gradcheck/gradgradcheck；HCU 一阶 | `torch_reference` | HCU4 转换/stream、周期非正交真实 MACE；FP64 有限差分；见 [报告](../reports/g2-torch-cell-stress-force.md) |
 | `cell_tools` | align、六项 pack/unpack、mass 与 extend；FP32/64、单体系/异构/empty；append 与 interleaved 索引分别保留 | forward-only，requires_grad 拒绝 | `torch_reference`（既有选择规则） | HCU4 六组 primitive CPU parity；未含模型/优化步；见 [报告](../reports/g2-cell-tools-m2.md) |
 | `kinetics` / `segmented_reduce` | 按 graph 归约 | 一阶 / forward | `torch_reference` | G2 CPU/HCU 窄 slice |

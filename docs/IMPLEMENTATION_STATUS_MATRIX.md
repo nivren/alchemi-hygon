@@ -1,6 +1,6 @@
 # 实现状态与应用能力矩阵
 
-更新时间：2026-10-05。本文是面向开发和方案评审的总览，按 framework、ops/后端和应用能力
+更新时间：2026-10-09。本文是面向开发和方案评审的总览，按 framework、ops/后端和应用能力
 分别列出当前已经完成的范围。它不替代 [`FEATURE_COMPATIBILITY.yaml`](FEATURE_COMPATIBILITY.yaml)
 的逐特性契约；状态判断以 [`STATUS.md`](STATUS.md)、源码、测试和报告为准。
 
@@ -29,7 +29,8 @@
 | stress/cell-force 基础 | strain/stress 工具、`stress_to_cell_force` wrapper | 已验证窄 reference | CPU 小模型 stress loss 反向到参数；CPU/HCU4 周期非正交 MACE 应力/晶胞力、FP64 有限差分；保留旧 API/import | 不推进晶胞；完整 MLIP 训练、Warp、HCU 二阶/compile 未验收 | [`g2-torch-cell-stress-force.md`](../reports/g2-torch-cell-stress-force.md) |
 | 通用晶胞工具 | 原生 align、六项 pack/unpack、extend | 已验证窄 reference | M2 primitive CPU/HCU；M3 Hook 预处理的周期/active 子集和 F/v/stress 协变、MPA-0 CPU旋转对照 | Warp、compile/梯度、运行中重对齐 | [`g2-cell-tools-m2.md`](../reports/g2-cell-tools-m2.md)、[`g2-variable-cell-fire-m3.md`](../reports/g2-variable-cell-fire-m3.md) |
 | 变胞 FIRE/FIRE2 | `FIRE2VariableCell` 六项、fork `FIREVariableCell` 完整矩阵 | 已验证窄 reference | M3单步/解析势；M4生命周期；M5真实MPA-0 HCU4两精度单体系/3结构补位/8结构容量4；后续HIP邻居M3两精度五步/预算补位；补测HIP FIRE2三样本两精度完整联合收敛 | FIRE2 Li(CN)2预算退出、FIRE精度敏感；混合变胞阶段、checkpoint/DD/生产后端、完整HCU gate；HIP完整收敛仅固定三样本，未扩大其他材料/大Batch保证 | [`g2-variable-cell-fire-m3.md`](../reports/g2-variable-cell-fire-m3.md)、[`g2-mpa0-relaxation-m4.md`](../reports/g2-mpa0-relaxation-m4.md)、[`g2-mpa0-relaxation-m5.md`](../reports/g2-mpa0-relaxation-m5.md)、[HIP邻居M3](../reports/g2-hip-variable-cell-workflow-m3.md)、[完整弛豫补测](../reports/g2-hip-fire2-convergence-2026-10-09.md) |
-| NPT/NPH 与 BFGS | barostat dynamics、ASE-compatible BFGS | 计划/未接入 | 保留原接口；分别排队 | 原生变胞优化器完成不代表这些算法已接入 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)、[`adr/0008-ase-compatible-bfgs.md`](../adr/0008-ase-compatible-bfgs.md) |
+| NPT/NPH | barostat dynamics | 计划/未接入 | 保留原接口 | 原生变胞优化器完成不代表 barostat 接入 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md) |
+| ASE-compatible BFGS Framework | 公共ASECompatibleBFGS及VariableCell，固定/UnitCellFilter 3N+9异构Batch、独立ID/共享模型/冻结/重排/退出/补位/配对restart | M1–M4及M5-4目标门已通过，个人分支已本地提交；未合入develop | 最终审阅CPU669/5skip；HCU Framework24/native7，既有rocSOLVER39；11体系10步ASE及真实工作流见报告 | 显式新HIP ID仅当前FP64/eager gfx936构建；Torch库host路径、其他Filter/NVIDIA/DomainParallel/全目录生产仍未验收 | [M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[本地交付](ASE_BFGS_DELIVERY_PLAN.md)、[产品合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)、[Batch合同](TORCH_ASE_BFGS_BATCH_CONTRACT.md) |
 | 分布式/DomainParallel | 多卡通信、单大体系域分解 | 计划/未接入 | 仅有局部通信或上游 reference 审计，不构成应用能力 | 单大体系 ownership、halo/迁移、长程和完整 DomainParallel | [`g2-upstream-inflight-reference.md`](../reports/g2-upstream-inflight-reference.md)、[`STATUS.md`](STATUS.md) |
 
 ## 2. Ops 与后端模块
@@ -45,7 +46,8 @@
 | Langevin BAOAB | 已验证窄 reference | Torch reference、公共显式 backend、统计和最小 continuation state | 尚无生产 Triton/HIP；完整 NVT/Dynamics capability 仍未完成 | [`g2-torch-nvt-langevin.md`](../reports/g2-torch-nvt-langevin.md)、[`g2-torch-nvt-langevin-restart.md`](../reports/g2-torch-nvt-langevin-restart.md) |
 | NHC chain/kick/drift | 已验证窄 reference | Torch functional与原地ABI，12组HCU parity，CPU可逆性/扩展能量，链ABI opcheck/eager compile | MD forward-only；functional v梯度限CPU；Warp、生产HIP/Triton未验收 | [`g2-torch-nvt-nhc.md`](../reports/g2-torch-nvt-nhc.md) |
 | `stress_to_cell_force` | 已验证窄 reference | FP32/64、完整/下三角投影、strided/empty、CPU 一二阶/compile/opcheck、HCU4 一阶/stream；UBF-009 公式修正 | Warp/NVIDIA、HCU 二阶/compile、生产 HIP/Triton 未验收；无晶胞更新 | [`g2-torch-cell-stress-force.md`](../reports/g2-torch-cell-stress-force.md) |
-| NPT/NPH、BFGS eigensolver | 计划/未接入 | 当前没有可发布的 DCU ops capability | 独立 contract/CPU oracle；基础转换不代表这些算法可用 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md)、[`adr/0008-ase-compatible-bfgs.md`](../adr/0008-ase-compatible-bfgs.md) |
+| ASE-compatible BFGS Ops | M1–M4及M5-4已实现并通过目标数值门（个人分支） | FP64固定/UnitCell独立state，prepare/step/batch_step；按DOF batched数学与全组原子提交；新显式hip.bfgs-ase-jacobi-streams-v1，单宽batched/多宽双stream，极小非零谱修正 | 无147/285或B≤4门；稠密H/scratch和整数/内存容量约束；默认/hip不变，不进auto。最终32矩阵/9真实组、1113/B32子集/真实561 B8通过；性能按输入分化，其他构建/NVIDIA/compile/梯度未验收；已本地提交；未合入develop/推送 | [M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[本地交付](ASE_BFGS_DELIVERY_PLAN.md)、[产品合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md) |
+| NPT/NPH Ops | 计划/未接入 | 当前没有可发布的 DCU barostat capability | 独立合同/CPU oracle；基础转换不代表算法可用 | [`PARALLEL_DEVELOPMENT_PLAN.md`](PARALLEL_DEVELOPMENT_PLAN.md) |
 | `cell_tools` | 已验证窄 reference | ops-owned align/pack/unpack/extend；CPU FP32/64 与 HCU4 六组 primitive 对照；异构/zero atoms/empty | 无优化步；Warp/梯度/compile/生产性能未验收；append/interleaved 索引不能混用 | [`g2-cell-tools-m2.md`](../reports/g2-cell-tools-m2.md) |
 | `fire2` variable_cell / `fire_cell` | 已验证窄 reference | 六项和全矩阵原生语义；CPU39项oracle、HCU4功率分支/解析势；M5目标模型小样本应用另验收 | forward-only；实际Warp、生产HIP/Triton、DD/compile/完整HCU gate未验收 | [`g2-variable-cell-fire-m3.md`](../reports/g2-variable-cell-fire-m3.md)、[`g2-mpa0-relaxation-m5.md`](../reports/g2-mpa0-relaxation-m5.md) |
 
@@ -59,7 +61,7 @@
 | 固定晶胞 MACE NVE/FIRE/FIRE2 | 可以，窄范围 | 运行短固定晶胞 MD/弛豫；已验证 32×92 MACE/FIRE2 Batch 弛豫 | 变胞、长轨迹守恒、生产邻居/HIP MACE 性能 | MACE、Torch neighbor、VV/FIRE/FIRE2 |
 | 固定晶胞 Langevin reference NVT | 可以，窄范围 | 运行 BAOAB reference、短统计和最小 integrator continuation | 完整上游 NVT、通用 checkpoint、长 MACE NVT、生产 Triton/HIP | NVTLangevin、Torch reference |
 | 固定晶胞 NHC reference NVT | 可以，窄范围 | 短异构 MACE、scalar refill/FusedStage reference、最小积分器续算 | 长真实势 NVT、vector arrivals、完整 checkpoint、分布式、生产性能 | NVTNoseHoover、Torch neighbor/model |
-| 双阶段 MACE 弛豫：FIRE2 + BFGS | 当前不能完整完成 | FIRE2 固定晶胞 reference 已可用 | BFGS 尚未实现；无压 BFGS 与变胞/压力阶段尚未形成完整链路 | FIRE2 已完成，BFGS 排队 |
+| 双阶段 MACE 弛豫：FIRE2 + BFGS | 个人分支小样本功能及显式优化后端，未集成 | 46/92原子MPA-0 medium完整收敛/inflight；M5-4产品配对及最终复验见报告；Li8异构与T28同宽真实MLIP短步独立记录 | 新增Li/T2为qualification，未完整收敛；T2独立CPU MLIP未通过；全目录成功率/生产吞吐/其他设备未验收，不把微基准当生产收益 | [M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[M4报告](../reports/g2-ase-bfgs-m4.md) |
 | 周期 MACE 应力与晶胞力计算 | 可以，窄 reference | 在给定晶胞上计算 stress 与 cell-force；真实 checkpoint CPU/HCU4 parity、FP64 有限差分 | 完整模型族、真实MLIP stress训练；基础转换不推进晶胞，优化器另列 | MACE strain/stress、Torch neighbor/geometry、stress conversion |
 | MPA-0 Li/Na 晶体单点 | 可以，窄CPU/HCU4小样本 | CPU Batch/ASE/FP64导数；HCU两精度完整E/F/stress/邻居同几何对照 | 全目录/完整模型族未验证；精度须匹配默认dtype | 现有MACEWrapper、Torch neighbor、stress conversion；M1/M5报告 |
 | MPA-0 原生变胞 FIRE/FIRE2 集成 | 可由下游应用做窄单卡 HCU 批量计算 | toolkit 提供原生优化器、邻居与 FusedStage 生命周期；下游 `alchemi-app` 两精度/两优化器单体系、补位及8结构验收，48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2未达应力阈值、FIRE精度敏感；全目录/流式/restart/完整HCU gate/生产性能未验收；应用配置不属于 toolkit 公共 API | M4/M5 reference；M5收口4656cce；应用归属 `alchemi-app` |
