@@ -21,8 +21,8 @@ nvalchemi-toolkit-ops 的锁定源码，保留 framework / ops 两个包与上�
 应用矩阵、[后端能力矩阵](docs/BACKEND_CAPABILITY_MATRIX.md)、
 [特性契约](docs/FEATURE_COMPATIBILITY.yaml)和实际报告共同限定；计划不等于已实现。
 
-[项目示例](examples/README.md)已包含七个简洁脚本：Batch/周期邻居、MACE 单点、
-FIRE2 变胞弛豫、固定胞 NVE/NVT、变胞 BFGS 和 FIRE2 → BFGS 顺序弛豫。
+[项目示例](examples/README.md)已包含八个简洁脚本：Batch/周期邻居、MACE 单点、
+FIRE2 变胞弛豫、固定胞 NVE/NVT、变胞 BFGS、FIRE2 → BFGS 顺序弛豫及异构批量弛豫/自动补位。
 运行依赖、输入、输出和指定 CPU/HCU 验证范围集中记录在示例说明中；剩余覆盖缺口见
 [当前任务与开发计划](docs/PARALLEL_DEVELOPMENT_PLAN.md)。
 `packages/framework/examples/` 和 `packages/ops/examples/` 中保留的上游示例

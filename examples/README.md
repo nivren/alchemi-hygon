@@ -18,13 +18,14 @@ source scripts/activate_hygon_env.sh project
 | [05 BFGS 变胞](05_mace_bfgs.py) | MACE checkpoint + 单个周期 CIF | 末态 CIF、广义力收敛状态 |
 | [06 FIRE2 → BFGS](06_fire2_bfgs.py) | MACE checkpoint + 单个周期 CIF | 两阶段 CIF、最终广义力状态 |
 | [07 固定胞 NVT](07_mace_nvt.py) | MACE checkpoint + 单个周期 CIF | ASE 轨迹、能量与瞬时温度 CSV |
+| [08 批量弛豫/补位](08_batch_relax_refill.py) | MACE checkpoint + 多个周期 CIF | 按输入索引保存的末态 CIF、ID 与结果 JSON |
 
 这是源码仓库的示例集，需要准备好环境，再从项目根目录运行；根目录 `examples/` 不包含
 在两个包的 wheel 中。环境入口使用 reference 锁文件和 `PYTHONPATH`，详见
 [环境指南](../docs/DEVELOPMENT_ENVIRONMENT.md)。其中 ASE 是所有示例的依赖，
-示例 02–07 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
+示例 02–08 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
 
-异构批量弛豫/自动补位、配对重启尚无本轮整理的独立入门脚本；本例集也不提供
+配对重启尚无本轮整理的独立入门脚本；本例集也不提供
 NPT/NPH、完整训练或 DomainParallel 的使用验收，具体缺口见
 [当前任务](../docs/PARALLEL_DEVELOPMENT_PLAN.md)。上游目录中的脚本不能替代本机验证。
 
@@ -362,3 +363,80 @@ dt=0.5 fs、tau=25 fs、三链/三阶条件验证：
 日志、模型/输入哈希、轨迹和独立核验位于
 `artifacts/example-mace-nvt-2026-11-06/`。初始速度采样沿用 ASE 接口，当前环境会给出
 `MaxwellBoltzmannDistribution` 弃用提示，运行和上述核验均完成。
+
+## 08：异构批量变胞弛豫与自动补位
+
+[`08_batch_relax_refill.py`](08_batch_relax_refill.py) 参考上游
+[`04_inflight_batching.py`](../packages/framework/examples/intermediate/04_inflight_batching.py)
+的数据集接口，组合本项目 `SizeAwareSampler`、`FusedStage`、`HostMemory` 和变胞 BFGS。
+脚本只实现三方法数据集适配，采样、体系状态、独立 BFGS 历史、退出和补位均由工程接口管理。
+运行时不读取 `external/`；上游示例中的自定义 ID sink 不需要照搬，本工程的 HostMemory
+已有体系属性保留及快照保护，具体行为以源码和本例验证为准。
+
+项目环境激活后，用三个不同组成/原子数的周期结构、两个实时槽位运行：
+
+```bash
+OMP_NUM_THREADS=1 python examples/08_batch_relax_refill.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-1222651_Li2MgGe.cif \
+        /data/csp_data/catl_data/li_mp_data/mp-998591_LiSnCl3.cif \
+        /data/csp_data/catl_data/li_mp_data/mp-1096278_NaLiTl2.cif \
+  --batch-size 2 --max-atoms 14 --steps 100 --output-dir batch-results
+```
+
+替换路径即可使用自己的模型和完整三维周期 CIF。需要输入结构数多于实时容量才能展示
+补位；`--batch-size` 限制并行体系数，`--max-atoms` 限制实时 Batch 的总原子数，不能小于
+任一输入的原子数。默认值分别为 2 和 64。这些参数不是模型显存估计，模型与边数仍会影响
+资源消耗。本例在 CPU 内存预读全部结构以保持简单，不演示大目录流式加载。
+
+`--steps` 是整个 FusedStage 的全局步数上限，不是每个结构的更新次数。若用尽预算而有
+输入未完成，脚本会报告已收集数量并报错；这时没有生成完整的结果目录，可调整预算重跑。
+所有体系完成后，在新目录写入按输入索引命名的 `000.cif` 等文件与 `summary.json`。
+目录必须不存在。JSON 保留 `source_index`、sampler 分配的 `system_id`、输入路径及结果，
+输出顺序按完成先后，不能按输出列表的位置推断输入身份。
+
+本例选择 FP64/eager、零外压、默认 UnitCellFilter 的广义力严格 `< 0.05` 收敛判据，
+不是物理原子力和应力双阈值。邻居始终显式 Torch reference、skin=0，每次按当前晶胞
+重建。可在已分配或确认空闲的 DCU 上加 `HIP_VISIBLE_DEVICES=4` 前缀与
+`--device cuda --backend hip.bfgs-ase-jacobi-streams-v1`；该选项只选择 BFGS 后端。
+具体模型/后端条件见[示例 05](05_mace_bfgs.py)及[BFGS 使用说明](../docs/ASE_BFGS_USAGE.md)。
+
+2026-11-07 在 dcu2、MACE-MPA-0 medium（哈希同示例 03）、FP64 下验证：
+
+- 上述三个 Li/Na 输入（4、10、4 原子）在 CPU Torch reference 和 HCU4 显式 HIP BFGS
+  均完成，两个实时槽位、14 原子上限，9 个 fused steps 收集全部三个体系。
+- HCU 只读观察 Hook 记录初始来源 `[0,1]` 与补位后的 `[1,2]`；保留体系 ID 稳定，
+  逐次模型计算均没有跨体系邻居边，实时容量与有限性检查通过。
+- 六个末态 CIF 经重读，与 CPU 上每个输入单独运行 ASE BFGS + UnitCellFilter 对照。
+  统一坐标方向与周期等价位置后，最大位置差不超过 1.17e-13 Å，晶胞度量一致；
+  能量、力范数和广义力收敛判据核验通过。
+- `--steps 1` 的 CPU 测试按预期报告 `0/3 completed` 并报错，没有生成完整结果目录。
+
+结果限于这些输入与指定参数，不代表任意材料收敛、全目录吞吐或生产显存容量。
+原始运行、ID/布局观察、输出 CIF 和独立 ASE 核验位于
+`artifacts/example-batch-refill-2026-11-07/`；初轮遗漏 stress 输出配置的失败日志也保留在此，
+配置已修正后完成上述验证。运行中的集合类型提示未影响本轮检查结果。
+
+额外将第三个输入替换为 46 原子分子晶体、CPU 原子上限改为 64 的测试，在外层 240 秒
+达到超时（退出码 124），没有得到完整结果与收敛证据；未将它计为通过。该 CPU 混合类型
+测试的限制保存在 `mixed.log`；同组输入的 HCU 补测见下文。
+
+同组输入的 CPU 五步限量诊断进一步确认：分子晶体实际补入，与保留的 10 原子体系形成
+56 原子实时 Batch；观察到的三个完整 fused 步约 4.23 秒/步，其中模型能量/力/应力计算
+约 4.12–4.15 秒，邻居约 0.06–0.09 秒，BFGS `_masked_pre_update` 约 0.012–0.013 秒。
+五步后仅 1/3 输入完成，诊断按预设步数报错。该窗口说明 CPU 模型求值主导耗时，
+不是原始 240 秒作业的全程剖析；原作业没有逐步记录，无法确认其超时时的准确进度。
+诊断记录见 `mixed-diagnostic.log` 和 `mixed-timing.json`，不作为生产性能结论。
+
+同组混合输入随后在 HCU4 补测完成：仍为两个实时槽位、64 原子上限、100 个全局步预算，
+BFGS 使用 `hip.bfgs-ase-jacobi-streams-v1`，模型和 Torch reference 邻居在 HCU 上执行。
+92 个全局步全部退出，三个来源各输出一次；分子晶体实际执行 90 次 BFGS 更新，
+末态广义力最大值 0.04324199，满足 `< 0.05`。逐步记录确认补入、ID 稳定、容量受控，
+没有跨体系邻居边。记录窗口约 24.26 秒，不含此前的 Python 模块导入，不作为性能基准。
+
+CPU 用 MACE ASE calculator 重算三份末态 CIF，能量和最大原子力与 HCU 保存值一致，
+最大差分别为 3.56e-15 eV 和 5.43e-14 eV/Å；应力有限且晶胞体积为正。
+此处的广义力收敛取自 HCU 原始坐标系的逐步记录，没有声称独立 CPU 广义力对照或
+CPU 完整弛豫通过。分子晶体重算最大原子力约 0.04420809 eV/Å、最大绝对应力
+0.07519756 GPa。原始 CPU 240 秒超时记录仍保留；这次补测不将它改写为通过。
+证据为 `mixed-hcu.log`、`mixed-hcu-progress.json` 和 `mixed-hcu-final-check.json`。
