@@ -19,13 +19,14 @@ source scripts/activate_hygon_env.sh project
 | [06 FIRE2 → BFGS](06_fire2_bfgs.py) | MACE checkpoint + 单个周期 CIF | 两阶段 CIF、最终广义力状态 |
 | [07 固定胞 NVT](07_mace_nvt.py) | MACE checkpoint + 单个周期 CIF | ASE 轨迹、能量与瞬时温度 CSV |
 | [08 批量弛豫/补位](08_batch_relax_refill.py) | MACE checkpoint + 多个周期 CIF | 按输入索引保存的末态 CIF、ID 与结果 JSON |
+| [09 保存状态与续算](09_bfgs_restart.py) | MACE checkpoint + CIF 或可信状态文件 | 同时保存几何与 BFGS 历史的状态文件、CIF |
 
 这是源码仓库的示例集，需要准备好环境，再从项目根目录运行；根目录 `examples/` 不包含
 在两个包的 wheel 中。环境入口使用 reference 锁文件和 `PYTHONPATH`，详见
 [环境指南](../docs/DEVELOPMENT_ENVIRONMENT.md)。其中 ASE 是所有示例的依赖，
-示例 02–08 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
+示例 02–09 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
 
-配对重启尚无本轮整理的独立入门脚本；本例集也不提供
+本例集的保存与续算限于示例 09 的单结构 BFGS；目前不提供
 NPT/NPH、完整训练或 DomainParallel 的使用验收，具体缺口见
 [当前任务](../docs/PARALLEL_DEVELOPMENT_PLAN.md)。上游目录中的脚本不能替代本机验证。
 
@@ -440,3 +441,59 @@ CPU 用 MACE ASE calculator 重算三份末态 CIF，能量和最大原子力与
 CPU 完整弛豫通过。分子晶体重算最大原子力约 0.04420809 eV/Å、最大绝对应力
 0.07519756 GPa。原始 CPU 240 秒超时记录仍保留；这次补测不将它改写为通过。
 证据为 `mixed-hcu.log`、`mixed-hcu-progress.json` 和 `mixed-hcu-final-check.json`。
+
+## 09：BFGS 保存状态与续算
+
+[`09_bfgs_restart.py`](09_bfgs_restart.py) 使用工程公共的 `state_dict()` 和
+`load_state_dict()`，把同一时刻的 Batch 几何与变胞 BFGS 历史放入同一个状态文件。
+本地新增 BFGS 的接口与边界见[BFGS 使用说明](../docs/ASE_BFGS_USAGE.md)，
+模型加载和变胞优化用法与示例 05 相同；运行不依赖 `external/`。
+
+激活项目环境后，先运行三步并保存：
+
+```bash
+OMP_NUM_THREADS=1 python examples/09_bfgs_restart.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-998591_LiSnCl3.cif \
+  --steps 3 --output-dir restart-first
+```
+
+在新的进程中从同一保存点继续，最多再运行三步：
+
+```bash
+OMP_NUM_THREADS=1 python examples/09_bfgs_restart.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --resume restart-first/restart.pt --steps 3 --output-dir restart-next
+```
+
+每个输出目录须为新目录，内含 `restart.pt` 与供查看的 `structure.cif`。续算用 `.pt`，
+不能用 CIF 替代：CIF 未保存 Hessian/历史，而且重读时可能改变坐标表示。
+`--steps` 是本次额外步数上限，达到广义力 `< 0.05` 的收敛判据后会提前结束。
+输出中的 `total steps` 会接续恢复的计数。若想验证，可从原 CIF 连续运行六步，
+与两段三步的结果比较；浮点重算可能产生舍入差异，不能一概要求逐位一致。
+
+状态文件包括 Batch、优化器历史、格式版本、模型 SHA-256 和 BFGS 后端名称。
+模型文件仍通过 `--checkpoint` 提供；恢复时检查哈希与后端，注册新的邻居 Hook，
+由优化器重新求值力和应力。FP64、零外压、UnitCellFilter 和后端限制同示例 05。
+在已分配或确认空闲的 DCU 上，两次命令都加 `HIP_VISIBLE_DEVICES=4` 前缀及
+`--device cuda --backend hip.bfgs-ase-jacobi-streams-v1`，不要只在恢复时更换后端。
+
+本例用 `torch.save` 保存工程 Batch 对象，恢复时显式 `weights_only=False`，因此只加载
+自己生成或明确可信的本地文件，并使用相同项目版本与依赖环境。没有声明跨版本或跨设备
+兼容性。这里不保存 MLIP 权重、sampler 游标、FusedStage 状态或 NVT 温控链，
+只展示单结构变胞 BFGS 的保存与续算，不是完整流水线 checkpoint。
+
+2026-11-07 在 dcu2、MACE-MPA-0 medium（哈希同示例 03）、FP64 下验证：
+
+- CPU Torch reference：LiSnCl3；HCU4 显式 HIP BFGS：46 原子分子晶体。
+  各自用独立进程保存三步、恢复再运行三步，与从原 CIF 连续六步比较，均通过数值核验。
+- 末态最大绝对差：坐标不超过 8.89e-15 Å、晶胞分量不超过 4.45e-15 Å，
+  力分量不超过 2.32e-13 eV/Å，Hessian 不超过 1.41e-11；能量相同。
+  计数、整数属性、配置项一致，参考晶胞和 mask 相同。没有声称逐位一致。
+- 几何比较用 rtol/atol=2e-14；Hessian 用 rtol=1e-7、atol=3e-12，
+  其余能量/力/应力按既有真实模型分物理量门核对，完整数值差见记录。
+- 恢复时换用不同模型文件会在哈希检查处报错，不生成结果目录；既有续算及几何/ID
+  不匹配拒绝测试共 6 项通过。两组短运行均尚未收敛，仅验证保存与继续计算。
+
+日志、输入哈希、状态文件、逐位检查失败记录及分项数值对照保存在
+`artifacts/example-bfgs-restart-2026-11-07/`。不从这些短运行推断长期重启稳定性。

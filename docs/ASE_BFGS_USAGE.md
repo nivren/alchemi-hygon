@@ -9,6 +9,9 @@
 FIRE2 预弛豫后顺序切换 BFGS 的单结构示例见
 [`06_fire2_bfgs.py`](../examples/06_fire2_bfgs.py)。
 
+单结构保存几何与优化器状态、再从新进程续算，见
+[`09_bfgs_restart.py`](../examples/09_bfgs_restart.py)及[运行说明](../examples/README.md)。
+
 ## Ops：可直接运行的 CPU 示例
 
 在项目环境中执行下列代码。它用解析力演示异构 Batch 与配对重启，不是 MLIP。
