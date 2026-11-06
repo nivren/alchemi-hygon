@@ -69,3 +69,45 @@ COO 和 `cell_list`，COO 由设备内 Torch 打包。具体能力见
 本轮首次运行在编译中达到 240 秒超时，检查并清理本次留下的锁后，复用已完成
 的编译部分重新运行通过。该记录不代表其他环境的编译时间或性能。
 原始日志位于 dcu2 项目的 `artifacts/example-batch-neighbors-2026-11-06/`。
+
+## 02：MACE + FIRE2 变胞结构弛豫
+
+[`02_mace_variable_cell.py`](02_mace_variable_cell.py) 读取一个周期 CIF，使用本项目的
+`MACEWrapper`、`FIRE2VariableCell`、邻居和晶胞对齐接口，优化原子坐标与晶胞并保存 CIF。
+示例参考上游的 [`02_geometry_optimization.py`](../packages/framework/examples/basic/02_geometry_optimization.py)
+及项目已有变胞验证；运行时不访问 `external/`。它使用 FP64、零外压以及显式
+`torch_reference` 优化器、晶胞对齐和邻居后端。
+
+需自行准备可信的 MACE checkpoint 与模型支持元素的完整三维周期结构。下例中的路径是
+已在 dcu2 上核对的 MACE-MPA-0 和锂化合物文件，在其他机器上请替换。模型和数据本身不随
+工程分发，使用前需确认各自的来源和使用条件。
+
+```bash
+OMP_NUM_THREADS=1 python examples/02_mace_variable_cell.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-1222651_Li2MgGe.cif \
+  --output relaxed.cif --steps 100
+```
+
+在已分配或确认空闲的 DCU 上，将命令前缀替换为 `HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1`，
+并增加 `--device cuda`；设备编号按机器实际情况选择。也可以传入分子晶体结构文件，例如
+`/data/csp_data/perf_46/formal_c1_1_100_z1_46.cif`。
+
+默认最多运行 100 步，`--steps` 可调整。输出包括实际步数、能量、最大原子力和最大
+绝对应力；两者分别不超过 **0.01 eV/Å** 和 **0.1 GPa** 才显示 `converged: True`。
+步数耗尽也会保存当前结构，但若未达到双阈值，结果明确显示 `converged: False`；这时
+该结构只是中间结果。输出路径由用户指定，已有同名文件可能被覆盖，应选择新路径。
+阈值写在脚本中，仅供示例；具体任务需根据模型与研究目的调整。本例不提供重启、轨迹或
+批量调度。晶胞对齐可能同时旋转原子坐标和晶胞，比较输入与输出坐标时应考虑坐标系变化。
+
+2026-11-06 在 dcu2、MACE-MPA-0 medium（SHA-256
+`75428afe3a1d7d8062e19bcaabd5c433623cabf308242ec9fb493e38604fb638`）、FP64 下验证：
+
+- CPU：LiSnCl3 输入 5 步、46 原子分子晶体输入 3 步均完成，均未达到双阈值，属于短流程验证。
+- HCU4（BW1000）：Li2MgGe 输入在 88 步达到双阈值，最大力 0.00026039 eV/Å、
+  最大绝对应力 0.09042778 GPa。
+- 对导出 CIF 重新读取，并用 MACE 的 ASE calculator 在 CPU 上重算能量、力和应力，与脚本
+  报告对照；以上只说明这些输入及给定条件，不代表所有材料都能收敛，也不构成性能结论。
+
+日志、输入哈希与导出核验位于 dcu2 项目的 `artifacts/example-mace-fire-2026-11-06/`；
+更完整的历史多结构变胞验收见[验证报告](../reports/g2-hip-fire2-convergence-2026-10-09.md)。
