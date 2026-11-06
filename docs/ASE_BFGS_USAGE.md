@@ -4,6 +4,9 @@
 数学对齐 ASE 3.29.0 BFGS。固定晶胞与 UnitCellFilter 的完整 `3N+9` 坐标
 共用数值核心；异构 Batch 每个体系有独立 Hessian、历史及参考晶胞。
 
+真实 MACE 周期结构的简洁变胞示例见
+[`05_mace_bfgs.py`](../examples/05_mace_bfgs.py)及[运行说明](../examples/README.md)。
+
 ## Ops：可直接运行的 CPU 示例
 
 在项目环境中执行下列代码。它用解析力演示异构 Batch 与配对重启，不是 MLIP。

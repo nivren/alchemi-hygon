@@ -190,3 +190,52 @@ OMP_NUM_THREADS=1 python examples/04_mace_nve.py \
 日志、输入哈希、轨迹和逐帧核验保存在 dcu2 项目
 `artifacts/example-mace-nve-2026-11-06/`。本环境的 ASE 对
 `MaxwellBoltzmannDistribution` 发出弃用提示，运行与上述数值核验均完成。
+
+## 05：MACE + ASE-compatible BFGS 变胞弛豫
+
+[`05_mace_bfgs.py`](05_mace_bfgs.py) 使用本项目的 `ASECompatibleBFGSVariableCell`，
+对一个周期结构同时优化原子与晶胞。它沿用前面示例的 MACE 加载、Batch 和邻居接口；
+锁定上游的示例目录没有同名 BFGS 示例，优化器用法以本项目
+[BFGS 使用说明](../docs/ASE_BFGS_USAGE.md)为准，数学对齐 ASE BFGS + UnitCellFilter。
+运行不依赖 `external/`。
+
+激活项目环境后，在 CPU 上运行：
+
+```bash
+OMP_NUM_THREADS=1 python examples/05_mace_bfgs.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-998591_LiSnCl3.cif \
+  --output bfgs-relaxed.cif --steps 100
+```
+
+请在其他机器上替换模型和输入路径，也可传入分子晶体 CIF。脚本检查完整三维周期性与
+模型元素覆盖，使用 FP64、eager、零外压及默认 UnitCellFilter 设置；邻居始终显式
+`torch_reference`、skin=0，按当前晶胞重建。不要添加 FIRE2 使用的晶胞对齐 Hook，
+它会改变 BFGS 的坐标图和历史。
+
+在已分配或确认空闲的 DCU 上，添加 `HIP_VISIBLE_DEVICES=4` 前缀及
+`--device cuda --backend hip.bfgs-ase-jacobi-streams-v1`，可选择已准入的显式 HIP BFGS。
+首次可能需要 JIT 编译，其设备/工具链条件见[BFGS 使用说明](../docs/ASE_BFGS_USAGE.md)。
+默认 `torch_reference` 可作数值参考；在 HCU 上 Torch 的库内数学可能走主机路径。
+
+脚本输出末态能量、最大物理原子力、最大绝对应力、最大广义力及收敛标记。
+**收敛采用 UnitCellFilter 广义力的严格 `< 0.05` 判据**，默认 `cell_factor` 是原子数，
+不是 FIRE2 示例的原子力与应力双阈值。阈值与 `maxstep=0.2` 写在脚本中；按具体任务调整。
+步数用尽仍保存当前 CIF，`converged: False` 表示中间结果。使用新的输出路径，已有同名
+文件可能被覆盖。本例不演示批量调度、重启或多阶段切换，模型和结构需自行提供。
+
+CIF 用晶胞长度和角度表示晶胞，重读时可能重建不同方向的坐标系。比较优化器内存中的
+坐标与重读 CIF 时，应同时考虑原子和晶胞的整体旋转；不能直接比较笛卡尔分量。
+
+2026-11-06 在 dcu2、MACE-MPA-0 medium（哈希同示例 03）、FP64 下验证：
+
+- CPU Torch reference：LiSnCl3 5 步、46 原子分子晶体 3 步，均完成并报告未收敛。
+- HCU4 显式 `hip.bfgs-ase-jacobi-streams-v1`：Li2MgGe 在 2 步达到广义力阈值，
+  最大广义力约 0.00130687；最大绝对应力约 0.01276655 GPa。
+- 三个结果分别与 CPU 的 ASE BFGS + UnitCellFilter 独立运行对照；在统一晶胞方向和
+  周期等价位置后，末态位置最大绝对差不超过 3.56e-14 Å，晶胞度量一致。
+  导出的 CIF 经重读后，能量、力范数、应力及广义力检查通过。
+
+首次 HIP 调用包含扩展编译；上述结果不是性能比较，也不代表任意模型或材料均能收敛。
+原始日志、输入哈希、独立核验（含最初直接比较笛卡尔分量未通过的记录）位于
+`artifacts/example-mace-bfgs-2026-11-06/`。
