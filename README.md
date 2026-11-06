@@ -1,195 +1,73 @@
 # alchemi-hygon
 
-海光 DCU 原子模拟框架的开发主仓库。项目以 NVIDIA nvalchemi-toolkit 和
-nvalchemi-toolkit-ops 为完整上游基线，保留 framework/ops 两个包边界，并在
-Torch reference、Triton、HIP 后端边界内逐步适配 Hygon DCU。
+海光 DCU 原子模拟框架开发项目，基于 NVIDIA nvalchemi-toolkit 和
+nvalchemi-toolkit-ops 的锁定源码，保留 framework / ops 两个包与上游公共接口，
+通过 Torch reference、HIP 等路径逐步适配。当前是开发基线，已验证功能均有明确范围；
+不应将上游代码或接口的存在理解为已完成 DCU 验收。
 
-这是面向开发者的入口，不是用户安装包。支持范围和实测证据以
-[docs/STATUS.md](docs/STATUS.md) 与 [reports/README.md](reports/README.md) 为准。
+## 从这里开始
 
-## 开发者文档导航
+1. [项目环境与输入](docs/DEVELOPMENT_ENVIRONMENT.md)：准备和激活 Hygon 环境、
+   检查设备，以及配置外部模型和结构文件。
+2. [应用与模块能力](docs/IMPLEMENTATION_STATUS_MATRIX.md)：查看可运行的窄范围、
+   已有验证、限制与计划中的示例。
+3. [当前状态](docs/STATUS.md)与[验证报告索引](reports/README.md)：查看基线、
+   验收记录和未覆盖范围；具体报告中的设备、模型和输入条件不可省略。
+4. [开发指南](docs/DEVELOPMENT_GUIDE.md)与[架构](docs/DEVELOPER_ARCHITECTURE.md)：
+   了解源码边界、后端接入及开发流程。项目级 Agent 规则见 [AGENTS.md](AGENTS.md)。
 
-README 只负责告诉你“先读什么、什么时候读什么”。支持范围和真实验证结果以
-[STATUS.md](docs/STATUS.md) 与 [reports/README.md](reports/README.md) 为准。
+面向应用的精简示例正在整理，当前不要将 `packages/framework/examples/` 和
+`packages/ops/examples/` 中保留的上游示例视为已在海光 DCU 全部验证。
+现有[ASE-compatible BFGS 使用说明](docs/ASE_BFGS_USAGE.md)提供 CPU 代码和后端边界；
+模型和结构文件可以由使用者从外部提供。
 
-### 每次开始开发：先建立共同认识
+## 当前应用范围
 
-按这个顺序读：
+- **模型与数据**：支持已有窄范围的 `AtomicData` / `Batch`、真实 MACE / MPA-0
+  单点及异构 Batch；不同模型、精度和输入必须分别验证。
+- **固定晶胞**：NVE、FIRE/FIRE2、Langevin 和 NHC 的 Torch reference 已有短流程或
+  统计验证；长真实势轨迹、完整 checkpoint 和生产吞吐尚未普遍验收。
+- **晶体弛豫**：FIRE/FIRE2 变胞流程和本地 ASE-compatible BFGS 已有小样本证据，
+  包括显式 HIP 邻居或 BFGS 后端的指定范围；泛化到其他材料与规模需另行验证。
+- **后续能力**：NPT/NPH、长程相互作用、单大体系 DomainParallel 和完整 MLIP 训练
+  尚未形成本项目完整 DCU 应用验收。
 
-1. [AGENTS.md](AGENTS.md)：项目长期约束、目录边界、后端和 Git 规则。
-2. [docs/STATUS.md](docs/STATUS.md)：当前阶段、已验证范围、阻塞项和下一步。
-3. [docs/DEVELOPER_ARCHITECTURE.md](docs/DEVELOPER_ARCHITECTURE.md)：系统结构图、数据流和后端选择流。
-4. [docs/PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md)：稳定架构边界、兼容性契约和当前交接。
+逐项范围与证据见[应用能力矩阵](docs/IMPLEMENTATION_STATUS_MATRIX.md)；
+[后端能力矩阵](docs/BACKEND_CAPABILITY_MATRIX.md)和
+[特性契约](docs/FEATURE_COMPATIBILITY.yaml)记录更细的设备、布局和梯度条件。
 
-### 基础版本上的日常开发
+## 快速检查已有项目环境
 
-| 文档 | 适用场景 |
-|---|---|
-| [TEAM_DEVELOPMENT_BASELINE.md](docs/history/TEAM_DEVELOPMENT_BASELINE.md) | 查阅 B0 历史基线、golden paths 和当时的协作门禁 |
-| [DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md) | 了解算子契约、Torch reference、Triton/HIP、测试和协作规则 |
-| [ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) | 新增任意 Torch operation 时，按最小闭环逐项执行 |
-| [TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md) | 没有项目经验时，按实例手把手开发一个 Torch 积分器 |
+在已准备好项目 `.venv`、DTK 和海光 Torch 的主机上，从仓库根目录运行：
 
-新成员通常读完上面的“每次开始开发”和“基础版本”两组，就可以认领独立任务。
-
-### 环境、上游和功能契约
-
-| 文档 | 适用场景 |
-|---|---|
-| [DEVELOPMENT_ENVIRONMENT.md](docs/DEVELOPMENT_ENVIRONMENT.md) | 已有项目环境的加载、依赖和 Hygon DTK/Torch 验证 |
-| [START_HERE.md](docs/START_HERE.md) | 新机器首次部署、初始化、导入或恢复项目时使用 |
-| [UPSTREAM_LOCK.yaml](docs/UPSTREAM_LOCK.yaml) / [UPSTREAM.md](docs/UPSTREAM.md) | 确认两个上游的 URL、锁定 SHA、导入历史和产品补丁 |
-| [FEATURE_COMPATIBILITY.yaml](docs/FEATURE_COMPATIBILITY.yaml) | 查看特性分类、实现状态、验证状态、证据和限制 |
-| [PROBE_PLAN.md](docs/PROBE_PLAN.md) | 查找环境、算子、模型、梯度和多卡探针的可重跑命令 |
-
-### 后端计划和能力证据
-
-| 文档 | 适用场景 |
-|---|---|
-| [IMPLEMENTATION_STATUS_MATRIX.md](docs/IMPLEMENTATION_STATUS_MATRIX.md) | 按 framework、ops 和应用场景查看已完成能力、验证范围与限制 |
-| [BACKEND_CAPABILITY_MATRIX.md](docs/BACKEND_CAPABILITY_MATRIX.md) | 查看当前各后端、设备、dtype、梯度和功能宽度 |
-| [PARALLEL_DEVELOPMENT_PLAN.md](docs/PARALLEL_DEVELOPMENT_PLAN.md) | 查看当前可启动任务、并行边界和验收流程 |
-| [BACKEND_PLATFORM_PIPELINE_PLAN.md](docs/BACKEND_PLATFORM_PIPELINE_PLAN.md) | 了解 M1、B0、T1、M2 以及 registry/profile/planner 的长期路线 |
-| [reports/README.md](reports/README.md) | 按主题查找已经实际运行的 CPU/HCU/数值摘要；没有报告的内容不要写成 verified |
-
-最短阅读路径：新成员走“每次开始开发”→当前 `PARALLEL_DEVELOPMENT_PLAN.md`；新增 Torch
-operation 再读 `ADD_TORCH_OPERATION.md`；开发积分器优先读手把手教程；首次部署再读
-`START_HERE.md`。B0 基线文档仅用于追溯历史协作约定。
-
-## 目录边界
-
-- packages/framework：framework 正式开发代码，导入命名空间仍按上游保留。
-- packages/ops：ops 正式开发代码和 backend dispatcher。
-- external/：本地上游参考 clone，根仓库忽略，不是产品安装源。
-- probes/：隔离的环境、kernel、梯度、模型和多卡探针。
-- reports/：可提交的脱敏验证摘要。
-- artifacts/：原始日志、轨迹和性能输出，默认不入库。
-- docs/、adr/：兼容契约、环境、状态和重要决策。
-
-不要在 packages/ 内创建嵌套 Git 仓库，不要修改 external/，不要把 external/直接
-git add 成 submodule 或普通产品源码。
-
-## 快速开始
-
-从项目根目录加载当前 Hygon reference 环境：
-
-~~~bash
+```bash
 source scripts/activate_hygon_env.sh project
-~~~
+HIP_VISIBLE_DEVICES= CUDA_VISIBLE_DEVICES= scripts/check_cpu_reference.sh
+```
 
-先运行团队基础版本的 CPU gate：
+单卡 HCU 验证前先确认已分配或空闲的设备，再显式选择设备：
 
-~~~bash
-scripts/check_cpu_reference.sh
-~~~
-
-HCU 批验证只在已分配的设备、DTK 已加载且 `/dev/kfd`、`/dev/dri` 可见的主机权限终端执行。
-必须显式指定设备；该结果才可作为新的 DCU 验证证据：
-
-~~~bash
+```bash
 HIP_VISIBLE_DEVICES=4 scripts/check_hcu_reference_smoke.sh
-~~~
+```
 
-两个包都含顶层 test 包名，pytest 应分进程运行：
+这里的 `4` 是本项目服务器的历史验证设备编号；其他环境应使用自己的可用设备。
+CPU 基线与 HCU smoke 不能替代完整上游或具体应用验收。环境尚未准备好时，
+先阅读[环境指南](docs/DEVELOPMENT_ENVIRONMENT.md)，不要用通用 CUDA Torch 替换海光版本。
 
-~~~bash
-PYTHONPATH=packages/ops \
-  .venv/bin/python -m pytest -q \
-  packages/ops/test/torch/test_torch_reference_backend.py
+## 后端与目录
 
-PYTHONPATH=packages/framework:packages/ops \
-  .venv/bin/python -m pytest -q \
-  packages/framework/test/hooks/test_neighbor_list_torch_reference.py \
-  packages/framework/test/models/test_lj_torch_reference.py
-~~~
+对大多数已有上游操作，`backend=None` 保留上游默认语义（通常为 Warp）；海光工作流应
+根据具体操作显式选择 `torch_reference` 或已准入 HIP 实现。ASE-compatible BFGS 是
+本地新增接口，具有自己的默认与支持规则，见[使用说明](docs/ASE_BFGS_USAGE.md)。
+HIP 邻居目前仅支持 periodic / Batch / full-list、MATRIX 与设备内 Torch COO 打包、
+FP32/FP64、`skin=0`、调用间晶胞变化时完整重建；不进入 `auto`。
 
-若 .venv 不存在或本机 wheel 路径不同，先读
-[开发环境部署指南](docs/DEVELOPMENT_ENVIRONMENT.md)，不要从 PyPI 安装 CUDA
-版 Torch/Triton，也不要运行 uv sync --all-extras。
+- `packages/framework/`、`packages/ops/`：正式源码，保持两个可独立构建的包。
+- `external/`：本机只读上游 clone，不是产品安装源；锁定来源见 [UPSTREAM_LOCK.yaml](docs/UPSTREAM_LOCK.yaml)。
+- `docs/`、`adr/`：环境、架构、特性契约及决策。
+- `probes/`：验证探针；`reports/`：可提交的验证摘要；`artifacts/`：不入库的原始输出。
+- 具体模型和材料应用可位于独立下游工程；不要将下游加速路径等同框架原生能力。
 
-## 建立锁定版本的 external 参考 clone
-
-external/ 被根 .gitignore 整目录忽略是有意设计：它是每台开发机本地保存的完整
-上游参考源码，不进入产品仓库，不参与产品安装，也不应产生合并冲突。产品代码已经
-通过不 squash 的 subtree 导入到 packages/；external/只用于查阅、版本审计和后续同步。
-
-当前锁定值位于 docs/UPSTREAM_LOCK.yaml：
-
-- framework：NVIDIA/nvalchemi-toolkit，SHA
-  4dfe3723def34df3fadb245981081ccf8c94c257；
-- ops：NVIDIA/nvalchemi-toolkit-ops，SHA
-  26dbceb61e30cca80e1a5805eebeb51d7dc68fd1。
-
-在一个新目录中可执行以下完整 clone 和固定版本流程：
-
-~~~bash
-mkdir -p external
-
-git clone --no-single-branch \
-  https://github.com/NVIDIA/nvalchemi-toolkit.git \
-  external/nvalchemi-toolkit
-git clone --no-single-branch \
-  https://github.com/NVIDIA/nvalchemi-toolkit-ops.git \
-  external/nvalchemi-toolkit-ops
-
-FRAMEWORK_SHA=4dfe3723def34df3fadb245981081ccf8c94c257
-OPS_SHA=26dbceb61e30cca80e1a5805eebeb51d7dc68fd1
-
-git -C external/nvalchemi-toolkit fetch --no-tags origin "$FRAMEWORK_SHA"
-git -C external/nvalchemi-toolkit checkout --detach "$FRAMEWORK_SHA"
-
-git -C external/nvalchemi-toolkit-ops fetch --no-tags origin "$OPS_SHA"
-git -C external/nvalchemi-toolkit-ops checkout --detach "$OPS_SHA"
-
-test "$(git -C external/nvalchemi-toolkit rev-parse HEAD)" = "$FRAMEWORK_SHA"
-test "$(git -C external/nvalchemi-toolkit-ops rev-parse HEAD)" = "$OPS_SHA"
-git -C external/nvalchemi-toolkit status --short
-git -C external/nvalchemi-toolkit-ops status --short
-~~~
-
-如果 external/ 已存在，先检查 remote、工作树和当前 HEAD，再 fetch/checkout；不要
-重复 clone、清空目录或覆盖其中的本地工作。若已有 shallow clone，先补齐完整历史：
-
-~~~bash
-git -C external/nvalchemi-toolkit fetch --unshallow origin
-git -C external/nvalchemi-toolkit-ops fetch --unshallow origin
-~~~
-
-服务器不能直连 GitHub 时，可使用团队认可的完整镜像或 Git bundle，但必须在
-docs/UPSTREAM.md 中记录官方 URL、实际来源、SHA、完整历史状态和许可证信息。固定
-版本后，根仓库导入/同步仍按 [docs/START_HERE.md](docs/START_HERE.md) 的 subtree
-流程执行；普通开发者通常只需查阅 external，不需要重新导入 packages/。
-
-## 当前后端边界
-
-- Torch reference 是当前正确性基线，已注册并有 CPU/HCU 窄 slice 证据。
-- Triton 和 HIP 工具链基础探针已通过；HIP 邻居已有显式 periodic/fixed-cell/Batch/full/MATRIX
-  窄 capability，但生产 neighbor/LJ/MLIP kernel 尚未因此完成。
-- Warp 默认路径和上游公共 API 保留；不要把 HCU reference 改成默认静默回退。
-- 新后端必须先进入 dispatcher/capability gate，再由 framework 显式传递。
-- 具体算子必须分别说明 forward、一阶梯度、二阶梯度、PBC、full/half neighbor、
-  空输入、容量、错误和 stream 语义。
-
-## 开发循环
-
-~~~text
-读 AGENTS/STATUS 和锁定上游
-  -> 写 feature/operator contract
-  -> Torch reference 与最小测试
-  -> Triton/HIP 实现和 capability gate
-  -> CPU/HCU/必要的多卡验证
-  -> reports、FEATURE_COMPATIBILITY、STATUS 和必要 ADR
-  -> 小而独立的 git commit
-~~~
-
-每位开发者从已通过 B0 gate 的 `develop` 或经审核的当前阶段分支创建自己的
-`<开发者>/<类型>-<主题>` 分支；本轮集成指针为 `team/dev-baseline-v0.1`，B0 已合入共享主线。例如
-`alice/feature-triton-neighbor`。提交前只暂存自己的路径，运行
-git diff --check、相关测试和可获得的 HCU 探针，并使用 git commit -s。不要修改
-共享提交历史，不自动 push；需要同步上游时另建分支并保留 subtree 历史。
-
-详细规则见 [docs/DEVELOPMENT_GUIDE.md](docs/DEVELOPMENT_GUIDE.md)。
-团队协作入口、已收口的 golden paths 与下一个任务队列见
-[docs/history/TEAM_DEVELOPMENT_BASELINE.md](docs/history/TEAM_DEVELOPMENT_BASELINE.md)；新增 Torch operation
-按 [docs/ADD_TORCH_OPERATION.md](docs/ADD_TORCH_OPERATION.md) 走最小闭环；新手积分器教程见
-[docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md](docs/TUTORIAL_TORCH_INTEGRATOR_FOR_BEGINNERS.md)。
+首次部署、初始化或建立上游参考 clone 时，查阅 [START_HERE.md](docs/START_HERE.md)
+和 [UPSTREAM.md](docs/UPSTREAM.md)。已有工作树和环境无需重新初始化。

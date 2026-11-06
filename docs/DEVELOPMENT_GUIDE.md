@@ -10,23 +10,16 @@
 - [UPSTREAM_BUGFIXES.md](UPSTREAM_BUGFIXES.md)：上游缺陷、逻辑修正依据与反馈跟踪；
 - [DEVELOPMENT_ENVIRONMENT.md](DEVELOPMENT_ENVIRONMENT.md)：环境部署和 HCU 运行方法。
 
-当前代码的核心策略是：上层 API 和科学语义尽量继承，Torch reference 先定义可验证语义，
-Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、device、dtype、梯度等级和
-特性集合登记已验证宽度；Triton 尚无生产 capability。共享基线 HIP 登记邻居
-`hip.neighbor.cell_list-v1` 的 periodic/Batch/full/MATRIX+COO 窄 capability；
-BFGS E1 个人分支新增显式 rocSOLVER，见 [合同](HIP_BFGS_EIGH_CONTRACT.md)；M3已完成
-单体系ASE UnitCellFilter 3N+9，见 [Filter合同](TORCH_ASE_UNITCELL_FILTER_CONTRACT.md)，
-M4已完成异构Batch/refill及真实分子晶体CSP窄验收；当前私有HIP统一Jacobi修正
-真实简并DC故障，见[M4报告](../reports/g2-ase-bfgs-m4.md)。四组提交已于2026-11-06纳入本地develop，本次集成未推送，
-M5-1性能定位、M5-2隔离原型验收已完成，三轮同步CSP中位数耗时下降18.466%，
-见[配对报告](../reports/g2-ase-bfgs-m5-2-e2e.md)。M5-3A/3B隔离比选随后已完成；
-M5-4新增显式动态 `hip.bfgs-ase-jacobi-streams-v1` 产品实现，多宽双stream、
-单宽batched，无经验n/B白名单，CPU668/3skip、目标HCU门通过，默认/hip不变。
-源版本、真实工作流和输入相关性能见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)与
-[产品合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)；最终审阅与本地提交见
-[交付记录](ASE_BFGS_DELIVERY_PLAN.md)，生产/auto/其他构建未验收。当前晶胞的逐次
-完整重建见 [M1 契约](HIP_CURRENT_CELL_NEIGHBOR_CONTRACT.md)。默认
-Warp 路径仍保留，因此“能导入”或“reference 通过”都不能写成完整生产后端已支持。
+当前策略是保留上层 API 与科学语义，以 Torch reference 定义可验证语义，按实际
+设备、输入和证据逐项选择 HIP/Triton 后端。已登记范围见[后端能力矩阵](BACKEND_CAPABILITY_MATRIX.md)；
+应用与测试结果见[应用能力矩阵](IMPLEMENTATION_STATUS_MATRIX.md)和[状态](STATUS.md)。
+
+显式 HIP 邻居只覆盖 full-PBC/Batch/full-list、MATRIX 与 Torch COO、FP32/64、skin=0，
+每次使用当前晶胞完整重建，不进入 auto。ASE-compatible BFGS 已纳入本地 develop，
+含固定胞和 UnitCellFilter、异构 Batch 与显式 HIP 后端；其默认规则、FP64/eager/gfx936
+限定及使用方法见[BFGS 使用说明](ASE_BFGS_USAGE.md)。历史阶段/性能记录见
+[整理前快照](history/DEVELOPMENT_GUIDE-snapshot-2026-11-06.md)及相应 reports，不推导普遍性能。
+多数既有上游操作的 `backend=None` 保留 legacy Warp，BFGS 是有自身规则的新增接口。
 
 ## 1. 开始前：定位工作范围
 
@@ -105,11 +98,12 @@ dtype、梯度等级和实际 benchmark。
   method="cell_list"`；它是 operation strategy，不是全局 backend；
 - backend="triton"：当前未注册，必须抛 BackendUnavailableError；实现和测试完成后才
   能登记；
-- backend="hip"：只对已登记的邻居窄 capability 生效；其它 operation 或不满足
-  periodic/Batch/full/MATRIX+COO/FP32/FP64/skin=0 契约时必须明确失败；允许调用间晶胞变化，
-  每次重新初始化 cell metadata/CSR plan，不允许旧 plan 变胞复用；
-- backend="auto"：只在能力过滤、后端注册和证据齐全时选择；当前 slice 只会选已注册的
-  reference，并针对每个选择签名首次报告实际后端和原因；
+- backend="hip"：按具体 operation 及已登记 capability 选择。邻居仅支持
+  periodic/Batch/full/MATRIX+COO/FP32/FP64/skin=0，调用间晶胞可变但每次重新初始化
+  cell metadata/CSR plan，不复用旧 plan；BFGS 的 `hip` 是指定构建的 rocSOLVER 路径，
+  另有显式 `hip.bfgs-ase-jacobi-streams-v1`。不满足各自契约或未登记时须明确失败；
+- backend="auto"：按 operation 的能力过滤、后端注册和证据选择；HIP 邻居不进入 auto，
+  新增 BFGS 接口不支持 auto。其他操作以能力矩阵和实际注册表为准；
 - backend="warp"：NVIDIA 上游参考路径，不能被 HCU 修改偷偷替换。
 
 `Implementation.default_strategy` 表示显式 family 未指定 method 时的默认策略；

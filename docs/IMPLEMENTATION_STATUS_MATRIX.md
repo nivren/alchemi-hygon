@@ -55,25 +55,26 @@
 
 ## 3. 总体应用能力
 
-| 应用场景 | 当前结论 | 可以做什么 | 不能据此承诺 | 关键组成 |
-|---|---|---|---|---|
-| 数据导入、Batch 组织和 CPU/Torch reference 验证 | 可以，窄范围 | 构造 AtomicData/Batch，保持体系边界和索引，运行 CPU/Torch reference 回归 | 完整上游数据管线、生产多卡数据路径 | Data/Batch、Torch storage |
-| 周期邻居与 LJ correctness | 可以，reference | 验证周期邻居集合、image shift、MATRIX/COO、LJ energy/force 和短 NVE 对照 | 生产默认邻居后端、完整 virial/stress、全量上游邻居接口 | Torch neighbor/cell-list、LJ、Torch geometry |
-| 固定晶胞 MACE 推理 | 可以，窄范围 | 使用真实 MACE checkpoint 做异构 Batch 的短 energy/force 推理 | 全模型族、训练/微调、长轨迹性能 | MACEWrapper、Torch neighbor、reference geometry |
-| 固定晶胞 MACE NVE/FIRE/FIRE2 | 可以，窄范围 | 运行短固定晶胞 MD/弛豫；已验证 32×92 MACE/FIRE2 Batch 弛豫 | 变胞、长轨迹守恒、生产邻居/HIP MACE 性能 | MACE、Torch neighbor、VV/FIRE/FIRE2 |
-| 固定晶胞 Langevin reference NVT | 可以，窄范围 | 运行 BAOAB reference、短统计和最小 integrator continuation | 完整上游 NVT、通用 checkpoint、长 MACE NVT、生产 Triton/HIP | NVTLangevin、Torch reference |
-| 固定晶胞 NHC reference NVT | 可以，窄范围 | 短异构 MACE、scalar refill/FusedStage reference、最小积分器续算 | 长真实势 NVT、vector arrivals、完整 checkpoint、分布式、生产性能 | NVTNoseHoover、Torch neighbor/model |
-| 双阶段 MACE 弛豫：FIRE2 + BFGS | 小样本功能及显式优化后端已纳入本地develop | 46/92原子MPA-0 medium完整收敛/inflight；M5-4产品配对及最终复验见报告；Li8异构与T28同宽真实MLIP短步独立记录 | 新增Li/T2为qualification，未完整收敛；T2独立CPU MLIP未通过；全目录成功率/生产吞吐/其他设备未验收，不把微基准当生产收益 | [M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[M4报告](../reports/g2-ase-bfgs-m4.md) |
-| 周期 MACE 应力与晶胞力计算 | 可以，窄 reference | 在给定晶胞上计算 stress 与 cell-force；真实 checkpoint CPU/HCU4 parity、FP64 有限差分 | 完整模型族、真实MLIP stress训练；基础转换不推进晶胞，优化器另列 | MACE strain/stress、Torch neighbor/geometry、stress conversion |
-| MPA-0 Li/Na 晶体单点 | 可以，窄CPU/HCU4小样本 | CPU Batch/ASE/FP64导数；HCU两精度完整E/F/stress/邻居同几何对照 | 全目录/完整模型族未验证；精度须匹配默认dtype | 现有MACEWrapper、Torch neighbor、stress conversion；M1/M5报告 |
-| MPA-0 原生变胞 FIRE/FIRE2 集成 | 可由下游应用做窄单卡 HCU 批量计算 | toolkit 提供原生优化器、邻居与 FusedStage 生命周期；下游 `alchemi-app` 两精度/两优化器单体系、补位及8结构验收，48份输出独立CPU/HCU核验 | FIRE2 Li(CN)2未达应力阈值、FIRE精度敏感；全目录/流式/restart/完整HCU gate/生产性能未验收；应用配置不属于 toolkit 公共 API | M4/M5 reference；M5收口4656cce；应用归属 `alchemi-app` |
-| MPA-0 显式HIP邻居较大Batch短步比较 | FP64两规模两优化器完整窄验收；M8八组输出/轨迹状态比较通过 | 真实1029/39、2030/92，同快照分项及完整step；FP64约2.04–2.37倍；真实预算退出/补位；M8比较器修正不改阈值 | 两个FP32 FIRE2案例未满足最终cell-movement附加断言；非长收敛/20k真实模型/完整HCU gate/auto | [M7报告](../reports/g2-hip-real-batch-validation-m7.md)；[M8报告](../reports/g2-hip-mpa0-state-validation-m8.md)；M7收口 `00637c0`，M8待用户确认收口 |
-| MPA-0 原生 FIRE FP64较大Batch测量 | 已测一个Batch | 64结构/2287原子，原生raw力.05阈值，62收敛/2预算；应用101秒，峰值allocated23.49 GiB | 与M5/H100判据不同；仅NumPy/文件核验，未独立模型重算；1600为条件估算、持续补位/16000原子未测；历史测量dt_min=.002 | [测量报告](../reports/g2-mpa0-single-batch-timing.md)，收口7410445 |
-| MPA-0 FP64 8000门槛 | 容量诊断失败 | 同一前缀231项/7937原子，默认上限初始e3nn前向OOM，峰值allocated59.12 GiB；探针支持分项同步观测 | 未完成模型求值/优化更新，无完整分项或吞吐；仅当前默认allocator/模型/样本，不是所有输入通用上限 | [诊断报告](../reports/g2-mpa0-batch8000-timing.md)，收口eff753d |
-| MPA-0 FP64 4000门槛 | 已测一个完整Batch | 114项/3959原子、111原生raw力收敛/3预算，应用160秒，峰值allocated41.13 GiB；循环模型75.93%/邻居19.34%/优化器2.81%，NumPy/文件核验 | 普通e3nn与Torch reference邻居；非优化HIP邻居性能，判据与M5/H100不同，无独立模型重算/持续补位/全量1600实测 | [4000报告](../reports/g2-mpa0-batch4000-timing.md)，收口1dba058 |
-| FIRE 零下限参数兼容 | 本地bug已修正 | dt_min=0符合上游；CPU ops46/公共19项，HCU4 FP64四类功率/非法边界/解析势25步/三CIF十步 | 仅torch_reference本地校验修正；未跑零下限完整Batch/完整HCU gate | [LOCAL-004报告](../reports/g2-fire-zero-dt-min.md)，提交0e354f4 |
-| 有限外压/NPT/NPH | 当前不能承诺 | stress和晶胞基础可供后续算法使用 | 压力接口及barostat/integrator未移植；M3不是加压应用 | 独立后续队列 |
-| 单大体系多卡、DomainParallel、生产训练 | 当前不能承诺 | 可保留上游接口作为后续适配目标 | ownership、halo/迁移、完整分布式训练与生产后端未完成 | DomainParallel/分布式任务暂停 |
+本表总结已有验证，不表示所有工作负载或精度均已支持。项目级精简示例仍在整理；
+此处的 probe 和报告是可追溯证据，不自动等于面向用户的完整示例。
+
+| 应用 | 已有证据与范围 | 限制与证据 |
+|---|---|---|
+| 数据、Batch 与邻居 | Torch reference 支持周期/非周期、full/half、MATRIX/COO、异构 Batch；显式 HIP 周期邻居已有指定范围 DCU 验证 | HIP 为 full-PBC/full-list、FP32/64、skin=0、当前晶胞完整重建；[能力门](../reports/g2-framework-hip-neighbor-compatibility-gate.md)、[当前胞](../reports/g2-hip-current-cell-neighbor-m1.md) |
+| MACE / MPA-0 单点 | 真实 MACE checkpoint 异构 Batch 能量/力短链；MPA-0 小样本 CPU/HCU 能量、力、应力和邻居对照 | 其他模型族及所有材料未验收；[MACE](../reports/g1-mace-wrapper-batch.md)、[MPA-0](../reports/g2-mpa0-relaxation-m5.md) |
+| 固定晶胞 NVE | 真实 MACE 小分子 CPU/HCU 短步；LJ/PBC 有 reference 证据 | 不代表长时间能量守恒、完整重启或吞吐；[MACE dynamics](../reports/g2-mace-dynamics-reference.md)、[LJ NVE](../reports/g1-pbc-lj-nve-reference.md) |
+| 固定晶胞 Langevin NVT | BAOAB reference、异构 Batch、短统计和最小积分器续算 | 统计证据为解析谐振子，非真实 MACE 长 NVT；[统计](../reports/g2-torch-nvt-langevin-stat.md)、[续算](../reports/g2-torch-nvt-langevin-restart.md) |
+| 固定晶胞 NHC NVT | Torch reference 温控链、异构 Batch、scalar refill、短真实 MACE | 长轨迹、vector arrivals、完整 checkpoint 和分布式未验收；[报告](../reports/g2-torch-nvt-nhc.md) |
+| 固定晶胞 FIRE/FIRE2 | 真实 MACE-OFF23 small 的 32×92 原子周期结构 FIRE2 达指定 fmax 门槛；异构短轨迹与补位另有证据 | 不保证任意模型、材料或批量的收敛和吞吐；[32体系](../reports/g2-mace-fire2-batch32-tier1.md)、[补位](../reports/g2-mace-fire2-inflight-reference.md) |
+| 变胞 FIRE/FIRE2 + MPA-0 | 原生变胞生命周期及两精度小样本；HIP 邻居 FIRE2 三种 Li/Na 结构在两精度下均达力和应力联合阈值 | 个别 Li(CN)2 案例历史上未达应力阈值，FIRE 有精度敏感性；非全目录成功保证；[M5](../reports/g2-mpa0-relaxation-m5.md)、[三样本补测](../reports/g2-hip-fire2-convergence-2026-10-09.md) |
+| 显式 HIP 邻居真实 Batch 短步 | 1029/2030 原子、两优化器与两精度的状态比较分层验收；M9 复核后两组受影响 FP32 FIRE2 重跑通过 | 仅指定结构和短步，不等于大批量长时收敛或 auto 准入；[M8](../reports/g2-hip-mpa0-state-validation-m8.md)、[M9](../reports/g2-hip-fp32-fire2-cell-movement-m9.md) |
+| ASE-compatible BFGS 与 FIRE2 → BFGS | 本地 develop 已包含固定胞/UnitCellFilter、异构 Batch、配对 restart 及显式 HIP；11体系逐步 ASE 与真实 MPA-0 小样本工作流有记录 | 新 HIP 仅指定 FP64/eager/gfx936 构建；广义力门槛不等同物理原子力门槛；[使用说明](ASE_BFGS_USAGE.md)、[集成复验](../reports/partner-reference-stage1-integration-2026-11-06.md)、[历史CSP](../reports/g2-ase-bfgs-delivery-review.md) |
+| 完整弛豫 → 恒温 → MD | 已有 FusedStage、部分 Hooks、短补位等片段 | 完整组合、长期 checkpoint 和跨卡流水线未形成端到端验收；[inflight](../reports/g2-upstream-inflight-reference.md) |
+| NPT/NPH、长程、多卡与完整训练 | 保留部分上游接口及通信/梯度基础 | 尚未形成相应完整 DCU 应用验收；[当前状态](STATUS.md)、[特性契约](FEATURE_COMPATIBILITY.yaml) |
+
+历史大 Batch 耗时、容量和性能数据以原报告为准：例如 [4000原子测量](../reports/g2-mpa0-batch4000-timing.md)、
+[8000原子容量诊断](../reports/g2-mpa0-batch8000-timing.md)、[HIP较大Batch](../reports/g2-hip-real-batch-validation-m7.md)。
+它们使用特定模型、输入和判据，不能直接作为生产容量或通用吞吐承诺。
 
 ## 4. 如何使用这张表
 

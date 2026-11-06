@@ -125,6 +125,25 @@ source scripts/activate_hygon_env.sh exploration
 它指向外部探索工程的旧 .venv，不是产品安装目标；不要在其中写入项目代码、冻结新依赖
 或用它替代项目 .venv 的回归结果。
 
+## 外部模型和结构输入
+
+真实模型示例可依赖外部 checkpoint 和结构文件。使用时通过具体脚本的命令行或配置
+传入路径；校验模型类型、dtype、元素覆盖和输入格式，并记录模型/结构的来源与哈希。
+模型和数据不随项目环境自动提供；实际示例以其使用说明和验证结果为准。
+
+以下是 dcu2 于 2026-11-06 只读核对的示例路径，其他机器需要替换：
+
+| 用途 | dcu2 示例路径 | 备注 |
+|---|---|---|
+| MACE-OFF23 small checkpoint | `/home/wangleping/.cache/mace/MACE-OFF23_small.model` | SHA-256 `165cce4cfec5a34b9c64d4ebf95de15d71106bb584b7291c8470f0749977c46f` |
+| MACE-MPA-0 medium checkpoint | `/home/wangleping/.cache/mace/mace-mpa-0-medium.model` | SHA-256 `75428afe3a1d7d8062e19bcaabd5c433623cabf308242ec9fb493e38604fb638`；与历史变胞 FIRE2 报告一致 |
+| 分子晶体结构预测批量结构 | `/data/csp_data/perf_46`、`/data/csp_data/perf_v2_sorted/perf_v2_92` | CIF；只读抽查了 46 / 92 原子各一个周期结构 |
+| 锂钠化合物 | `/data/csp_data/catl_data/li_mp_data` | CIF；历史三样本的文件哈希与验收报告一致 |
+
+同机 `/home/wangleping/mace-mpa-0-medium.model` 的哈希与上表 MPA-0 一致。
+路径和文件存在不表示新环境的加载、数值或所有输入已验收；文件可能变化，
+运行前应按任务重新核对。合作使用和分发时按数据/模型来源确认使用条件。
+
 ## 5. 三步验证
 
 ### 5.1 先确认 Torch、设备和梯度

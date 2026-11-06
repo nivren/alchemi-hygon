@@ -1,6 +1,6 @@
 # 稳定移植基线与上游跟踪流程
 
-启动日期：2026-10-09。用户已确认按 A–D 分阶段实施；每阶段完成后先总结结果，
+启动日期：2026-10-09。A–D 是当时已完成的分阶段工作；每阶段完成后先总结结果，
 提出下一阶段具体目标，等待用户确认再启动。此文件规定长期流程；当前执行状态见
 [STATUS.md](STATUS.md)，任务队列见 [PARALLEL_DEVELOPMENT_PLAN.md](PARALLEL_DEVELOPMENT_PLAN.md)。
 
@@ -9,10 +9,12 @@
 - 产品上游基线由 [UPSTREAM_LOCK.yaml](UPSTREAM_LOCK.yaml) 的完整 SHA 锁定。
   本轮保持 Framework `4dfe3723def34df3fadb245981081ccf8c94c257`、
   Ops `26dbceb61e30cca80e1a5805eebeb51d7dc68fd1`，生产 Torch/DTK 环境保持原规格。
-- 当前集成源码起点为 `develop` 的 `2e211ab93a4f1ad0c8c720eecb22129d846c7792`；
+- 2026-10-09 A 阶段集成源码起点为当时 `develop` 的 `2e211ab93a4f1ad0c8c720eecb22129d846c7792`；
   HIP Neighbor M1–M9 已集成并推送三处远端；A 的指定 CPU/HCU4 补充验收已完成，
   证据见 [阶段报告](../reports/g2-integration-a-2026-10-09.md)。
   已有合并采用用户授权的 fast-forward；不补造历史 PR 或重写已共享提交。
+- 2026-11-06 本地 `develop` 已集成 BFGS，集成记录 `42f3f19`；本次未推送。
+  当前 Git refs 应实时核对，A–D 的历史结果不等于新候选或全部上游已验收。
 - 完整保留上游源码、公共 API、测试和来源，区分源码保留、后端准入与实际验证。
   能力范围以 [FEATURE_COMPATIBILITY.yaml](FEATURE_COMPATIBILITY.yaml)、报告和运行证据为准。
 - 日常功能移植在固定基线上继续；新上游功能进入待评估队列，不自动成为当前 HCU 支持项。
@@ -38,9 +40,9 @@
 | C：UBF 对齐 | UBF-001～016 的官方修复及额外本地边界审查 | 每项有证据和 action，无证据写 unknown；形成回归/backport 清单 |
 | D：隔离升级评估 | 独立分支/worktree/环境，验证代表性依赖闭包 | 接受升级、部分 backport 或暂缓的决策及阻塞 |
 
-A–C 完成后恢复正常功能开发；D 单独确认范围，可与日常功能开发并行。
-HCU4 不可用时不等待、不占用其他卡，记录未运行项；A 的 HCU 验收保持待完成，
-不以 CPU 通过替代它。经用户确认可继续 B/C 中不依赖硬件的工作。
+上述 A–D 为2026-10阶段记录，具体完成情况和限制见原报告；D 的结论是暂不整体升级。
+后续新一轮上游评估需另行确定范围和验收。需要 HCU 的验收在设备不可用时记录未运行项，
+不能以 CPU 通过替代 HCU 结果。
 
 ## 4. 差异分析及补丁审查
 
