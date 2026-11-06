@@ -145,3 +145,48 @@ CPU 和 HCU4（BW1000）分别计算上述 LiSnCl3 与 46 原子分子晶体混�
 原子力和全部应力分量与 CPU 上 MACE 的 ASE calculator 对照通过。该结果限于指定模型、
 输入、FP64 和 Torch reference 邻居；不代表所有材料或性能已验收。日志与哈希位于
 `artifacts/example-mace-single-point-2026-11-06/`。
+
+## 04：固定晶胞 MACE NVE 分子动力学
+
+[`04_mace_nve.py`](04_mace_nve.py) 参考上游
+[`04_nve_energy_conservation.py`](../packages/framework/examples/basic/04_nve_energy_conservation.py)，
+用本项目 `NVE`、`MACEWrapper` 和邻居接口运行单个周期结构的短轨迹。使用 FP64、
+Torch reference 积分和邻居后端，每次按当前坐标重建邻居；初始力在第一次积分前求值。
+`external/` 只作为阅读参考，不是运行依赖。
+
+先激活项目环境，再传入可信模型及其支持元素的周期 CIF：
+
+```bash
+OMP_NUM_THREADS=1 python examples/04_mace_nve.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-998591_LiSnCl3.cif \
+  --output nve.traj --steps 10 --dt 0.5 --temperature 300 > nve.csv
+```
+
+其他机器请替换路径；在已分配或确认空闲的 DCU 上，可添加前缀 `HIP_VISIBLE_DEVICES=4`
+和选项 `--device cuda`。也可使用分子晶体输入，如
+`/data/csp_data/perf_46/formal_c1_1_100_z1_46.cif`。模型和结构文件需自行准备。
+
+`--dt` 单位是 fs。`--temperature` 仅用于初始速度的 Maxwell–Boltzmann 随机采样，
+固定随机种子为 42，随后移除质心平动，不强制缩放到精确指定温度；运行过程中没有温控。
+因此它展示 NVE，温度会随动能与势能交换而变化。输入最好先弛豫，时间步应根据模型和
+材料另外验证，不能把默认参数直接视为生产设置。
+
+输出 ASE `.traj` 文件含初始帧与每步的坐标、速度、势能和力；CSV 标准输出含步数、
+时间、势能、动能与总能量。可用 `ase.io.read("nve.traj", index=":")` 读取。
+选择新的输出路径，已有同名文件会被覆盖。晶胞全程固定，坐标未主动折回主胞；邻居计算
+仍处理周期边界。轨迹用于分析，本例没有实现从轨迹恢复积分器状态的重启接口。
+短轨迹中总能变化很小不等于长时间能量守恒已通过。
+
+2026-11-06 在 dcu2、MACE-MPA-0 medium（哈希同示例 03）、FP64、dt=0.5 fs 下验证：
+
+- LiSnCl3：CPU 与 HCU4 分别运行 5 步（2.5 fs），轨迹各含 6 帧。
+- 46 原子分子晶体：CPU 运行 3 步（1.5 fs），轨迹含 4 帧。
+- 三条轨迹逐帧与 CPU 上 MACE ASE calculator + ASE Velocity Verlet 独立积分对照通过，
+  并核对晶胞不变。坐标最大绝对差不超过 1.87e-10 Å，力不超过 4.86e-9 eV/Å。
+- 相对初始帧的最大总能量变化：LiSnCl3 为 7.55e-7 eV，分子晶体为 7.82e-4 eV。
+  这是指定输入的极短流程验证，不代表热平衡、长期能量守恒、长时性质或生产性能。
+
+日志、输入哈希、轨迹和逐帧核验保存在 dcu2 项目
+`artifacts/example-mace-nve-2026-11-06/`。本环境的 ASE 对
+`MaxwellBoltzmannDistribution` 发出弃用提示，运行与上述数值核验均完成。

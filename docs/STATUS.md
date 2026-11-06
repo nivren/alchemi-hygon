@@ -46,6 +46,8 @@ CPU reference 669 passed / 5 skipped；HCU4 六项基础 smoke、BFGS Ops 18、F
 `examples/02_mace_variable_cell.py` 与 `examples/03_mace_single_point.py` 分别展示
 变胞弛豫和单点计算，使用 MACE-MPA-0 与周期 CIF 的指定 CPU/HCU 运行证据，详见
 [项目示例](../examples/README.md)。示例的收敛与数值结果限于记录的模型和输入。
+`examples/04_mace_nve.py` 的周期结构短轨迹已与 ASE 独立积分逐帧对照，
+限于记录的 CPU/HCU 输入和极短运行；长期能量守恒与热平衡尚未验收。
 
 ## 当前下一步
 
