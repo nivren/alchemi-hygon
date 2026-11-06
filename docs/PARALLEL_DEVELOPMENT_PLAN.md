@@ -1,7 +1,12 @@
 # 当前并行开发计划
 
-更新时间：2026-10-09。本文只维护当前可启动的任务、边界和验收方式；此前的完整阶段日志与
+更新时间：2026-11-06（本次仅更新BFGS集成与后续交接）。本文只维护当前可启动的任务、边界和验收方式；此前的完整阶段日志与
 Point 记录保存在 [`history/PARALLEL_DEVELOPMENT_PLAN.md`](history/PARALLEL_DEVELOPMENT_PLAN.md)。
+
+当前为合作方参考版本收口：已完成第一阶段BFGS本地集成，
+下一阶段“能力清单与范围确认”等待用户确认。每阶段、每个小里程碑均先说明目标，
+完成后总结，获得用户明确确认才进入下一里程碑；不自动启动下表中的其他功能。
+见[集成报告](../reports/partner-reference-stage1-integration-2026-11-06.md)。
 
 ## 1. 当前基线
 
@@ -89,7 +94,7 @@ Candidate 恢复B快照、D结果独立保存、输出保护及21项测试通过
 | 完成 | FIRE参数兼容修正 | LOCAL-004提交0e354f4恢复dt_min=0，CPU回归和HCU4 FP64 NumPy/解析势/三CIF十步通过 | 本地移植bug，非上游bug；不代表零下限完整Batch收敛/性能 |
 | 完成并集成 | 弛豫移植收口审查 | M1–M5、运行入口、实际参数、HCU/CPU证据边界和未覆盖项已核对；merge `620a485` | 应用参数/H100 停止度量由下游工程负责 |
 | 完成 | MPA-0 应用分离 | CIF 应用入口及应用专属测试移入同级独立工程 `alchemi-app`；toolkit 保留原生 API、通用生命周期测试和迁移证据 | 应用参数/H100 停止度量属于下游应用，不加入 toolkit 公共 API；全目录作业另行安排 |
-| M1–M4及M5-4目标验收 | 本地新增 ASE-compatible BFGS | FP64固定/UnitCellFilter 3N+9异构Batch、共享模型、独立ID/冻结/重排/退出/补位/restart；最终审阅CPU669/5skip，HCU Framework24/native7及原rocSOLVER39；动态尺寸和逐步ASE通过 | 已本地提交；未合入develop/推送；M5-4新显式HIP动态Jacobi，无147/285/B4门，多宽双stream/单宽batched，默认和hip保持；真实CSP/性能/未覆盖范围见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[本地交付](ASE_BFGS_DELIVERY_PLAN.md)和[合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)。不代表生产规模、其他构建或auto准入 |
+| M1–M4及M5-4目标验收 | 本地新增 ASE-compatible BFGS | FP64固定/UnitCellFilter 3N+9异构Batch、共享模型、独立ID/冻结/重排/退出/补位/restart；最终审阅CPU669/5skip，HCU Framework24/native7及原rocSOLVER39；动态尺寸和逐步ASE通过 | 已纳入本地develop；本次未推送；M5-4新显式HIP动态Jacobi，无147/285/B4门，多宽双stream/单宽batched，默认和hip保持；真实CSP/性能/未覆盖范围见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)、[本地交付](ASE_BFGS_DELIVERY_PLAN.md)和[合同](HIP_BFGS_JACOBI_STREAMS_CONTRACT.md)。不代表生产规模、其他构建或auto准入 |
 
 每个任务都先建立 Torch reference 和最小回归测试，再接 framework；只有接口、支持状态或
 验证证据发生变化时才同步能力契约、STATUS 和报告。未确认 owner 前不自动创建任务分支。

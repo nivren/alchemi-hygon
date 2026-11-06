@@ -46,15 +46,29 @@ Ruff lint/format 检查；具体范围在审阅报告记录，不声明全仓 pr
 | 1：Ops | `d68ea01` | 27 |
 | 2：Framework | `bf52bca` | 13 |
 | 3：验证记录 | `93955b0` | 56 |
-| 4：工程文档 | 本节所在的 `docs(bfgs): record delivery scope and acceptance evidence` 提交 | 24 |
+| 4：工程文档 | `e3605c1`：`docs(bfgs): record delivery scope and acceptance evidence` | 24 |
 
-第四组的完整 SHA 可用 `git log -1 --format=%H -- docs/ASE_BFGS_DELIVERY_PLAN.md`
-查询；其 SHA 不写回自身内容。四个完整 SHA、父提交、DCO sign-off 及实际文件列表
+第四组完整 SHA 为 `e3605c1856cc9ba19475157df38f8cf1c63ed265`。
+该 SHA 在后续集成记录更新时补入，不使用本文件最新提交反推原第四组提交。
+四个完整 SHA、父提交、DCO sign-off 及实际文件列表
 另存 `artifacts/ase-bfgs-local-delivery-2026-10-11/`。
 
 每组经过暂存清单/内容审阅与 `git diff --cached --check`；没有绕过 Git hooks。
 数值源码、测试和探针未改变，沿用最终审阅已经通过的 CPU/HCU、ASE、CSP 与
 包装门，没有把 Git 分组操作记为新硬件测试。历史原始验收记录不覆盖。
 
-本提交完成第四组本地收口。四组均有 DCO sign-off，尚未合入 `develop`、推送或
-发布。下一阶段可准备本地 `develop` 集成；实施前仍需给出目标并等待用户确认。
+2026-10-11第四组提交时，四组均有DCO sign-off，当时尚未合并或推送。
+同日随后完成三个remote的功能分支推送；2026-11-06完成本地develop集成，详见下节。
+
+## 本地 develop 集成记录（2026-11-06）
+
+用户确认第一阶段各里程碑后，核对四提交120文件与交付清单一致、历史哈希匹配，
+在独立候选 `wangleping/integration-partner-reference-stage1` 复验通过后纳入本地develop。
+四个原有提交原样保留；后续集成记录提交只更新文档与验证摘要。
+
+CPU669/5skip、六项HCU reference smoke、BFGS Ops18/Framework24、原rocSOLVER39、
+11体系十步ASE与逐位restart均通过。具体命令、原始日志位置和未验证范围见
+[集成报告](../reports/partner-reference-stage1-integration-2026-11-06.md)。原未跟踪汇报文件保持，不纳入集成。
+
+本次未推送、创建标签或发布；功能分支2026-10-11的三处推送是历史交付记录，
+不表示本次develop已同步。下一阶段待确认能力清单与参考版本范围。

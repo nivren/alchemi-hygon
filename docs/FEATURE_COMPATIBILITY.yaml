@@ -2086,7 +2086,7 @@
       "id": "dynamics.bfgs_ase_compat",
       "category": "B",
       "status": "verified",
-      "implementation_scope": "本地新增功能，非NVIDIA BFGS移植；M1–M4已完成本文明确范围的CPU/HCU窄验收：FP64固定/UnitCellFilter 3N+9异构Batch、共享模型、独立ID state/冻结/重排/退出/补位/配对restart与真实小样本CSP。四组已在个人功能分支本地提交收口，尚未合入develop或推送，不代表全项目HCU门或生产规模；DomainParallel未实现; M5-4新增显式动态HIP Jacobi/双stream产品实现，最终数值门已通过，最终14限时作业/真实小样本CSP复验全部通过，性能随输入分化，见阶段报告",
+      "implementation_scope": "本地新增功能，非NVIDIA BFGS移植；M1–M4已完成本文明确范围的CPU/HCU窄验收：FP64固定/UnitCellFilter 3N+9异构Batch、共享模型、独立ID state/冻结/重排/退出/补位/配对restart与真实小样本CSP。四组已于2026-11-06纳入本地develop，本次集成未推送，不代表全项目HCU门或生产规模；DomainParallel未实现; M5-4新增显式动态HIP Jacobi/双stream产品实现，最终数值门已通过，最终14限时作业/真实小样本CSP复验全部通过，性能随输入分化，见阶段报告",
       "scenario": "分子与分子晶体固定/ASE UnitCellFilter变胞BFGS；异构Batch和原生inflight FIRE2→BFGS小样本CSP完整链路",
       "source": {
         "repository": "ASE project environment numerical oracle; independently written alchemi-hygon extension absent from NVIDIA upstream",

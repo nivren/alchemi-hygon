@@ -17,7 +17,7 @@ Triton/HIP 逐算子替换并以实测决定。ops registry 按 operation、devi
 BFGS E1 个人分支新增显式 rocSOLVER，见 [合同](HIP_BFGS_EIGH_CONTRACT.md)；M3已完成
 单体系ASE UnitCellFilter 3N+9，见 [Filter合同](TORCH_ASE_UNITCELL_FILTER_CONTRACT.md)，
 M4已完成异构Batch/refill及真实分子晶体CSP窄验收；当前私有HIP统一Jacobi修正
-真实简并DC故障，见[M4报告](../reports/g2-ase-bfgs-m4.md)。现已四组本地提交收口，尚未合入develop，
+真实简并DC故障，见[M4报告](../reports/g2-ase-bfgs-m4.md)。四组提交已于2026-11-06纳入本地develop，本次集成未推送，
 M5-1性能定位、M5-2隔离原型验收已完成，三轮同步CSP中位数耗时下降18.466%，
 见[配对报告](../reports/g2-ase-bfgs-m5-2-e2e.md)。M5-3A/3B隔离比选随后已完成；
 M5-4新增显式动态 `hip.bfgs-ase-jacobi-streams-v1` 产品实现，多宽双stream、

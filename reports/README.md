@@ -7,6 +7,7 @@
 
 | 主题 | 当前摘要 | 主要限制 |
 |---|---|---|
+| 合作方参考版本第一阶段集成（2026-11-06） | [partner-reference-stage1-integration-2026-11-06.md](partner-reference-stage1-integration-2026-11-06.md) | BFGS四提交纳入本地develop；CPU669/5skip、HCU六项smoke、Ops18/Framework24/原rocSOLVER39、11体系ASE通过；未推送，完整CSP/打包/性能未重跑 |
 | A–D 与补测集成收口 | [`g2-upstream-sync-v1-closure-2026-10-09.md`](g2-upstream-sync-v1-closure-2026-10-09.md) | 签名成果与CPU复验已集成本地develop；用户授权直接三处同步，精确SHA/退出码见交付核验；候选保持Candidate |
 | 隔离升级 D（2026-10） | [`upstream-sync-2026-10.md`](upstream-sync-2026-10.md) | 三候选原样模块 CPU/HCU4 各11项检查通过；stock导入及依赖/API/24个文本冲突阻塞；暂不整体升级，仍Candidate |
 | FIRE2 + HIP 邻居完整弛豫补测 | [`g2-hip-fire2-convergence-2026-10-09.md`](g2-hip-fire2-convergence-2026-10-09.md) | 固定三Li/Na CIF，HCU4两精度/两邻居分支四作业，全部双阈值收敛及真实补位/终态/导出核验；非大Batch或普遍收敛保证 |

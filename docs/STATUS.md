@@ -1,17 +1,34 @@
 # 当前开发状态
 
-更新时间：2026-10-09。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
+更新时间：2026-11-06（本次仅更新集成交付状态）。本文只维护当前状态、已验证范围、下一步和限制；完整历史交接保留在
 [`docs/history/STATUS.md`](history/STATUS.md)。
 
 ## 当前基线
 
-- 当前交付基线：`develop`，在既有基线 `fb05b61` 上以 fast-forward 集成 HIP 邻居 M1–M9 提交链（阶段末提交 `b549558`）及本次交接文档更新。既有 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和应用分离收口均保留。
+- 最新本地基线已纳入 BFGS 四提交；本轮未推送，具体记录见下方2026-11-06集成节。
+
+- 2026-10既有交付记录：`develop` 在既有基线 `fb05b61` 上以 fast-forward 集成 HIP 邻居 M1–M9 提交链（阶段末提交 `b549558`）及本次交接文档更新。既有 NHC、stress/cell-force、MPA-0 M1–M5、Batch 测量、LOCAL-004 和应用分离收口均保留。
 - 集成前 CPU 聚焦回归：ops `110 passed/34 skipped`，framework 独立进程 `54 passed/28 skipped/1 xfailed`，probe 比较器 `3 passed`；当时未重跑 HCU。集成后 A 阶段指定 CPU/HCU 验收见下一节，各历史阶段性能结论不扩大为全库 gate。
 - toolkit 应用分离提交为 `730a848`，由 `codex/fix-fire-zero-dt-min` 合入；LOCAL-004 实现提交为 `0e354f4`。完整移植审查见[报告](../reports/g2-relaxation-port-closure-review.md)。
 - 独立应用工程 `/home/wangleping/codes/alchemi-app` 已在本地 `develop` 创建首提交 `9ae235c`；此工程拥有 MPA-0 CIF 应用入口和专属测试。
 - 首轮 remote refs 核验已通过：toolkit 三个 remote 的 `develop` 均包含集成状态提交 `9552588`，应用工程三个 remote 的 `develop` 均包含首提交 `9ae235c`；本条状态记录随其后的 toolkit commit 继续同步。
 - 上游 framework/ops 锁定 SHA 见 [`UPSTREAM_LOCK.yaml`](UPSTREAM_LOCK.yaml)；产品源码位于
   `packages/framework` 和 `packages/ops`，`external/` 只作只读参考。
+
+## 合作方参考版本：第一阶段集成（2026-11-06）
+
+用户确认逐里程碑推进后，BFGS 四个提交 `d68ea01`、`bf52bca`、`93955b0`、`e3605c1`
+通过独立候选复验，纳入本地 `develop`。集成起点为 `cfd22ad`，功能源码为 `e3605c1`；
+集成记录提交仅更新交付状态和验收摘要。本次未推送、创建标签或发布参考版本。
+
+本轮 CPU reference 为 **669 passed / 5 skipped**；HCU4 六项基础 smoke、BFGS Ops18、
+Framework24、原 rocSOLVER39 及11体系十步ASE对照均通过，重启逐位一致。
+五项CPU跳过中的两项HCU参数已在HCU门通过，三项既有Warp对照保持未验证。
+未重跑真实模型完整CSP、打包或性能套件；既有FP64/eager、gfx936构建与其他限制保持。
+完整范围与证据见[第一阶段集成报告](../reports/partner-reference-stage1-integration-2026-11-06.md)。
+
+下一阶段为合作方参考版本的能力清单与范围确认，等待用户确认后启动；
+全面文档整理、示例补齐和发布仍属后续阶段。
 
 ## G2 集成验收 A 与上游跟踪（2026-10-09）
 
@@ -403,15 +420,16 @@ HCU构建与明确小样本门，其他硬件/构建/生产吞吐未验收。
 ## ASE-compatible BFGS 本地提交收口（2026-10-11）
 
 用户确认后按审阅清单完成四组带 DCO sign-off 的本地提交：Ops `d68ea01`、
-Framework `bf52bca`、验证记录 `93955b0`，第四组为本节所在的工程文档提交。
+Framework `bf52bca`、验证记录 `93955b0`、工程文档 `e3605c1`。
 共120个文件，产品/测试/probe与已通过的审阅哈希完全一致；第四组仅更新原清单
 中的交付记录与状态。每组暂存清单、内容与diff检查通过，不重复计算未改变的
 CPU/HCU数值门，不覆盖历史证据。完整SHA及文件记录见
 [交付方案](ASE_BFGS_DELIVERY_PLAN.md)与 `artifacts/ase-bfgs-local-delivery-2026-10-11/`。
 
-当前BFGS已在个人功能分支本地收口，尚未合入 `develop`、推送或发布。
+2026-10-11四组本地提交时尚未合入 `develop` 或推送；随后功能分支已于同日推送三处，
+2026-11-06已纳入本地 `develop`。本次集成未推送，见上方集成节。
 FP64/eager、已准入构建及小样本验收边界保持；生产规模/其他硬件未验收。
-本地 `develop` 集成是待确认的下一阶段。
+本地集成已完成；合作方参考版本的能力清单与范围为待确认的下一阶段。
 
 ## 当前能力摘要
 
@@ -940,7 +958,7 @@ M5已收口 `4656cce`；2304容量FP64 Batch测量已收口 `7410445`；
 
 1. 已完成 MPA-0 弛豫移植收口审查，见[报告](../reports/g2-relaxation-port-closure-review.md)。应用入口与专属测试现已移至独立下游工程 `alchemi-app`；toolkit 继续维护上游移植和兼容性跟踪。
 2. 若要对齐 H100 运行控制或停止度量，在 `alchemi-app` 单独规划；H100 `UnitCellFilter(cell_factor=N)` 广义力判据与4000探针 native raw-force 判据不同。全目录长作业仍需单独确认。
-3. ASE 3.29-compatible BFGS M1–M4及M5-4显式产品接入已完成本文明确目标数值门，含UnitCellFilter 3N+9、异构Batch/refill和真实小样本CSP；四组本地提交已收口，未合入develop或推送。新ID hip.bfgs-ase-jacobi-streams-v1取消经验n/B白名单，多宽双stream、单宽batched；hip仍rocSOLVER、默认Torch不变、不进auto。最终审阅CPU669/5skip，HCU环境Ops18/Framework24，M5-4原rocSOLVER39，1113/B32子集及真实561 B8和逐步ASE通过；性能输入相关。真实工作流、最终误差、profiler及范围见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)与[最终审阅](../reports/g2-ase-bfgs-delivery-review.md)。其他构建/NVIDIA/DomainParallel/全目录生产仍是独立后续范围。
+3. ASE 3.29-compatible BFGS M1–M4及M5-4显式产品接入已完成本文明确目标数值门，含UnitCellFilter 3N+9、异构Batch/refill和真实小样本CSP；四组本地提交已于2026-11-06纳入本地develop，本次集成未推送。新ID hip.bfgs-ase-jacobi-streams-v1取消经验n/B白名单，多宽双stream、单宽batched；hip仍rocSOLVER、默认Torch不变、不进auto。最终审阅CPU669/5skip，HCU环境Ops18/Framework24，M5-4原rocSOLVER39，1113/B32子集及真实561 B8和逐步ASE通过；性能输入相关。真实工作流、最终误差、profiler及范围见[M5-4报告](../reports/g2-ase-bfgs-m5-4.md)与[最终审阅](../reports/g2-ase-bfgs-delivery-review.md)。其他构建/NVIDIA/DomainParallel/全目录生产仍是独立后续范围。
 
 用户已确认 HIP 邻居分阶段任务；M1 当前晶胞快照 MATRIX 已收口窄 gate，见
 [报告](../reports/g2-hip-current-cell-neighbor-m1.md)。M2 MATRIX→COO 与 MACE 单点已收口实现 `3e394d7`；
