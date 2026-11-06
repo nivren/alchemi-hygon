@@ -17,13 +17,14 @@ source scripts/activate_hygon_env.sh project
 | [04 固定胞 NVE](04_mace_nve.py) | MACE checkpoint + 单个周期 CIF | ASE 轨迹、逐步能量 CSV |
 | [05 BFGS 变胞](05_mace_bfgs.py) | MACE checkpoint + 单个周期 CIF | 末态 CIF、广义力收敛状态 |
 | [06 FIRE2 → BFGS](06_fire2_bfgs.py) | MACE checkpoint + 单个周期 CIF | 两阶段 CIF、最终广义力状态 |
+| [07 固定胞 NVT](07_mace_nvt.py) | MACE checkpoint + 单个周期 CIF | ASE 轨迹、能量与瞬时温度 CSV |
 
 这是源码仓库的示例集，需要准备好环境，再从项目根目录运行；根目录 `examples/` 不包含
 在两个包的 wheel 中。环境入口使用 reference 锁文件和 `PYTHONPATH`，详见
 [环境指南](../docs/DEVELOPMENT_ENVIRONMENT.md)。其中 ASE 是所有示例的依赖，
-示例 02–06 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
+示例 02–07 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
 
-NVT、异构批量弛豫/自动补位、配对重启尚无本轮整理的独立入门脚本；本例集也不提供
+异构批量弛豫/自动补位、配对重启尚无本轮整理的独立入门脚本；本例集也不提供
 NPT/NPH、完整训练或 DomainParallel 的使用验收，具体缺口见
 [当前任务](../docs/PARALLEL_DEVELOPMENT_PLAN.md)。上游目录中的脚本不能替代本机验证。
 
@@ -309,3 +310,55 @@ FIRE2 的晶胞对齐只在第一阶段使用；BFGS 绑定当前晶胞后保持
 
 该验证只覆盖指定输入的小规模顺序衔接。日志、模型/输入哈希、交接和最终 CIF、独立
 验证结果位于 `artifacts/example-fire2-bfgs-2026-11-06/`。
+
+## 07：固定晶胞 MACE NVT（Nosé–Hoover 链）
+
+[`07_mace_nvt.py`](07_mace_nvt.py) 延续示例 04 的模型加载、初始力求值和轨迹输出，
+用本项目 `NVTNoseHoover` 公共接口加入温控。NVT 流程与模型接入可参考上游
+[`05_nvt_langevin.py`](../packages/framework/examples/basic/05_nvt_langevin.py) 和
+[`04_mace_nvt.py`](../packages/framework/examples/advanced/04_mace_nvt.py)；这些上游脚本
+使用 Langevin，本例选用已有验证的 NHC，实际参数与约定见
+[NHC 报告](../reports/g2-torch-nvt-nhc.md)。运行不读取 `external/`。
+
+激活项目环境后，以 dcu2 已有模型与周期结构运行：
+
+```bash
+OMP_NUM_THREADS=1 python examples/07_mace_nvt.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-998591_LiSnCl3.cif \
+  --output nvt.traj --steps 10 --dt 0.5 --temperature 300 --tau 25 > nvt.csv
+```
+
+其他机器需替换路径；分子晶体输入可使用
+`/data/csp_data/perf_46/formal_c1_1_100_z1_46.cif`。在已分配或确认空闲的 DCU 上可增加
+`HIP_VISIBLE_DEVICES=4` 前缀与 `--device cuda` 参数。模型与结构需自行提供。
+
+`--dt` 是时间步（fs），`--tau` 是温控耦合时间（fs），`--temperature` 是目标温度（K），
+同时用于初始速度的随机采样。默认链长度 3、Yoshida 阶数 3，均显式使用 Torch reference，
+模型与输入为 FP64/eager，邻居 skin=0 且每步重建。所有参数需要根据材料与模型验证。
+
+初始速度采样种子为 42，移除质心平动，不强制缩放到目标温度。本项目 NHC 使用每个体系
+`3N` 自由度，CSV 瞬时温度也用 `2 KE / (3N kB)` 计算；不能将它与 `3N-3` 约定直接混用。
+目标温度不代表每一帧的温度；小体系有明显涨落，运行几步更不能证明已达到热平衡。
+
+输出 `.traj` 包含初始帧和每步的结构、速度、势能与力，CSV 包含步数、时间、势能、动能、
+物理总能量和瞬时温度。NVT 与热浴交换能量，CSV 中势能加动能不要求像 NVE 那样守恒，
+也不包含温控链扩展能量。晶胞固定，轨迹不是包含温控链状态的完整 checkpoint。
+输出路径请使用新文件名，已有同名文件会被覆盖。长期统计、生产性能与完整重启需另行验证。
+
+2026-11-06 在 dcu2、MACE-MPA-0 medium（哈希同示例 03）、FP64、目标 300 K、
+dt=0.5 fs、tau=25 fs、三链/三阶条件验证：
+
+- LiSnCl3：CPU 和 HCU4 各运行 5 步（2.5 fs），各输出 6 帧；46 原子分子晶体：
+  CPU 运行 3 步（1.5 fs），输出 4 帧。
+- 三条轨迹从相同初始帧出发，与 CPU 上 MACE ASE calculator + ASE
+  `NoseHooverChainNVT(tchain=3, tloop=1)` 独立积分逐帧对照通过。最大坐标差
+  1.81e-10 Å、最大力分量差 4.70e-9 eV/Å，速度、能量及固定晶胞检查也通过。
+- CSV 温度和能量与轨迹重算一致。LiSnCl3 从约 167.69 K 变化到 166.88 K，
+  并未达到 300 K 热平衡；这只是温控接线与短程数值验证。
+- 既有 NHC 生命周期及谐势统计/扩展能量时间步收敛 CPU 回归共 21 项通过；
+  谐势统计证据不等同真实材料长期统计验收。
+
+日志、模型/输入哈希、轨迹和独立核验位于
+`artifacts/example-mace-nvt-2026-11-06/`。初始速度采样沿用 ASE 接口，当前环境会给出
+`MaxwellBoltzmannDistribution` 弃用提示，运行和上述核验均完成。
