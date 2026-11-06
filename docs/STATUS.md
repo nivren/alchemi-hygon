@@ -43,6 +43,10 @@ CPU reference 669 passed / 5 skipped；HCU4 六项基础 smoke、BFGS Ops 18、F
 对照一致，见[项目示例](../examples/README.md)。这只验证指定输入的一次邻居计算，
 不扩大后端能力范围。
 
+`examples/02_mace_variable_cell.py` 与 `examples/03_mace_single_point.py` 分别展示
+变胞弛豫和单点计算，使用 MACE-MPA-0 与周期 CIF 的指定 CPU/HCU 运行证据，详见
+[项目示例](../examples/README.md)。示例的收敛与数值结果限于记录的模型和输入。
+
 ## 当前下一步
 
 项目正在进行参考版本的文档与示例收口。具体工作顺序、暂停项和协作方式见

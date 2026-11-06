@@ -78,7 +78,8 @@ COO 和 `cell_list`，COO 由设备内 Torch 打包。具体能力见
 及项目已有变胞验证；运行时不访问 `external/`。它使用 FP64、零外压以及显式
 `torch_reference` 优化器、晶胞对齐和邻居后端。
 
-需自行准备可信的 MACE checkpoint 与模型支持元素的完整三维周期结构。下例中的路径是
+需自行准备可信的 MACE checkpoint 与模型支持元素的完整三维周期结构；脚本会检查元素
+覆盖，不支持时明确报错。下例中的路径是
 已在 dcu2 上核对的 MACE-MPA-0 和锂化合物文件，在其他机器上请替换。模型和数据本身不随
 工程分发，使用前需确认各自的来源和使用条件。
 
@@ -111,3 +112,36 @@ OMP_NUM_THREADS=1 python examples/02_mace_variable_cell.py \
 
 日志、输入哈希与导出核验位于 dcu2 项目的 `artifacts/example-mace-fire-2026-11-06/`；
 更完整的历史多结构变胞验收见[验证报告](../reports/g2-hip-fire2-convergence-2026-10-09.md)。
+
+## 03：MACE 能量、力和应力单点计算
+
+[`03_mace_single_point.py`](03_mace_single_point.py) 读取一个或多个周期结构，使用
+`AtomicData`、`Batch`、`compute_neighbors` 和 `MACEWrapper` 计算能量、原子力和应力。
+它参考上游 [`01_data_structures.py`](../packages/framework/examples/basic/01_data_structures.py)
+的结构与邻居接口、[`04_mace_nvt.py`](../packages/framework/examples/advanced/04_mace_nvt.py)
+的模型加载，以及项目已有单点验证；运行时不访问 `external/`。
+
+准备可信的 MACE checkpoint 和完整三维周期 CIF。以 dcu2 上已核对的模型及两类结构为例：
+
+```bash
+OMP_NUM_THREADS=1 python examples/03_mace_single_point.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-998591_LiSnCl3.cif \
+        /data/csp_data/perf_46/formal_c1_1_100_z1_46.cif
+```
+
+在其他机器上替换路径；在已分配或确认空闲的 DCU 上，命令前缀可改为
+`HIP_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1` 并追加 `--device cuda`。脚本使用 FP64 和
+显式 Torch reference 邻居。每个结构输出一行 JSON，包括输入路径、总能量（eV）、按输入
+原子顺序排列的力（eV/Å），以及 3×3 应力张量（eV/Å³，沿用 MACE/ASE 符号约定）。
+可以将标准输出重定向到文件。单点计算不更新结构，也不表示结构已经弛豫。
+
+脚本检查输入元素是否被 checkpoint 支持，不支持时明确报错；这只能验证元素覆盖，
+不能保证模型适合具体材料。模型与结构需要自行提供，使用前请确认来源和使用条件。
+
+2026-11-06 在 dcu2、MACE-MPA-0 medium（SHA-256
+`75428afe3a1d7d8062e19bcaabd5c433623cabf308242ec9fb493e38604fb638`）验证：
+CPU 和 HCU4（BW1000）分别计算上述 LiSnCl3 与 46 原子分子晶体混合 Batch，能量、全部
+原子力和全部应力分量与 CPU 上 MACE 的 ASE calculator 对照通过。该结果限于指定模型、
+输入、FP64 和 Torch reference 邻居；不代表所有材料或性能已验收。日志与哈希位于
+`artifacts/example-mace-single-point-2026-11-06/`。

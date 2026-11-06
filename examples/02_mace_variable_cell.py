@@ -33,6 +33,10 @@ model = MACEWrapper.from_checkpoint(
     args.checkpoint, device=torch.device(args.device), dtype=torch.float64,
     enable_cueq=False, compile_model=False,
 )
+supported = set(model.model.atomic_numbers.cpu().tolist())
+missing = set(atoms.numbers) - supported
+if missing:
+    parser.error(f"model does not support atomic numbers {sorted(missing)}")
 model.set_config("active_outputs", {"energy", "forces", "stress"})
 model.eval()
 data = AtomicData.from_atoms(atoms, dtype=torch.float64)
