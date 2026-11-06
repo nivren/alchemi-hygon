@@ -21,8 +21,9 @@ nvalchemi-toolkit-ops 的锁定源码，保留 framework / ops 两个包与上�
 应用矩阵、[后端能力矩阵](docs/BACKEND_CAPABILITY_MATRIX.md)、
 [特性契约](docs/FEATURE_COMPATIBILITY.yaml)和实际报告共同限定；计划不等于已实现。
 
-面向应用的精简示例正在整理，当前不要将 `packages/framework/examples/` 和
-`packages/ops/examples/` 中保留的上游示例视为已在海光 DCU 全部验证。
+[项目示例](examples/README.md)包含 Batch 和周期邻居入门；其他应用示例正在逐项整理。
+`packages/framework/examples/` 和 `packages/ops/examples/` 中保留的上游示例
+不应视为已在海光 DCU 全部验证。
 现有[ASE-compatible BFGS 使用说明](docs/ASE_BFGS_USAGE.md)提供 CPU 代码和后端边界；
 模型和结构文件可以由使用者从外部提供。
 

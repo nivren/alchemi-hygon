@@ -38,6 +38,11 @@ CPU reference 669 passed / 5 skipped；HCU4 六项基础 smoke、BFGS Ops 18、F
 [BFGS 最终审阅](../reports/g2-ase-bfgs-delivery-review.md)和
 [HIP FIRE2 三样本补测](../reports/g2-hip-fire2-convergence-2026-10-09.md)。
 
+示例验证：`examples/01_batch_neighbors.py` 已对默认小体系和分子晶体/锂化合物 CIF
+运行；CPU Torch reference、HCU4 Torch reference 与显式 HIP 的邻居集合/shift 均与 ASE
+对照一致，见[项目示例](../examples/README.md)。这只验证指定输入的一次邻居计算，
+不扩大后端能力范围。
+
 ## 当前下一步
 
 项目正在进行参考版本的文档与示例收口。具体工作顺序、暂停项和协作方式见
