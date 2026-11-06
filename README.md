@@ -7,14 +7,19 @@ nvalchemi-toolkit-ops 的锁定源码，保留 framework / ops 两个包与上�
 
 ## 从这里开始
 
-1. [项目环境与输入](docs/DEVELOPMENT_ENVIRONMENT.md)：准备和激活 Hygon 环境、
-   检查设备，以及配置外部模型和结构文件。
-2. [应用与模块能力](docs/IMPLEMENTATION_STATUS_MATRIX.md)：查看可运行的窄范围、
-   已有验证、限制与计划中的示例。
-3. [当前状态](docs/STATUS.md)与[验证报告索引](reports/README.md)：查看基线、
-   验收记录和未覆盖范围；具体报告中的设备、模型和输入条件不可省略。
-4. [开发指南](docs/DEVELOPMENT_GUIDE.md)与[架构](docs/DEVELOPER_ARCHITECTURE.md)：
-   了解源码边界、后端接入及开发流程。项目级 Agent 规则见 [AGENTS.md](AGENTS.md)。
+| 想了解什么 | 入口 | 内容与关系 |
+|---|---|---|
+| 如何准备环境和输入 | [项目环境与输入](docs/DEVELOPMENT_ENVIRONMENT.md) | Hygon 环境、设备检查，以及外部模型和结构文件配置 |
+| 当前有哪些能力 | [应用与模块能力](docs/IMPLEMENTATION_STATUS_MATRIX.md) | 按应用与模块查看验证范围、限制和证据；后端细节见能力矩阵与特性契约 |
+| 当前进度和限制 | [当前状态](docs/STATUS.md) | 当前基线、近期验证和未覆盖范围；详细结果指向原报告 |
+| 接下来做什么 | [当前任务与开发计划](docs/PARALLEL_DEVELOPMENT_PLAN.md) | 项目当前工作顺序、暂停方向和里程碑确认方式 |
+| 项目如何组织与开发 | [架构](docs/DEVELOPER_ARCHITECTURE.md)、[交接](docs/PROJECT_HANDOFF.md)、[开发指南](docs/DEVELOPMENT_GUIDE.md) | 分别说明架构、代码与后端边界、开发与验证流程；Agent 规则见 [AGENTS.md](AGENTS.md) |
+| 验证结论从哪里来 | [验证报告索引](reports/README.md) | 按主题查找指定设备、模型与输入下的报告；原始输出在 artifacts |
+| 上游基线与后续跟踪 | [上游锁定](docs/UPSTREAM_LOCK.yaml)、[上游补丁](docs/UPSTREAM.md)、[上游跟踪流程](docs/UPSTREAM_SYNC.md) | 分别记录锁定版本、项目补丁和候选评估流程 |
+
+建议先读环境与能力，再按需要查看当前状态、开发计划和原始证据。已验证范围以
+应用矩阵、[后端能力矩阵](docs/BACKEND_CAPABILITY_MATRIX.md)、
+[特性契约](docs/FEATURE_COMPATIBILITY.yaml)和实际报告共同限定；计划不等于已实现。
 
 面向应用的精简示例正在整理，当前不要将 `packages/framework/examples/` 和
 `packages/ops/examples/` 中保留的上游示例视为已在海光 DCU 全部验证。

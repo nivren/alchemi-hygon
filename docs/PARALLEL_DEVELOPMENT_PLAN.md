@@ -2,7 +2,10 @@
 
 更新：2026-11-06。项目正在准备参考版本。此页记录当前工作顺序、未覆盖方向和协作边界；
 已有能力以[状态](STATUS.md)、[应用矩阵](IMPLEMENTATION_STATUS_MATRIX.md)和
-[特性契约](FEATURE_COMPATIBILITY.yaml)为准。2026-11-06整理前的完整阶段记录见
+[特性契约](FEATURE_COMPATIBILITY.yaml)为准。环境与数据准备见
+[环境指南](DEVELOPMENT_ENVIRONMENT.md)，实现和验证规则见[开发指南](DEVELOPMENT_GUIDE.md)，
+上游候选与冻结输入维护见[上游跟踪流程](UPSTREAM_SYNC.md)。
+2026-11-06整理前的完整阶段记录见
 [任务计划快照](history/PARALLEL_DEVELOPMENT_PLAN-snapshot-2026-11-06.md)，
 更早的历史见[原历史计划](history/PARALLEL_DEVELOPMENT_PLAN.md)。
 
