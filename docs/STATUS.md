@@ -50,6 +50,8 @@ CPU reference 669 passed / 5 skipped；HCU4 六项基础 smoke、BFGS Ops 18、F
 限于记录的 CPU/HCU 输入和极短运行；长期能量守恒与热平衡尚未验收。
 `examples/05_mace_bfgs.py` 展示 ASE-compatible BFGS 变胞弛豫；指定 CPU 短步与
 HCU 显式 HIP 小样本的独立 ASE 末态对照见[项目示例](../examples/README.md)。
+`examples/06_fire2_bfgs.py` 将 FIRE2 与 BFGS 顺序衔接；指定 CPU/HCU 单结构的
+交接与末态核验见同一示例说明，不扩大自动阶段迁移或完整流水线的验收范围。
 
 ## 当前下一步
 

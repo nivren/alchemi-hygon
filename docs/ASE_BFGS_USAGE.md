@@ -6,6 +6,8 @@
 
 真实 MACE 周期结构的简洁变胞示例见
 [`05_mace_bfgs.py`](../examples/05_mace_bfgs.py)及[运行说明](../examples/README.md)。
+FIRE2 预弛豫后顺序切换 BFGS 的单结构示例见
+[`06_fire2_bfgs.py`](../examples/06_fire2_bfgs.py)。
 
 ## Ops：可直接运行的 CPU 示例
 

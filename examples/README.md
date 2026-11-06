@@ -239,3 +239,53 @@ CIF 用晶胞长度和角度表示晶胞，重读时可能重建不同方向的�
 首次 HIP 调用包含扩展编译；上述结果不是性能比较，也不代表任意模型或材料均能收敛。
 原始日志、输入哈希、独立核验（含最初直接比较笛卡尔分量未通过的记录）位于
 `artifacts/example-mace-bfgs-2026-11-06/`。
+
+## 06：FIRE2 → BFGS 两阶段变胞弛豫
+
+[`06_fire2_bfgs.py`](06_fire2_bfgs.py) 将示例 02 和 05 的公共优化器顺序组合：
+FIRE2 按指定步数预弛豫，然后在当前几何上新建 BFGS 历史与 UnitCellFilter 参考晶胞，
+继续精修。两个优化器共享模型及设备上的 Batch，阶段之间直接传递当前原子坐标和晶胞。
+上游 [`01_multistage_pipeline.py`](../packages/framework/examples/intermediate/01_multistage_pipeline.py)
+可作为多阶段工作流的概念参考；本例用两个显式 `run` 调用展示最简单的串行衔接。
+
+在项目根目录激活环境，运行：
+
+```bash
+OMP_NUM_THREADS=1 python examples/06_fire2_bfgs.py \
+  --checkpoint /home/wangleping/.cache/mace/mace-mpa-0-medium.model \
+  --cif /data/csp_data/catl_data/li_mp_data/mp-1222651_Li2MgGe.cif \
+  --output-prefix relaxed --fire-steps 10 --bfgs-steps 100
+```
+
+在其他机器上替换模型与 CIF 路径。可以传入分子晶体输入，如
+`/data/csp_data/perf_46/formal_c1_1_100_z1_46.cif`。在已分配或确认空闲的 DCU 上，
+增加前缀 `HIP_VISIBLE_DEVICES=4`，并追加
+`--device cuda --backend hip.bfgs-ase-jacobi-streams-v1`。`--backend` 只选择 BFGS
+后端；FIRE2、晶胞对齐和邻居均显式使用 Torch reference。FP64、模型元素检查、
+零外压及 HIP 构建条件与示例 05 相同，模型和结构需要自行提供。
+
+默认 FIRE2 运行 10 步，BFGS 最多运行 100 步。第一阶段结束是步数预算触发，不表示它
+已达到物理收敛；最终 `converged` 使用 BFGS 的严格广义力 `< 0.05` 判据。这个预算和
+阈值仅为示例，需要按研究任务调整，两阶段组合也不保证比单独优化更快。
+FIRE2 的晶胞对齐只在第一阶段使用；BFGS 绑定当前晶胞后保持它的坐标图。
+
+脚本保存 `relaxed.fire2.cif` 和 `relaxed.bfgs.cif`，分别对应交接结构和最终结构；
+标准输出记录两阶段实际步数、能量及 BFGS 末态力、应力与广义力。选择新的输出前缀，
+已有同名文件会被覆盖。CIF 重读时的坐标旋转、周期等价位置注意事项同示例 05。
+本例覆盖单结构顺序衔接；FusedStage 的自动阶段迁移、Batch 补位与配对重启需参考各自
+接口和验证记录，不能从本例推断完整工作流验收。
+
+2026-11-06 在 dcu2、MACE-MPA-0 medium（哈希同示例 03）、FP64 下验证：
+
+- CPU LiSnCl3：FIRE2 3 步 → BFGS 5 步，最终未收敛；第一阶段 CIF 与单独运行
+  示例 02 的相同步数输出逐字节一致。
+- CPU 46 原子分子晶体：FIRE2 2 步 → BFGS 2 步，最终未收敛。
+- HCU4 Li2MgGe：Torch reference FIRE2 3 步 → 显式 HIP BFGS 2 步，
+  达到 BFGS 广义力阈值，最大广义力约 0.00130568。
+- 三个交接 CIF 由 MACE ASE calculator 重算，能量与记录一致、力均为有限值；
+  从交接几何出发独立运行
+  ASE BFGS + UnitCellFilter，与最终 CIF 比较，统一坐标方向与周期等价位置后的最大
+  位置差不超过 5.42e-14 Å，晶胞度量一致。最终能量、力范数、应力与广义力核对通过。
+
+该验证只覆盖指定输入的小规模顺序衔接。日志、模型/输入哈希、交接和最终 CIF、独立
+验证结果位于 `artifacts/example-fire2-bfgs-2026-11-06/`。
