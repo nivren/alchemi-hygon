@@ -125,6 +125,22 @@ source scripts/activate_hygon_env.sh exploration
 它指向外部探索工程的旧 .venv，不是产品安装目标；不要在其中写入项目代码、冻结新依赖
 或用它替代项目 .venv 的回归结果。
 
+## 源码示例与安装包的边界
+
+[项目示例](../examples/README.md)通过当前检出的 `packages/framework` 与 `packages/ops`
+源码运行。新目录先按上文准备自己的 `.venv`，再激活项目环境；激活脚本不会自动创建环境。
+不要把 dcu2 的 `.venv`、外部模型、数据路径或已编译的 HIP 缓存当成源码交付的一部分。
+
+上游 `packages/framework/pyproject.toml` 的默认依赖包含 `nvidia-physicsnemo`，与本指南
+精简 reference 环境不同。当前示例运行证据对应 reference 锁文件 + 源码 `PYTHONPATH`，
+不等于通用 `pip install` 默认依赖组合已在 Hygon 验收。完整 `test_mace.py` 还会导入训练/
+分布式模块，在此环境中因缺 `physicsnemo` 无法收集；真实模型示例的运行证据另行记录。
+
+根目录 `examples/` 不在 framework/ops wheel 内，需要源码仓库或另行取得这些脚本。
+2026-11-06 纯 Git 导出检查复用了已准备好的项目 Python 环境，未重建新机器环境。
+同轮 wheel 构建尝试因 `build.__main__` 不可用而未完成，环境中 `hatchling` 也不可用；
+它不替代历史构建结果，也不能作为本轮安装包交付成功的证据。
+
 ## 外部模型和结构输入
 
 真实模型示例可依赖外部 checkpoint 和结构文件。使用时通过具体脚本的命令行或配置

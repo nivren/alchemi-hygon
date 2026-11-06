@@ -7,6 +7,26 @@
 source scripts/activate_hygon_env.sh project
 ```
 
+## 示例索引与运行前提
+
+| 示例 | 输入 | 输出 |
+| --- | --- | --- |
+| [01 Batch/邻居](01_batch_neighbors.py) | 内置小体系或周期 CIF | 邻居边、周期位移和体系边界 |
+| [02 FIRE2 变胞](02_mace_variable_cell.py) | MACE checkpoint + 单个周期 CIF | 末态 CIF、力/应力双阈值状态 |
+| [03 模型单点](03_mace_single_point.py) | MACE checkpoint + 一个或多个周期 CIF | 每个结构的能量、完整力/应力 JSON |
+| [04 固定胞 NVE](04_mace_nve.py) | MACE checkpoint + 单个周期 CIF | ASE 轨迹、逐步能量 CSV |
+| [05 BFGS 变胞](05_mace_bfgs.py) | MACE checkpoint + 单个周期 CIF | 末态 CIF、广义力收敛状态 |
+| [06 FIRE2 → BFGS](06_fire2_bfgs.py) | MACE checkpoint + 单个周期 CIF | 两阶段 CIF、最终广义力状态 |
+
+这是源码仓库的示例集，需要准备好环境，再从项目根目录运行；根目录 `examples/` 不包含
+在两个包的 wheel 中。环境入口使用 reference 锁文件和 `PYTHONPATH`，详见
+[环境指南](../docs/DEVELOPMENT_ENVIRONMENT.md)。其中 ASE 是所有示例的依赖，
+示例 02–06 还需要 MACE/e3nn；模型、CIF 和 DTK/海光 wheel 按任务自行提供。
+
+NVT、异构批量弛豫/自动补位、配对重启尚无本轮整理的独立入门脚本；本例集也不提供
+NPT/NPH、完整训练或 DomainParallel 的使用验收，具体缺口见
+[当前任务](../docs/PARALLEL_DEVELOPMENT_PLAN.md)。上游目录中的脚本不能替代本机验证。
+
 ## 01：构造 Batch 并计算周期邻居
 
 [`01_batch_neighbors.py`](01_batch_neighbors.py) 展示 ASE 结构转换、组合多个体系和
