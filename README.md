@@ -5,6 +5,11 @@ nvalchemi-toolkit-ops 的锁定源码，保留 framework / ops 两个包与上�
 通过 Torch reference、HIP 等路径逐步适配。当前是开发基线，已验证功能均有明确范围；
 不应将上游代码或接口的存在理解为已完成 DCU 验收。
 
+本轮整理后的参考版本为 `e7fda9d5404d7c042ff7ad370e5f024f43d8a428`（dcu2 本地
+`develop`）。以该 Git 提交定位代码、九个示例及文档；环境条件和验证限制见
+[环境指南](docs/DEVELOPMENT_ENVIRONMENT.md)与[交付检查](reports/reference-delivery-check-2026-11-07.md)。
+本轮整理已收口，后续功能开发、标签和推送另行确认。
+
 ## 从这里开始
 
 | 想了解什么 | 入口 | 内容与关系 |
