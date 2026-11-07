@@ -140,6 +140,8 @@ source scripts/activate_hygon_env.sh exploration
 2026-11-06 纯 Git 导出检查复用了已准备好的项目 Python 环境，未重建新机器环境。
 同轮 wheel 构建尝试因 `build.__main__` 不可用而未完成，环境中 `hatchling` 也不可用；
 它不替代历史构建结果，也不能作为本轮安装包交付成功的证据。
+后续 2026-11-07 已在独立构建环境补验 wheel/sdist，并在新 reference 环境运行九个示例；
+网络离线准备、默认依赖检查缺口和实际验收范围见[交付检查报告](../reports/reference-delivery-check-2026-11-07.md)。
 
 ## 外部模型和结构输入
 

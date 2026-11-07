@@ -57,7 +57,8 @@ HCU 显式 HIP 小样本的独立 ASE 末态对照见[项目示例](../examples/
 
 首轮六个示例已纳入本地 `develop`；纯 Git 导出目录复用项目环境的 CPU 短流程全部通过。
 `07_mace_nvt.py` 已补充 NHC 固定胞 NVT 的 CPU/HCU 短流程和独立 ASE 逐帧对照，
-不代表真实材料热平衡或长期统计验收。本轮尚未完成新环境部署或 wheel 安装验证；
+不代表真实材料热平衡或长期统计验收。候选 wheel 已在 dcu2 新建 reference 环境安装验证；
+默认依赖检查仍缺 click 和 nvidia-physicsnemo，范围与清单见[交付检查](../reports/reference-delivery-check-2026-11-07.md)。
 `08_batch_relax_refill.py` 已补充三个锂钠结构的 CPU/HCU 异构批量变胞 BFGS 与
 自动补位，指定末态与独立 ASE 对照通过。含 46 原子分子晶体的 HCU 混合批次也已
 完成 92 个全局步，CPU 末态能量/力范数重算通过；对应 CPU 完整运行仍记为超时。
